@@ -1,0 +1,21 @@
+{
+  "schema_id": "phase0.tradingview-alert-operator-template.v1",
+  "instructions": "Redact capability/token material. Capture structure, dedicated instance, and alert recreation evidence only.",
+  "alert_id": "<operator-stable-redacted-id>",
+  "captured_by": "<operator-id>",
+  "captured_at_utc": "<RFC3339-UTC>",
+  "destination": {
+    "scheme": "https",
+    "host": "<redacted-host-or-approved-gateway-host>",
+    "path_structure": "<redacted-path-without-capability>",
+    "query_present": "<true-or-false>"
+  },
+  "message_structure": "<redacted-JSON-shape-without-values-or-secrets>",
+  "script_instance_mode": "CANONICAL",
+  "canonical_export_enabled": "<true>",
+  "diagnostics_enabled": "<false>",
+  "approved_alert_manifest_id": "<manifest-id>",
+  "alert_recreated_at_utc": "<RFC3339-UTC>",
+  "recreation_actor": "<operator-id>",
+  "screenshot_or_export_sha256": "<64-lowercase-hex-of-redacted-artifact>"
+}

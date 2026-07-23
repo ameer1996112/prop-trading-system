@@ -1,0 +1,250 @@
+{
+  "$defs": {
+    "TickSourceClassification": {
+      "enum": [
+        "SEQUENCE_COMPLETE",
+        "CONTINUOUS_OBSERVED",
+        "INCOMPLETE"
+      ],
+      "title": "TickSourceClassification",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "account_capability_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Account Capability Id",
+      "type": "string"
+    },
+    "all_connections_healthy": {
+      "title": "All Connections Healthy",
+      "type": "boolean"
+    },
+    "chunk_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Chunk Id",
+      "type": "string"
+    },
+    "clock_offset_max_ns": {
+      "title": "Clock Offset Max Ns",
+      "type": "integer"
+    },
+    "clock_offset_min_ns": {
+      "title": "Clock Offset Min Ns",
+      "type": "integer"
+    },
+    "clock_sync_verified": {
+      "title": "Clock Sync Verified",
+      "type": "boolean"
+    },
+    "clock_tolerance_ns": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Clock Tolerance Ns",
+      "type": "integer"
+    },
+    "clock_tolerance_verified": {
+      "title": "Clock Tolerance Verified",
+      "type": "boolean"
+    },
+    "collector_coverage_verified": {
+      "title": "Collector Coverage Verified",
+      "type": "boolean"
+    },
+    "connection_generation_end": {
+      "minimum": 1,
+      "title": "Connection Generation End",
+      "type": "integer"
+    },
+    "connection_generation_start": {
+      "minimum": 1,
+      "title": "Connection Generation Start",
+      "type": "integer"
+    },
+    "exact_replay_eligible": {
+      "title": "Exact Replay Eligible",
+      "type": "boolean"
+    },
+    "feed_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Feed Id",
+      "type": "string"
+    },
+    "first_broker_event_time": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "First Broker Event Time",
+      "type": "string"
+    },
+    "first_upstream_sequence": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "First Upstream Sequence"
+    },
+    "first_utc_receive_time": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "First Utc Receive Time",
+      "type": "string"
+    },
+    "fixture_only": {
+      "title": "Fixture Only",
+      "type": "boolean"
+    },
+    "immutable": {
+      "const": true,
+      "title": "Immutable",
+      "type": "boolean"
+    },
+    "ingest_order_verified": {
+      "title": "Ingest Order Verified",
+      "type": "boolean"
+    },
+    "last_broker_event_time": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "Last Broker Event Time",
+      "type": "string"
+    },
+    "last_upstream_sequence": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Upstream Sequence"
+    },
+    "last_utc_receive_time": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "Last Utc Receive Time",
+      "type": "string"
+    },
+    "licensing_verified": {
+      "title": "Licensing Verified",
+      "type": "boolean"
+    },
+    "monotonic_receive_order_verified": {
+      "title": "Monotonic Receive Order Verified",
+      "type": "boolean"
+    },
+    "observation_schema_id": {
+      "const": "phase0.tick-observation.v1",
+      "title": "Observation Schema Id",
+      "type": "string"
+    },
+    "payload_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Payload Sha256",
+      "type": "string"
+    },
+    "qualification_evidence_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Qualification Evidence Id"
+    },
+    "reconnect_backfill_verified": {
+      "title": "Reconnect Backfill Verified",
+      "type": "boolean"
+    },
+    "row_count": {
+      "maximum": 10000000,
+      "minimum": 1,
+      "title": "Row Count",
+      "type": "integer"
+    },
+    "schema_id": {
+      "const": "phase0.tick-chunk-manifest.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "source_classification": {
+      "$ref": "#/$defs/TickSourceClassification"
+    },
+    "source_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "title": "Source Version",
+      "type": "string"
+    },
+    "storage_encryption_status": {
+      "enum": [
+        "FIXTURE_ONLY_NOT_CONFIGURED",
+        "VERIFIED_AT_REST"
+      ],
+      "title": "Storage Encryption Status",
+      "type": "string"
+    },
+    "upstream_sequence_contract_verified": {
+      "title": "Upstream Sequence Contract Verified",
+      "type": "boolean"
+    },
+    "utc_receive_order_verified": {
+      "title": "Utc Receive Order Verified",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_id",
+    "chunk_id",
+    "feed_id",
+    "account_capability_id",
+    "source_classification",
+    "source_version",
+    "observation_schema_id",
+    "row_count",
+    "first_broker_event_time",
+    "last_broker_event_time",
+    "first_utc_receive_time",
+    "last_utc_receive_time",
+    "connection_generation_start",
+    "connection_generation_end",
+    "clock_offset_min_ns",
+    "clock_offset_max_ns",
+    "clock_tolerance_ns",
+    "all_connections_healthy",
+    "ingest_order_verified",
+    "monotonic_receive_order_verified",
+    "utc_receive_order_verified",
+    "clock_tolerance_verified",
+    "fixture_only",
+    "upstream_sequence_contract_verified",
+    "licensing_verified",
+    "reconnect_backfill_verified",
+    "collector_coverage_verified",
+    "clock_sync_verified",
+    "qualification_evidence_id",
+    "exact_replay_eligible",
+    "payload_sha256",
+    "storage_encryption_status",
+    "immutable"
+  ],
+  "title": "TickChunkManifest",
+  "type": "object"
+}

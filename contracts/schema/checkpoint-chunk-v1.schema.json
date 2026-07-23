@@ -1,0 +1,138 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "checkpoint_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Checkpoint Id",
+      "type": "string"
+    },
+    "chunk_bytes": {
+      "maximum": 65536,
+      "minimum": 0,
+      "title": "Chunk Bytes",
+      "type": "integer"
+    },
+    "chunk_count": {
+      "maximum": 64,
+      "minimum": 1,
+      "title": "Chunk Count",
+      "type": "integer"
+    },
+    "chunk_index": {
+      "maximum": 63,
+      "minimum": 0,
+      "title": "Chunk Index",
+      "type": "integer"
+    },
+    "chunk_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Chunk Sha256",
+      "type": "string"
+    },
+    "confirmed_bar_close": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "Confirmed Bar Close",
+      "type": "string"
+    },
+    "covers_through_sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Covers Through Sequence",
+      "type": "integer"
+    },
+    "first_setup_identity": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "First Setup Identity"
+    },
+    "full_set_count": {
+      "maximum": 1024,
+      "minimum": 0,
+      "title": "Full Set Count",
+      "type": "integer"
+    },
+    "full_set_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Full Set Sha256",
+      "type": "string"
+    },
+    "last_setup_identity": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Setup Identity"
+    },
+    "logical_sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Logical Sequence",
+      "type": "integer"
+    },
+    "manifest_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "producer_identity": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Producer Identity",
+      "type": "string"
+    },
+    "schema_id": {
+      "const": "phase0.checkpoint-chunk.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "staged_only": {
+      "const": true,
+      "title": "Staged Only",
+      "type": "boolean"
+    },
+    "stream_generation": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Stream Generation",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_id",
+    "manifest_id",
+    "producer_identity",
+    "stream_generation",
+    "checkpoint_id",
+    "covers_through_sequence",
+    "logical_sequence",
+    "confirmed_bar_close",
+    "full_set_count",
+    "full_set_sha256",
+    "chunk_index",
+    "chunk_count",
+    "chunk_bytes",
+    "chunk_sha256",
+    "staged_only"
+  ],
+  "title": "CheckpointChunkMetadata",
+  "type": "object"
+}

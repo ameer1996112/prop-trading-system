@@ -1,0 +1,77 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "challenge_max_age_seconds": {
+      "const": 120,
+      "title": "Challenge Max Age Seconds",
+      "type": "integer"
+    },
+    "consume_with_command_transaction": {
+      "const": true,
+      "title": "Consume With Command Transaction",
+      "type": "boolean"
+    },
+    "grant_expiry_seconds": {
+      "const": 60,
+      "title": "Grant Expiry Seconds",
+      "type": "integer"
+    },
+    "opaque_token_bits": {
+      "const": 256,
+      "title": "Opaque Token Bits",
+      "type": "integer"
+    },
+    "required_bindings": {
+      "items": {
+        "enum": [
+          "jti",
+          "subject",
+          "session",
+          "role",
+          "challenge_evidence",
+          "action",
+          "account_id",
+          "resource_version",
+          "safety_epoch",
+          "request_body_digest"
+        ],
+        "type": "string"
+      },
+      "title": "Required Bindings",
+      "type": "array"
+    },
+    "schema_id": {
+      "const": "phase0.action-grant-protocol.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "single_use": {
+      "const": true,
+      "title": "Single Use",
+      "type": "boolean"
+    },
+    "stored_form": {
+      "const": "SHA256_HASH_ONLY",
+      "title": "Stored Form",
+      "type": "string"
+    },
+    "wildcard_binding_forbidden": {
+      "const": true,
+      "title": "Wildcard Binding Forbidden",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_id",
+    "opaque_token_bits",
+    "challenge_max_age_seconds",
+    "grant_expiry_seconds",
+    "stored_form",
+    "single_use",
+    "required_bindings",
+    "consume_with_command_transaction",
+    "wildcard_binding_forbidden"
+  ],
+  "title": "ActionGrantProtocol",
+  "type": "object"
+}

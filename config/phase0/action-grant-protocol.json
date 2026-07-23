@@ -1,0 +1,22 @@
+{
+  "challenge_max_age_seconds": 120,
+  "consume_with_command_transaction": true,
+  "grant_expiry_seconds": 60,
+  "opaque_token_bits": 256,
+  "required_bindings": [
+    "jti",
+    "subject",
+    "session",
+    "role",
+    "challenge_evidence",
+    "action",
+    "account_id",
+    "resource_version",
+    "safety_epoch",
+    "request_body_digest"
+  ],
+  "schema_id": "phase0.action-grant-protocol.v1",
+  "single_use": true,
+  "stored_form": "SHA256_HASH_ONLY",
+  "wildcard_binding_forbidden": true
+}

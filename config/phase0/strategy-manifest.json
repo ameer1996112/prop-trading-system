@@ -1,0 +1,29 @@
+{
+  "activation_status": "BLOCKED",
+  "alert_mode": "CANONICAL",
+  "alert_recreation_evidence_id": null,
+  "approved_alert_manifest_id": "phase0-alert-candidate-v1",
+  "checkpoint_cadence_confirmed_bars": 12,
+  "decision_matrix_version": null,
+  "feed_context": null,
+  "heartbeat_every_confirmed_bar": true,
+  "heartbeat_slo_seconds": 600,
+  "manifest_id": "phase0-strategy-candidate-v1",
+  "optimizer_1_evidence_id": null,
+  "optimizer_1_settings_sha256": null,
+  "pine": {
+    "committed_clean": false,
+    "content_matches_head": false,
+    "head_content_sha256": "54cef99d5e26cb3551ed8fd04725d09cffcf853dd3192ad3b48743dece93beac",
+    "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/scripts/pinescript/indicators/SND_RD_5M_V1_LAB.pine",
+    "source_repository_head": "1a770f6fcd55e172dcfb8120a3e0c18852dc452d",
+    "source_working_tree_status": "MODIFIED",
+    "working_content_sha256": "5a7548af39d0447a54320f97830185c733b83fb3ae07c24d204dc94e59314d30"
+  },
+  "producer_identity": null,
+  "schema_id": "phase0.strategy-manifest.v1",
+  "strategy_id": "rd_liquidity_sd_5m_v1",
+  "strategy_version": null,
+  "stream_generation": null,
+  "webhook_contract_version": "1.0.0"
+}

@@ -1,0 +1,81 @@
+{
+  "$id": "https://prop-trading.invalid/schemas/evidence-inventory-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "content_matches_head": {"type": "boolean"},
+          "copied_artifact": {
+            "anyOf": [
+              {"type": "null"},
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "claimed_commit": {"type": "null"},
+                  "copied_from_working_tree": {"const": true},
+                  "destination": {"minLength": 1, "type": "string"},
+                  "sha256": {"pattern": "^[a-f0-9]{64}$", "type": "string"}
+                },
+                "required": ["destination", "sha256", "copied_from_working_tree", "claimed_commit"],
+                "type": "object"
+              }
+            ]
+          },
+          "disposition": {
+            "enum": ["PORT", "REWRITE_WITH_NEGATIVE_ORACLE", "REJECT"]
+          },
+          "head_content_sha256": {
+            "anyOf": [
+              {"pattern": "^[a-f0-9]{64}$", "type": "string"},
+              {"type": "null"}
+            ]
+          },
+          "intended_destination": {"minLength": 1, "type": "string"},
+          "known_defects": {
+            "items": {"minLength": 1, "type": "string"},
+            "minItems": 1,
+            "type": "array"
+          },
+          "source_path": {"minLength": 1, "type": "string"},
+          "source_relative_path": {"minLength": 1, "type": "string"},
+          "working_content_sha256": {"pattern": "^[a-f0-9]{64}$", "type": "string"},
+          "working_tree_status": {"enum": ["CLEAN", "MODIFIED", "UNTRACKED"]}
+        },
+        "required": [
+          "source_path",
+          "source_relative_path",
+          "working_content_sha256",
+          "head_content_sha256",
+          "working_tree_status",
+          "content_matches_head",
+          "disposition",
+          "known_defects",
+          "intended_destination",
+          "copied_artifact"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "capture_scope": {"const": "EXPLICIT_ALLOWLIST_ONLY"},
+    "inventory_tool_version": {"const": "1.0.0"},
+    "schema_id": {"const": "phase0.legacy-evidence-inventory.v1"},
+    "source_repository_dirty_for_authorized_paths": {"type": "boolean"},
+    "source_repository_head": {"pattern": "^[a-f0-9]{40}$", "type": "string"},
+    "source_repository_path": {"minLength": 1, "type": "string"}
+  },
+  "required": [
+    "schema_id",
+    "inventory_tool_version",
+    "capture_scope",
+    "source_repository_path",
+    "source_repository_head",
+    "source_repository_dirty_for_authorized_paths",
+    "artifacts"
+  ],
+  "type": "object"
+}

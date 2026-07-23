@@ -1,0 +1,23 @@
+{
+  "canonical_export_enabled": true,
+  "diagnostics_enabled": false,
+  "evidence_status": "UNVERIFIED",
+  "expected_payload_families": [
+    "HEARTBEAT",
+    "CHECKPOINT_CHUNK",
+    "CHECKPOINT_OVERFLOW"
+  ],
+  "incomplete_checkpoint_after_seconds": 720,
+  "manifest_id": "phase0-alert-candidate-v1",
+  "max_active_setups": 256,
+  "max_canonical_setup_bytes": 2048,
+  "max_checkpoint_chunks": 16,
+  "max_chunk_bytes": 16384,
+  "message_structure_evidence_id": null,
+  "mode": "CANONICAL",
+  "payload_contract_version": "1.0.0",
+  "recreation_evidence_id": null,
+  "redacted_destination_evidence_id": null,
+  "schema_id": "phase0.approved-alert-manifest.v1",
+  "strategy_manifest_id": "phase0-strategy-candidate-v1"
+}

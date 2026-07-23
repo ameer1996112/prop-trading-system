@@ -1,0 +1,1413 @@
+//@version=6
+indicator("SND RD 5M V1 LAB", overlay = true, max_bars_back = 5000, max_boxes_count = 300, max_labels_count = 300, max_lines_count = 500)
+
+// Canonical, non-executable raw-zone detector. Decisions occur on closed 5m bars.
+
+const string DIRECTION_DEMAND = "DEMAND"
+const string DIRECTION_SUPPLY = "SUPPLY"
+const string FORMATION_REVERSAL = "REVERSAL"
+const string FORMATION_CONTINUATION = "CONTINUATION"
+const string GEOMETRY_STANDARD = "STANDARD"
+const string GEOMETRY_ACCURACY = "ACCURACY"
+const string STATE_FRESH = "CONFIRMED_FRESH"
+const string STATE_TAPPED = "TAPPED"
+const string STATE_INVALIDATED = "INVALIDATED"
+const string ELIGIBILITY_WAITING = "WAITING_FOR_LIQUIDITY"
+const string ELIGIBILITY_ELIGIBLE = "ELIGIBLE"
+const string ELIGIBILITY_EXPIRED = "EXPIRED"
+const string SETUP_WAITING = "WAITING_FOR_ELIGIBILITY"
+const string SETUP_ARMED = "ARMED"
+const string SETUP_TRIGGERED = "TRIGGERED"
+const string SETUP_REJECTED = "REJECTED"
+const string DISPLAY_CLEAN = "Clean"
+const string DISPLAY_QUALIFIED_ONLY = "Qualified only"
+const string DISPLAY_SETUPS_ONLY = "Setups only"
+const string DISPLAY_RAW_AUDIT = "Raw audit"
+const int APPROACH_LOOKBACK_BARS = 20
+const string VALIDATION_SCHEMA = "rd-forex-validation/v1"
+const int VALIDATION_MAX_PAYLOAD_CHARS = 35000
+const int VALIDATION_MAX_BATCH_EVENTS = 200
+const string SETUP_EXPORT_SCHEMA = "1.0"
+const string SETUP_EXPORT_STRATEGY_ID = "rd_liquidity_sd_5m_v1"
+const string SETUP_EXPORT_STRATEGY_VERSION = "1.0.0-phase1"
+const int SETUP_EXPORT_MAX_TRANSITIONS = 64
+const int SETUP_EXPORT_MAX_SNAPSHOT_SETUPS = 256
+const int SETUP_EXPORT_MAX_PAYLOAD_CHARS = 35000
+
+const string CONFIRM_CLOSE_BEYOND_ORIGIN = "CONFIRM_CLOSE_BEYOND_ORIGIN"
+const string REJECT_FORMATION_INTERRUPTED = "REJECT_FORMATION_INTERRUPTED"
+const string REJECT_UNKNOWN_APPROACH = "REJECT_UNKNOWN_APPROACH"
+const string TAP_POST_CONFIRM_OVERLAP = "TAP_POST_CONFIRM_OVERLAP"
+const string INVALIDATE_CLOSE_BEYOND_DISTAL = "INVALIDATE_CLOSE_BEYOND_DISTAL"
+const string WAIT_MINIMUM_LIQUIDITY_CANDLES = "WAIT_MINIMUM_LIQUIDITY_CANDLES"
+const string REJECT_ONE_CANDLE_LIQUIDITY = "REJECT_ONE_CANDLE_LIQUIDITY"
+const string WAIT_LIQUIDITY_OWN_EXTREME = "WAIT_LIQUIDITY_OWN_EXTREME"
+const string LIQUIDITY_OWN_EXTREME_TAKEN = "LIQUIDITY_OWN_EXTREME_TAKEN"
+const string EXPIRE_ZONE_NOT_FRESH = "EXPIRE_ZONE_NOT_FRESH"
+const string EXPIRE_OPPOSITE_ZONE_RETRACE = "EXPIRE_OPPOSITE_ZONE_RETRACE"
+const string WAIT_SETUP_ELIGIBILITY = "WAIT_SETUP_ELIGIBILITY"
+const string ARM_SETUP_AFTER_LIQUIDITY = "ARM_SETUP_AFTER_LIQUIDITY"
+const string TRIGGER_FIRST_FRESH_TAP_AFTER_LIQUIDITY = "TRIGGER_FIRST_FRESH_TAP_AFTER_LIQUIDITY"
+const string REJECT_TARGET_TAP_WITHOUT_ELIGIBILITY = "REJECT_TARGET_TAP_WITHOUT_ELIGIBILITY"
+const string REJECT_TARGET_INVALIDATED_ON_RETURN = "REJECT_TARGET_INVALIDATED_ON_RETURN"
+const string REJECT_AMBIGUOUS_SAME_BAR_ROUTE = "REJECT_AMBIGUOUS_SAME_BAR_ROUTE"
+
+maxZones = input.int(120, "Maximum zones", minval = 10, maxval = 200, group = "Display")
+projectionBars = input.int(120, "Fresh-zone projection bars", minval = 1, maxval = 500, group = "Display")
+displayMode = input.string(DISPLAY_CLEAN, "View", options = [DISPLAY_CLEAN, DISPLAY_QUALIFIED_ONLY, DISPLAY_SETUPS_ONLY, DISPLAY_RAW_AUDIT], group = "Display")
+premiumVisuals = input.bool(true, "Premium visuals", group = "Display")
+cleanZonesPerLevel = input.int(1, "Clean zones per overlapping level", minval = 1, maxval = 3, group = "Display")
+setupOutcomeBars = input.int(12, "Recent setup outcome bars", minval = 1, maxval = 120, group = "Display")
+showFresh = input.bool(true, "Show fresh zones", group = "Display")
+showTapped = input.bool(false, "Show tapped zones", group = "Display")
+showInvalidated = input.bool(false, "Show invalidated zones", group = "Display")
+showLiquidityLines = input.bool(true, "Show liquidity lines", group = "Display")
+showLiquidityProofLines = input.bool(false, "Show liquidity proof lines", group = "Display")
+showStatusPanel = input.bool(false, "Show status panel", group = "Display")
+liquidityPivotStrength = input.int(2, "Liquidity pivot strength", minval = 1, maxval = 10, group = "Liquidity")
+liquidityMaxDistanceAtr = input.float(1.5, "Maximum liquidity distance (ATR)", minval = 0.1, maxval = 10.0, step = 0.1, group = "Liquidity")
+applyVideoAccuracyFilters = input.bool(true, "Apply video market accuracy rules", group = "Zone detection", tooltip = "Use standard zone geometry on gold, indices, and futures. Disable only for generic RD accuracy-zone comparison.")
+showLabels = input.bool(false, "Show diagnostic labels", group = "Diagnostics")
+emitDiagnostics = input.bool(false, "Emit non-executable diagnostic alerts", group = "Diagnostics")
+exportSetupEvents = input.bool(false, "Export non-executable setup events", group = "Automation", tooltip = "Phase 1 observation only. Emits confirmed 5m setup-state batches and never places orders.")
+setupExportCredential = input.string("", "Setup export credential", group = "Automation", tooltip = "Required dedicated Phase 1 ingress credential. No setup payload is emitted while empty.")
+setupExportProducerTag = input.string("tradingview", "Producer tag", group = "Automation", tooltip = "Operator label used to distinguish chart-alert producers. Reloading the script creates a new producer instance.")
+setupExportDetectorHash = input.string("unverified", "Detector code hash", group = "Automation", tooltip = "Version-control or artifact digest supplied by the operator.")
+setupExportSettingsHash = input.string("unverified", "Settings hash", group = "Automation", tooltip = "Digest of the locked TradingView input profile supplied by the operator.")
+validationCapture = input.bool(false, "Validation capture", group = "Validation")
+validationRunId = input.string("manual-run", "Parent run ID", group = "Validation")
+validationParentHash = input.string("unverified", "Parent manifest hash", group = "Validation")
+validationCaptureId = input.string("manual-capture", "Capture ID", group = "Validation")
+validationCaptureHash = input.string("unverified", "Capture manifest hash", group = "Validation")
+validationCalculationStart = input.time(0, "Calculation start", group = "Validation")
+validationEmissionStart = input.time(0, "Emission start", group = "Validation")
+validationEmissionEnd = input.time(0, "Emission end", group = "Validation")
+
+demandColor = input.color(color.new(color.teal, 72), "Demand", group = "Colors")
+supplyColor = input.color(color.new(color.red, 76), "Supply", group = "Colors")
+accuracyDemandColor = input.color(color.new(color.blue, 72), "Accuracy demand", group = "Colors")
+accuracySupplyColor = input.color(color.new(color.orange, 70), "Accuracy supply", group = "Colors")
+tappedColor = input.color(color.new(color.gray, 82), "Tapped", group = "Colors")
+invalidatedColor = input.color(color.new(color.black, 88), "Invalidated", group = "Colors")
+liquidityPendingColor = input.color(color.orange, "Liquidity pending", group = "Colors")
+liquiditySweptColor = input.color(color.teal, "Liquidity swept", group = "Colors")
+liquiditySecondaryColor = input.color(color.new(color.gray, 35), "Liquidity own extreme", group = "Colors")
+
+string instrumentTicker = str.upper(syminfo.ticker)
+bool isGoldMarket = str.contains(instrumentTicker, "XAU") or str.contains(instrumentTicker, "GOLD")
+bool isIndexMarket = str.contains(instrumentTicker, "NAS") or str.contains(instrumentTicker, "US100") or str.contains(instrumentTicker, "USTEC") or str.contains(instrumentTicker, "NDX") or str.contains(instrumentTicker, "SPX") or str.contains(instrumentTicker, "US500") or str.contains(instrumentTicker, "US30") or str.contains(instrumentTicker, "DJI")
+bool isFuturesMarket = syminfo.type == "futures"
+bool accuracyGeometryAllowed = not applyVideoAccuracyFilters or not (isGoldMarket or isIndexMarket or isFuturesMarket)
+
+atr14 = ta.atr(14)
+
+setupContractIdentifier(string value) =>
+    string allowedCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:@|+-"
+    string result = ""
+    int characterCount = str.length(value)
+    if characterCount > 0
+        for characterIndex = 0 to characterCount - 1
+            string character = str.substring(value, characterIndex, characterIndex + 1)
+            result := result + (str.contains(allowedCharacters, character) ? character : "_")
+    result := str.length(result) == 0 ? "unknown" : result
+    str.substring(result, 0, math.min(str.length(result), 160))
+
+setupContractDigestLabel(string value) =>
+    string result = setupContractIdentifier(value)
+    result := str.length(result) < 8 ? result + ".digest" : result
+    str.substring(result, 0, math.min(str.length(result), 128))
+
+var int setupExportProducerStartedAt = timenow
+var string setupExportProducerTagSafe = setupContractIdentifier(setupExportProducerTag)
+var string setupExportProducerInstanceId = str.substring(setupExportProducerTagSafe, 0, math.min(str.length(setupExportProducerTagSafe), 120)) + ":" + str.tostring(setupExportProducerStartedAt)
+var int setupExportBatchSequence = 0
+var bool setupExportSnapshotPending = true
+
+type Candidate
+    bool isActive
+    bool isForming
+    int originBar
+    int originTime
+    float originOpen
+    float originHigh
+    float originLow
+    float originClose
+    int approachDirection
+    int firstDepartureBar
+    float firstDepartureHigh
+    float firstDepartureLow
+    float distal
+
+type LiquidityLevel
+    bool demand
+    float anchor
+    int anchorBar
+    float nearExtreme
+    int nearExtremeBar
+    int formedBar
+    float maxDistance
+    bool taken
+    int takenBar
+    line liquidityLine
+    line ownExtremeLine
+
+type RawZone
+    int id
+    bool demand
+    string formation
+    string geometry
+    int originBar
+    int originTime
+    int confirmationBar
+    int confirmationTime
+    float originHigh
+    float originLow
+    float firstDepartureHigh
+    float firstDepartureLow
+    float formationDistal
+    float top
+    float bottom
+    string state
+    int stateBar
+    int stateTime
+    string reason
+    bool departureActive
+    string eligibilityState
+    int eligibilityBar
+    int eligibilityTime
+    string eligibilityReason
+    bool liquidityQualified
+    float liquidityAnchor
+    int liquidityAnchorBar
+    float liquidityExtreme
+    int liquidityExtremeBar
+    int liquidityFormedBar
+    int liquidityTakenBar
+    array<int> liquidityIndexes
+    int liquidityPrimaryIndex
+    bool liquidityScanInitialized
+    int routeBlockerId
+    string setupState
+    int setupBar
+    int setupTime
+    string setupReason
+    float setupLiquidityAnchor
+    int setupLiquidityAnchorTime
+    float setupLiquidityExtreme
+    int setupLiquidityExtremeTime
+    int setupLiquidityFormedTime
+    int setupLiquidityTakenTime
+    string exportedSetupState
+    array<string> setupExportFromStates
+    array<string> setupExportToStates
+    array<string> setupExportReasons
+    box zoneBox
+    line liquidityLine
+    line ownExtremeLine
+    label debugLabel
+
+method reset(Candidate this) =>
+    this.isActive := false
+    this.isForming := false
+    this.originBar := na
+    this.originTime := na
+    this.originOpen := na
+    this.originHigh := na
+    this.originLow := na
+    this.originClose := na
+    this.approachDirection := 0
+    this.firstDepartureBar := na
+    this.firstDepartureHigh := na
+    this.firstDepartureLow := na
+    this.distal := na
+
+candleDirection(int offset) =>
+    close[offset] > open[offset] ? 1 : close[offset] < open[offset] ? -1 : 0
+
+previousDirectionalCandle() =>
+    int result = 0
+    for offset = 1 to APPROACH_LOOKBACK_BARS
+        if result == 0 and not na(close[offset])
+            result := candleDirection(offset)
+    result
+
+method begin(Candidate this) =>
+    this.isActive := true
+    this.isForming := false
+    this.originBar := bar_index
+    this.originTime := time
+    this.originOpen := open
+    this.originHigh := high
+    this.originLow := low
+    this.originClose := close
+    this.approachDirection := previousDirectionalCandle()
+    this.firstDepartureBar := na
+    this.firstDepartureHigh := na
+    this.firstDepartureLow := na
+    this.distal := na
+
+method rebaseInsideFormation(Candidate this, bool demand) =>
+    bool rebased = false
+    if this.isActive and this.isForming
+        rebased := high <= this.originHigh and low >= this.originLow
+        if rebased
+            this.isForming := false
+            this.originBar := bar_index
+            this.originTime := time
+            this.originOpen := open
+            this.originHigh := high
+            this.originLow := low
+            this.originClose := close
+            this.approachDirection := previousDirectionalCandle()
+            this.firstDepartureBar := na
+            this.firstDepartureHigh := na
+            this.firstDepartureLow := na
+            this.distal := demand ? low : high
+    rebased
+
+method advance(Candidate this, bool demand) =>
+    if not this.isForming
+        this.isForming := true
+        this.firstDepartureBar := bar_index
+        this.firstDepartureHigh := high
+        this.firstDepartureLow := low
+        this.distal := demand ? (na(this.distal) ? low : math.min(this.distal, low)) : (na(this.distal) ? high : math.max(this.distal, high))
+    else
+        this.distal := demand ? math.min(this.distal, low) : math.max(this.distal, high)
+    demand ? close > this.originHigh : close < this.originLow
+
+candidateFormation(Candidate candidate, bool demand) =>
+    string result = ""
+    if candidate.approachDirection != 0
+        bool continuation = demand ? candidate.approachDirection == 1 : candidate.approachDirection == -1
+        result := continuation ? FORMATION_CONTINUATION : FORMATION_REVERSAL
+    result
+
+buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formation) =>
+    bool accuracyCondition = demand ? candidate.originHigh > candidate.firstDepartureHigh : candidate.originLow < candidate.firstDepartureLow
+    bool accuracy = accuracyCondition and accuracyGeometryAllowed
+    string geometry = accuracy ? GEOMETRY_ACCURACY : GEOMETRY_STANDARD
+    float bodyHigh = math.max(candidate.originOpen, candidate.originClose)
+    float bodyLow = math.min(candidate.originOpen, candidate.originClose)
+    float frozenTop = accuracy and demand ? bodyHigh : candidate.originHigh
+    float frozenBottom = accuracy and not demand ? bodyLow : candidate.originLow
+    if demand
+        frozenBottom := math.min(frozenBottom, candidate.distal)
+    else
+        frozenTop := math.max(frozenTop, candidate.distal)
+
+    RawZone zone = RawZone.new()
+    zone.id := zoneId
+    zone.demand := demand
+    zone.formation := formation
+    zone.geometry := geometry
+    zone.originBar := candidate.originBar
+    zone.originTime := candidate.originTime
+    zone.confirmationBar := bar_index
+    zone.confirmationTime := time_close
+    zone.originHigh := candidate.originHigh
+    zone.originLow := candidate.originLow
+    zone.firstDepartureHigh := candidate.firstDepartureHigh
+    zone.firstDepartureLow := candidate.firstDepartureLow
+    zone.formationDistal := candidate.distal
+    zone.top := frozenTop
+    zone.bottom := frozenBottom
+    zone.state := STATE_FRESH
+    zone.stateBar := na
+    zone.stateTime := na
+    zone.reason := CONFIRM_CLOSE_BEYOND_ORIGIN
+    zone.departureActive := true
+    zone.eligibilityState := ELIGIBILITY_WAITING
+    zone.eligibilityBar := na
+    zone.eligibilityTime := na
+    zone.eligibilityReason := WAIT_MINIMUM_LIQUIDITY_CANDLES
+    zone.liquidityQualified := false
+    zone.liquidityAnchor := na
+    zone.liquidityAnchorBar := na
+    zone.liquidityExtreme := na
+    zone.liquidityExtremeBar := na
+    zone.liquidityFormedBar := na
+    zone.liquidityTakenBar := na
+    zone.liquidityIndexes := array.new<int>()
+    zone.liquidityPrimaryIndex := na
+    zone.liquidityScanInitialized := false
+    zone.routeBlockerId := na
+    zone.setupState := SETUP_WAITING
+    zone.setupBar := na
+    zone.setupTime := na
+    zone.setupReason := WAIT_SETUP_ELIGIBILITY
+    zone.setupLiquidityAnchor := na
+    zone.setupLiquidityAnchorTime := na
+    zone.setupLiquidityExtreme := na
+    zone.setupLiquidityExtremeTime := na
+    zone.setupLiquidityFormedTime := na
+    zone.setupLiquidityTakenTime := na
+    zone.exportedSetupState := ""
+    zone.setupExportFromStates := array.new<string>()
+    zone.setupExportToStates := array.new<string>()
+    zone.setupExportReasons := array.new<string>()
+    zone.zoneBox := na
+    zone.liquidityLine := na
+    zone.ownExtremeLine := na
+    zone.debugLabel := na
+    zone
+
+zoneDistanceFromPrice(RawZone zone) =>
+    close < zone.bottom ? zone.bottom - close : close > zone.top ? close - zone.top : 0.0
+
+zonesOverlap(RawZone first, RawZone other) =>
+    first.bottom <= other.top and first.top >= other.bottom
+
+setupIncludedInView(RawZone zone) =>
+    bool armed = zone.setupState == SETUP_ARMED
+    bool terminal = zone.setupState == SETUP_TRIGGERED or zone.setupState == SETUP_REJECTED
+    bool recentTerminal = terminal and not na(zone.setupBar) and bar_index >= zone.setupBar and bar_index - zone.setupBar <= setupOutcomeBars
+    armed or recentTerminal
+
+zoneIncludedInCuratedView(RawZone zone) =>
+    displayMode == DISPLAY_SETUPS_ONLY ? setupIncludedInView(zone) : zone.state == STATE_FRESH and (displayMode != DISPLAY_QUALIFIED_ONLY or zone.liquidityQualified)
+
+setupZoneRanksAhead(RawZone candidate, RawZone target, float candidateDistance, float targetDistance) =>
+    bool ranksAhead = candidateDistance < targetDistance or (candidateDistance == targetDistance and candidate.id > target.id)
+    if displayMode == DISPLAY_SETUPS_ONLY
+        bool candidateArmed = candidate.setupState == SETUP_ARMED
+        bool targetArmed = target.setupState == SETUP_ARMED
+        if candidateArmed != targetArmed
+            ranksAhead := candidateArmed
+        else if not candidateArmed and candidate.setupBar != target.setupBar
+            ranksAhead := candidate.setupBar > target.setupBar
+    ranksAhead
+
+zoneSelectedForCleanView(RawZone target, array<RawZone> allZones) =>
+    int closerCount = 0
+    float targetDistance = zoneDistanceFromPrice(target)
+    int candidateCount = array.size(allZones)
+    if candidateCount > 0
+        for candidateIndex = 0 to candidateCount - 1
+            RawZone candidate = array.get(allZones, candidateIndex)
+            bool comparable = candidate.id != target.id and candidate.demand == target.demand and zoneIncludedInCuratedView(candidate) and zonesOverlap(candidate, target)
+            if comparable
+                float candidateDistance = zoneDistanceFromPrice(candidate)
+                bool ranksAhead = setupZoneRanksAhead(candidate, target, candidateDistance, targetDistance)
+                if ranksAhead
+                    closerCount += 1
+    closerCount < cleanZonesPerLevel
+
+zoneVisible(RawZone zone, array<RawZone> allZones) =>
+    bool lifecycleVisible = zone.state == STATE_FRESH ? showFresh : zone.state == STATE_TAPPED ? showTapped : showInvalidated
+    displayMode == DISPLAY_RAW_AUDIT ? lifecycleVisible : displayMode == DISPLAY_SETUPS_ONLY ? setupIncludedInView(zone) and zoneSelectedForCleanView(zone, allZones) : showFresh and zoneIncludedInCuratedView(zone) and zoneSelectedForCleanView(zone, allZones)
+
+zoneBaseColor(RawZone zone) =>
+    color result = displayMode == DISPLAY_SETUPS_ONLY ? (zone.setupState == SETUP_ARMED ? (zone.demand ? color.teal : color.red) : zone.setupState == SETUP_TRIGGERED ? color.green : color.gray) : zone.state == STATE_TAPPED ? tappedColor : zone.state == STATE_INVALIDATED ? invalidatedColor : zone.geometry == GEOMETRY_ACCURACY ? (zone.demand ? accuracyDemandColor : accuracySupplyColor) : (zone.demand ? demandColor : supplyColor)
+    result
+
+zoneColor(RawZone zone) =>
+    color baseColor = zoneBaseColor(zone)
+    premiumVisuals ? color.new(baseColor, 76) : baseColor
+
+zoneBorderColor(RawZone zone) =>
+    premiumVisuals ? color.new(zoneBaseColor(zone), 28) : zone.demand ? color.teal : color.red
+
+zoneBorderWidth(RawZone zone) =>
+    displayMode == DISPLAY_SETUPS_ONLY and zone.setupState == SETUP_ARMED ? 2 : premiumVisuals ? 1 : zone.geometry == GEOMETRY_ACCURACY ? 2 : 1
+
+zoneRightBar(RawZone zone) =>
+    zone.state == STATE_FRESH ? bar_index + projectionBars : zone.stateBar
+
+liquidityDistanceToZone(RawZone zone, LiquidityLevel level) =>
+    zone.demand ? level.nearExtreme - zone.top : zone.bottom - level.nearExtreme
+
+liquiditySupportsZone(RawZone zone, LiquidityLevel level) =>
+    float distance = liquidityDistanceToZone(zone, level)
+    level.demand == zone.demand and distance > 0 and distance <= level.maxDistance
+
+liquidityRanksCloser(RawZone zone, LiquidityLevel candidate, LiquidityLevel primary) =>
+    float candidateDistance = liquidityDistanceToZone(zone, candidate)
+    float primaryDistance = liquidityDistanceToZone(zone, primary)
+    candidateDistance < primaryDistance - syminfo.mintick * 0.5
+
+zoneText(RawZone zone) =>
+    string side = zone.demand ? "D" : "S"
+    string bounds = "oH " + str.tostring(zone.originHigh, format.mintick) + " oL " + str.tostring(zone.originLow, format.mintick) + " dH " + str.tostring(zone.firstDepartureHigh, format.mintick) + " dL " + str.tostring(zone.firstDepartureLow, format.mintick) + " env " + str.tostring(zone.formationDistal, format.mintick) + " z " + str.tostring(zone.top, format.mintick) + "/" + str.tostring(zone.bottom, format.mintick)
+    "Z" + str.tostring(zone.id) + " " + side + " " + zone.formation + " " + zone.geometry + "\n" + bounds + "\n" + zone.state + " " + zone.reason + "\n" + zone.eligibilityState + " " + zone.eligibilityReason + " qualified " + str.tostring(zone.liquidityQualified) + "\n" + zone.setupState + " " + zone.setupReason
+
+setupDisplayText(RawZone zone) =>
+    displayMode == DISPLAY_SETUPS_ONLY ? (premiumVisuals ? zone.setupState : zone.setupState + "\n" + zone.setupReason) : ""
+
+updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
+    bool visible = zoneVisible(zone, allZones)
+    if visible
+        int rightBar = zoneRightBar(zone)
+        if na(zone.zoneBox)
+            zone.zoneBox := box.new(zone.originBar, zone.top, rightBar, zone.bottom, xloc = xloc.bar_index, bgcolor = zoneColor(zone), border_color = zoneBorderColor(zone), border_width = zoneBorderWidth(zone))
+        else
+            box.set_right(zone.zoneBox, rightBar)
+            box.set_top(zone.zoneBox, zone.top)
+            box.set_bottom(zone.zoneBox, zone.bottom)
+            box.set_bgcolor(zone.zoneBox, zoneColor(zone))
+            box.set_border_color(zone.zoneBox, zoneBorderColor(zone))
+            box.set_border_width(zone.zoneBox, zoneBorderWidth(zone))
+        box.set_text(zone.zoneBox, setupDisplayText(zone))
+        box.set_text_color(zone.zoneBox, color.new(color.white, 5))
+        box.set_text_size(zone.zoneBox, size.tiny)
+        box.set_text_halign(zone.zoneBox, text.align_right)
+        box.set_text_valign(zone.zoneBox, text.align_center)
+        bool diagnosticLabelsVisible = not premiumVisuals and displayMode == DISPLAY_RAW_AUDIT and showLabels
+        if diagnosticLabelsVisible
+            if na(zone.debugLabel)
+                zone.debugLabel := label.new(zone.originBar, zone.demand ? zone.bottom : zone.top, zoneText(zone), xloc = xloc.bar_index, style = zone.demand ? label.style_label_up : label.style_label_down, color = color.new(color.black, 15), textcolor = color.white, size = size.tiny)
+            else
+                label.set_text(zone.debugLabel, zoneText(zone))
+        else if not na(zone.debugLabel)
+            label.delete(zone.debugLabel)
+            zone.debugLabel := na
+    else
+        if not na(zone.zoneBox)
+            box.delete(zone.zoneBox)
+            zone.zoneBox := na
+        if not na(zone.debugLabel)
+            label.delete(zone.debugLabel)
+            zone.debugLabel := na
+
+    bool zoneLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityAnchor) and not na(zone.liquidityAnchorBar) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar)
+    if zoneLiquidityVisible
+        int liquidityRightBar = zoneRightBar(zone)
+        int liquidityLeftBar = math.max(zone.originBar, zone.liquidityExtremeBar)
+        int ownExtremeLeftBar = math.max(zone.originBar, zone.liquidityAnchorBar)
+        bool liquidityTaken = not na(zone.liquidityTakenBar)
+        color primaryColor = premiumVisuals ? color.new(color.gray, liquidityTaken ? 40 : 18) : liquidityTaken ? liquiditySweptColor : liquidityPendingColor
+        color ownExtremeColor = premiumVisuals ? color.new(color.gray, liquidityTaken ? 45 : 12) : liquiditySecondaryColor
+        string ownExtremeStyle = liquidityTaken ? line.style_solid : line.style_dashed
+        if na(zone.liquidityLine)
+            zone.liquidityLine := line.new(liquidityLeftBar, zone.liquidityExtreme, liquidityRightBar, zone.liquidityExtreme, xloc = xloc.bar_index, extend = extend.none, color = primaryColor, style = line.style_solid, width = 2)
+        else
+            line.set_xy1(zone.liquidityLine, liquidityLeftBar, zone.liquidityExtreme)
+            line.set_xy2(zone.liquidityLine, liquidityRightBar, zone.liquidityExtreme)
+            line.set_color(zone.liquidityLine, primaryColor)
+            line.set_style(zone.liquidityLine, line.style_solid)
+            line.set_width(zone.liquidityLine, 2)
+        if showLiquidityProofLines
+            if na(zone.ownExtremeLine)
+                zone.ownExtremeLine := line.new(ownExtremeLeftBar, zone.liquidityAnchor, liquidityRightBar, zone.liquidityAnchor, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = 2)
+            else
+                line.set_xy1(zone.ownExtremeLine, ownExtremeLeftBar, zone.liquidityAnchor)
+                line.set_xy2(zone.ownExtremeLine, liquidityRightBar, zone.liquidityAnchor)
+                line.set_color(zone.ownExtremeLine, ownExtremeColor)
+                line.set_style(zone.ownExtremeLine, ownExtremeStyle)
+                line.set_width(zone.ownExtremeLine, 2)
+        else if not na(zone.ownExtremeLine)
+            line.delete(zone.ownExtremeLine)
+            zone.ownExtremeLine := na
+    else
+        if not na(zone.liquidityLine)
+            line.delete(zone.liquidityLine)
+            zone.liquidityLine := na
+        if not na(zone.ownExtremeLine)
+            line.delete(zone.ownExtremeLine)
+            zone.ownExtremeLine := na
+    true
+
+addUniqueLiquidityIndex(array<int> selectedIndexes, int candidateIndex) =>
+    if not na(candidateIndex) and not array.includes(selectedIndexes, candidateIndex)
+        array.push(selectedIndexes, candidateIndex)
+
+liquidityIsPrimary(int candidateIndex, array<RawZone> allZones) =>
+    bool primary = false
+    int zoneCount = array.size(allZones)
+    if zoneCount > 0
+        for zoneIndex = 0 to zoneCount - 1
+            RawZone zone = array.get(allZones, zoneIndex)
+            if zoneVisible(zone, allZones) and zone.liquidityPrimaryIndex == candidateIndex
+                primary := true
+    primary
+
+updateLiquidityDrawings(array<LiquidityLevel> levels, array<int> drawnIndexes, array<RawZone> allZones) =>
+    array<int> selectedIndexes = array.new<int>()
+    array<int> selectedZoneIndexes = array.new<int>()
+    int levelCount = array.size(levels)
+
+    int zoneCount = array.size(allZones)
+    if zoneCount > 0
+        for zoneIndex = 0 to zoneCount - 1
+            RawZone zone = array.get(allZones, zoneIndex)
+            bool lifecycleVisible = zone.state == STATE_FRESH ? showFresh : zone.state == STATE_TAPPED ? showTapped : showInvalidated
+            if displayMode == DISPLAY_RAW_AUDIT and lifecycleVisible
+                int linkedCount = array.size(zone.liquidityIndexes)
+                if linkedCount > 0
+                    for linkedOffset = 0 to linkedCount - 1
+                        int candidateIndex = array.get(zone.liquidityIndexes, linkedOffset)
+                        if candidateIndex < levelCount
+                            LiquidityLevel candidate = array.get(levels, candidateIndex)
+                            if liquiditySupportsZone(zone, candidate) and not array.includes(selectedIndexes, candidateIndex)
+                                array.push(selectedIndexes, candidateIndex)
+                                array.push(selectedZoneIndexes, zoneIndex)
+
+    int previousCount = array.size(drawnIndexes)
+    if previousCount > 0
+        for previousOffset = 0 to previousCount - 1
+            int previousIndex = array.get(drawnIndexes, previousOffset)
+            if previousIndex < levelCount and not array.includes(selectedIndexes, previousIndex)
+                LiquidityLevel previousLevel = array.get(levels, previousIndex)
+                if not na(previousLevel.liquidityLine)
+                    line.delete(previousLevel.liquidityLine)
+                    previousLevel.liquidityLine := na
+                if not na(previousLevel.ownExtremeLine)
+                    line.delete(previousLevel.ownExtremeLine)
+                    previousLevel.ownExtremeLine := na
+                array.set(levels, previousIndex, previousLevel)
+
+    int selectedCount = array.size(selectedIndexes)
+    if showLiquidityLines and selectedCount > 0
+        for selectedOffset = 0 to selectedCount - 1
+            int candidateIndex = array.get(selectedIndexes, selectedOffset)
+            if candidateIndex < levelCount
+                LiquidityLevel level = array.get(levels, candidateIndex)
+                RawZone ownerZone = array.get(allZones, array.get(selectedZoneIndexes, selectedOffset))
+                bool primary = liquidityIsPrimary(candidateIndex, allZones)
+                int rightBar = zoneRightBar(ownerZone)
+                int liquidityLeftBar = math.max(ownerZone.originBar, level.nearExtremeBar)
+                int ownExtremeLeftBar = math.max(ownerZone.originBar, level.anchorBar)
+                color lineColor = premiumVisuals ? color.new(color.gray, level.taken ? 40 : 18) : level.taken ? liquiditySweptColor : liquidityPendingColor
+                int lineWidth = primary ? 2 : 1
+                if na(level.liquidityLine)
+                    level.liquidityLine := line.new(liquidityLeftBar, level.nearExtreme, rightBar, level.nearExtreme, xloc = xloc.bar_index, extend = extend.none, color = lineColor, style = line.style_solid, width = lineWidth)
+                else
+                    line.set_xy1(level.liquidityLine, liquidityLeftBar, level.nearExtreme)
+                    line.set_xy2(level.liquidityLine, rightBar, level.nearExtreme)
+                    line.set_color(level.liquidityLine, lineColor)
+                    line.set_style(level.liquidityLine, line.style_solid)
+                    line.set_width(level.liquidityLine, lineWidth)
+
+                color ownExtremeColor = premiumVisuals ? color.new(color.gray, level.taken ? 45 : 12) : liquiditySecondaryColor
+                string ownExtremeStyle = level.taken ? line.style_solid : line.style_dashed
+                if na(level.ownExtremeLine)
+                    level.ownExtremeLine := line.new(ownExtremeLeftBar, level.anchor, rightBar, level.anchor, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = lineWidth)
+                else
+                    line.set_xy1(level.ownExtremeLine, ownExtremeLeftBar, level.anchor)
+                    line.set_xy2(level.ownExtremeLine, rightBar, level.anchor)
+                    line.set_color(level.ownExtremeLine, ownExtremeColor)
+                    line.set_style(level.ownExtremeLine, ownExtremeStyle)
+                    line.set_width(level.ownExtremeLine, lineWidth)
+                array.set(levels, candidateIndex, level)
+
+    if not showLiquidityLines and previousCount > 0
+        for previousOffset = 0 to previousCount - 1
+            int previousIndex = array.get(drawnIndexes, previousOffset)
+            if previousIndex < levelCount
+                LiquidityLevel previousLevel = array.get(levels, previousIndex)
+                if not na(previousLevel.liquidityLine)
+                    line.delete(previousLevel.liquidityLine)
+                    previousLevel.liquidityLine := na
+                if not na(previousLevel.ownExtremeLine)
+                    line.delete(previousLevel.ownExtremeLine)
+                    previousLevel.ownExtremeLine := na
+                array.set(levels, previousIndex, previousLevel)
+
+    array.clear(drawnIndexes)
+    if showLiquidityLines and selectedCount > 0
+        for selectedOffset = 0 to selectedCount - 1
+            array.push(drawnIndexes, array.get(selectedIndexes, selectedOffset))
+    true
+
+diagnosticPayload(string eventName, RawZone zone) =>
+    "{" +
+     "\"schema_version\":\"" + VALIDATION_SCHEMA + "\"," +
+     "\"event\":\"" + eventName + "\"," +
+     "\"strategy_id\":\"snd_rd_5m_v1_lab\"," +
+     "\"executable\":false," +
+     "\"run_id\":\"" + validationRunId + "\"," +
+     "\"capture_id\":\"" + validationCaptureId + "\"," +
+     "\"symbol\":\"" + syminfo.tickerid + "\"," +
+     "\"feed\":\"" + syminfo.prefix + "\"," +
+     "\"timeframe\":\"" + timeframe.period + "\"," +
+     "\"zone_id\":" + str.tostring(zone.id) + "," +
+     "\"object_id\":\"" + str.tostring(zone.id) + "\"," +
+     "\"model\":\"" + zone.geometry + "_" + zone.formation + "\"," +
+     "\"zone_type\":\"" + (zone.demand ? "demand" : "supply") + "\"," +
+     "\"direction\":\"" + (zone.demand ? "demand" : "supply") + "\"," +
+     "\"formation\":\"" + zone.formation + "\"," +
+     "\"geometry\":\"" + zone.geometry + "\"," +
+     "\"origin_bar\":" + str.tostring(zone.originBar) + "," +
+     "\"origin_time\":" + str.tostring(zone.originTime) + "," +
+     "\"confirmation_bar\":" + str.tostring(zone.confirmationBar) + "," +
+     "\"confirmation_time\":" + str.tostring(zone.confirmationTime) + "," +
+     "\"bar_time\":" + str.tostring(time_close) + "," +
+     "\"top\":" + str.tostring(zone.top, format.mintick) + "," +
+     "\"bottom\":" + str.tostring(zone.bottom, format.mintick) + "," +
+     "\"state\":\"" + zone.state + "\"," +
+     "\"reason\":\"" + zone.reason + "\"," +
+     "\"eligibility_state\":\"" + zone.eligibilityState + "\"," +
+     "\"eligibility_reason\":\"" + zone.eligibilityReason + "\"," +
+     "\"liquidity_qualified\":" + str.tostring(zone.liquidityQualified) + "," +
+     "\"liquidity_anchor\":" + (na(zone.liquidityAnchor) ? "null" : str.tostring(zone.liquidityAnchor, format.mintick)) + "," +
+     "\"liquidity_anchor_bar\":" + (na(zone.liquidityAnchorBar) ? "null" : str.tostring(zone.liquidityAnchorBar)) + "," +
+     "\"liquidity_extreme\":" + (na(zone.liquidityExtreme) ? "null" : str.tostring(zone.liquidityExtreme, format.mintick)) + "," +
+     "\"liquidity_extreme_bar\":" + (na(zone.liquidityExtremeBar) ? "null" : str.tostring(zone.liquidityExtremeBar)) + "," +
+     "\"liquidity_taken_bar\":" + (na(zone.liquidityTakenBar) ? "null" : str.tostring(zone.liquidityTakenBar)) + "," +
+     "\"liquidity_primary_index\":" + (na(zone.liquidityPrimaryIndex) ? "null" : str.tostring(zone.liquidityPrimaryIndex)) + "," +
+     "\"route_blocker_zone_id\":" + (na(zone.routeBlockerId) ? "null" : str.tostring(zone.routeBlockerId)) + "," +
+     "\"setup_state\":\"" + zone.setupState + "\"," +
+     "\"setup_reason\":\"" + zone.setupReason + "\"," +
+     "\"setup_time\":" + (na(zone.setupTime) ? "null" : str.tostring(zone.setupTime)) + "}"
+
+appendValidationEvent(string buffer, string eventPayload) =>
+    str.length(buffer) == 0 ? eventPayload : buffer + "," + eventPayload
+
+validationHeartbeat() =>
+    "{" +
+     "\"schema_version\":\"" + VALIDATION_SCHEMA + "\"," +
+     "\"event\":\"BAR_HEARTBEAT\"," +
+     "\"event_id\":\"bar:" + str.tostring(time_close) + "\"," +
+     "\"bar_time\":" + str.tostring(time_close) + "," +
+     "\"symbol\":\"" + syminfo.tickerid + "\"," +
+     "\"feed\":\"" + syminfo.prefix + "\"," +
+     "\"timeframe\":\"" + timeframe.period + "\"," +
+     "\"open\":" + str.tostring(open, format.mintick) + "," +
+     "\"high\":" + str.tostring(high, format.mintick) + "," +
+     "\"low\":" + str.tostring(low, format.mintick) + "," +
+     "\"close\":" + str.tostring(close, format.mintick) + "}"
+
+validationFailure(string eventName, string failureReason) =>
+    "{" +
+     "\"schema_version\":\"" + VALIDATION_SCHEMA + "\"," +
+     "\"event\":\"" + eventName + "\"," +
+     "\"event_id\":\"run:" + str.tostring(time_close) + ":" + eventName + "\"," +
+     "\"bar_time\":" + str.tostring(time_close) + "," +
+     "\"symbol\":\"" + syminfo.tickerid + "\"," +
+     "\"feed\":\"" + syminfo.prefix + "\"," +
+     "\"timeframe\":\"" + timeframe.period + "\"," +
+     "\"reason\":\"" + failureReason + "\"}"
+
+validationSentinel(string eventName) =>
+    "{" +
+     "\"schema_version\":\"" + VALIDATION_SCHEMA + "\"," +
+     "\"event\":\"" + eventName + "\"," +
+     "\"event_id\":\"" + validationCaptureId + ":" + eventName + "\"," +
+     "\"bar_time\":" + str.tostring(time_close) + "," +
+     "\"symbol\":\"" + syminfo.tickerid + "\"," +
+     "\"feed\":\"" + syminfo.prefix + "\"," +
+     "\"timeframe\":\"" + timeframe.period + "\"}"
+
+validationBatch(string events, int sequence) =>
+    "{" +
+     "\"schema_version\":\"" + VALIDATION_SCHEMA + "\"," +
+     "\"parent_run_id\":\"" + validationRunId + "\"," +
+     "\"parent_manifest_hash\":\"" + validationParentHash + "\"," +
+     "\"capture_id\":\"" + validationCaptureId + "\"," +
+     "\"capture_manifest_hash\":\"" + validationCaptureHash + "\"," +
+     "\"bar_time\":" + str.tostring(time_close) + "," +
+     "\"sequence\":" + str.tostring(sequence) + "," +
+     "\"chunk_index\":0," +
+     "\"chunk_count\":1," +
+     "\"events\":[" + events + "]}"
+
+confirmedLiquidityPivot(bool demand, int strength) =>
+    bool confirmed = bar_index >= strength * 2
+    if confirmed
+        float center = demand ? low[strength] : high[strength]
+        for offset = 0 to strength * 2
+            if offset != strength
+                bool invalid = demand ? low[offset] <= center : high[offset] >= center
+                if invalid
+                    confirmed := false
+                    break
+    confirmed
+
+appendConfirmedLiquidityPivot(bool demand, int strength, array<LiquidityLevel> levels, array<int> createdIndexes) =>
+    int pivotBar = bar_index - strength
+    bool priorIsAnchor = demand ? high[strength + 1] >= high[strength - 1] : low[strength + 1] <= low[strength - 1]
+    LiquidityLevel level = LiquidityLevel.new()
+    level.demand := demand
+    level.anchor := demand ? math.max(high[strength + 1], high[strength - 1]) : math.min(low[strength + 1], low[strength - 1])
+    level.anchorBar := priorIsAnchor ? pivotBar - 1 : pivotBar + 1
+    level.nearExtreme := demand ? low[strength] : high[strength]
+    level.nearExtremeBar := pivotBar
+    level.formedBar := bar_index
+    level.maxDistance := math.max(syminfo.mintick, nz(atr14, syminfo.mintick) * liquidityMaxDistanceAtr)
+    level.taken := false
+    level.takenBar := na
+    level.liquidityLine := na
+    level.ownExtremeLine := na
+    array.push(levels, level)
+    array.push(createdIndexes, array.size(levels) - 1)
+
+updateConfirmedLiquidityPivots(array<LiquidityLevel> levels, array<int> createdIndexes) =>
+    array.clear(createdIndexes)
+    if confirmedLiquidityPivot(true, liquidityPivotStrength)
+        appendConfirmedLiquidityPivot(true, liquidityPivotStrength, levels, createdIndexes)
+    if confirmedLiquidityPivot(false, liquidityPivotStrength)
+        appendConfirmedLiquidityPivot(false, liquidityPivotStrength, levels, createdIndexes)
+    true
+
+zoneLiquidityAnchor(RawZone zone, LiquidityLevel primary) =>
+    float anchor = na
+    int anchorBar = na
+    int rangeStart = zone.originBar
+    int rangeEnd = primary.nearExtremeBar - 1
+    if rangeEnd >= rangeStart
+        for sourceBar = rangeStart to rangeEnd
+            int sourceOffset = bar_index - sourceBar
+            if sourceOffset >= 0 and sourceOffset < 5000
+                float candidate = zone.demand ? high[sourceOffset] : low[sourceOffset]
+                bool better = na(anchor) or (zone.demand ? candidate > anchor : candidate < anchor)
+                if better
+                    anchor := candidate
+                    anchorBar := sourceBar
+    [anchor, anchorBar]
+
+zoneLiquidityTakenBar(RawZone zone, LiquidityLevel primary, float anchor) =>
+    int takenBar = na
+    int rangeStart = primary.nearExtremeBar + 1
+    if not na(anchor) and rangeStart <= bar_index
+        for sourceBar = rangeStart to bar_index
+            int sourceOffset = bar_index - sourceBar
+            if sourceOffset >= 0 and sourceOffset < 5000
+                bool taken = zone.demand ? high[sourceOffset] > anchor : low[sourceOffset] < anchor
+                if na(takenBar) and taken
+                    takenBar := sourceBar
+    takenBar
+
+refreshZoneLiquidity(RawZone zone, array<LiquidityLevel> levels, array<int> createdIndexes) =>
+    bool primaryAvailable = not na(zone.liquidityPrimaryIndex)
+    bool primaryTaken = not na(zone.liquidityTakenBar)
+    bool primaryChanged = false
+    if zone.state == STATE_FRESH and bar_index > zone.confirmationBar
+        bool scanHistory = not zone.liquidityScanInitialized
+        int candidateCount = scanHistory ? array.size(levels) : array.size(createdIndexes)
+        if candidateCount > 0
+            for candidateOffset = 0 to candidateCount - 1
+                int candidateIndex = scanHistory ? candidateOffset : array.get(createdIndexes, candidateOffset)
+                LiquidityLevel candidate = array.get(levels, candidateIndex)
+                bool formedAfterOrigin = candidate.nearExtremeBar > zone.originBar
+                bool supportsZone = liquiditySupportsZone(zone, candidate)
+                if formedAfterOrigin and supportsZone
+                    addUniqueLiquidityIndex(zone.liquidityIndexes, candidateIndex)
+                    bool closer = na(zone.liquidityPrimaryIndex)
+                    if not closer
+                        LiquidityLevel primary = array.get(levels, zone.liquidityPrimaryIndex)
+                        closer := liquidityRanksCloser(zone, candidate, primary)
+                    if closer
+                        zone.liquidityPrimaryIndex := candidateIndex
+        if scanHistory
+            zone.liquidityScanInitialized := true
+
+        if not na(zone.liquidityPrimaryIndex)
+            LiquidityLevel primary = array.get(levels, zone.liquidityPrimaryIndex)
+            bool primaryIdentityChanged = na(zone.liquidityFormedBar) or zone.liquidityFormedBar != primary.formedBar or zone.liquidityExtremeBar != primary.nearExtremeBar
+            float primaryAnchor = zone.liquidityAnchor
+            int primaryAnchorBar = zone.liquidityAnchorBar
+            if primaryIdentityChanged
+                [calculatedAnchor, calculatedAnchorBar] = zoneLiquidityAnchor(zone, primary)
+                primaryAnchor := calculatedAnchor
+                primaryAnchorBar := calculatedAnchorBar
+            primaryChanged := primaryIdentityChanged or zone.liquidityAnchor != primaryAnchor or zone.liquidityAnchorBar != primaryAnchorBar or zone.liquidityExtreme != primary.nearExtreme
+            int primaryTakenBar = primaryChanged ? zoneLiquidityTakenBar(zone, primary, primaryAnchor) : zone.liquidityTakenBar
+            if not primaryChanged and na(primaryTakenBar) and bar_index > primary.formedBar and not na(primaryAnchor)
+                bool takenNow = zone.demand ? high > primaryAnchor : low < primaryAnchor
+                if takenNow
+                    primaryTakenBar := bar_index
+            zone.liquidityAnchor := primaryAnchor
+            zone.liquidityAnchorBar := primaryAnchorBar
+            zone.liquidityExtreme := primary.nearExtreme
+            zone.liquidityExtremeBar := primary.nearExtremeBar
+            zone.liquidityFormedBar := primary.formedBar
+            zone.liquidityTakenBar := primaryTakenBar
+            primaryAvailable := true
+            primaryTaken := not na(primaryTakenBar)
+    [primaryAvailable, primaryTaken, primaryChanged]
+
+updateZoneEligibility(RawZone zone, bool primaryAvailable, bool primaryTaken, bool primaryChanged) =>
+    bool becameEligible = false
+    if zone.eligibilityState == ELIGIBILITY_EXPIRED
+        becameEligible := false
+    else if zone.state != STATE_FRESH
+        if zone.eligibilityState != ELIGIBILITY_ELIGIBLE
+            zone.eligibilityState := ELIGIBILITY_EXPIRED
+            zone.eligibilityBar := bar_index
+            zone.eligibilityTime := time_close
+            zone.eligibilityReason := EXPIRE_ZONE_NOT_FRESH
+    else if bar_index > zone.confirmationBar and primaryAvailable
+        string previousEligibility = zone.eligibilityState
+        string nextEligibility = primaryTaken ? ELIGIBILITY_ELIGIBLE : ELIGIBILITY_WAITING
+        bool stateChanged = previousEligibility != nextEligibility
+        if primaryChanged or stateChanged
+            zone.eligibilityBar := bar_index
+            zone.eligibilityTime := time_close
+        if primaryTaken
+            zone.eligibilityState := nextEligibility
+            zone.eligibilityReason := LIQUIDITY_OWN_EXTREME_TAKEN
+            zone.liquidityQualified := true
+            becameEligible := previousEligibility != ELIGIBILITY_ELIGIBLE
+        else
+            zone.eligibilityState := nextEligibility
+            zone.eligibilityReason := WAIT_LIQUIDITY_OWN_EXTREME
+    becameEligible
+
+routeBlockerId(RawZone target, array<RawZone> allZones) =>
+    int blockerId = na
+    float blockerDistance = na
+    bool routeIsArmed = target.state == STATE_FRESH and target.eligibilityState == ELIGIBILITY_ELIGIBLE and not na(target.eligibilityBar) and bar_index > target.eligibilityBar
+    int candidateCount = array.size(allZones)
+    if routeIsArmed and candidateCount > 0
+        for candidateIndex = 0 to candidateCount - 1
+            RawZone candidate = array.get(allZones, candidateIndex)
+            bool oppositeDirection = candidate.demand != target.demand
+            bool tappedNow = candidate.state == STATE_TAPPED and candidate.stateBar == bar_index
+            bool inFront = target.demand ? candidate.bottom > target.top : candidate.top < target.bottom
+            if oppositeDirection and tappedNow and inFront
+                float distance = target.demand ? candidate.bottom - target.top : target.bottom - candidate.top
+                if na(blockerId) or distance < blockerDistance
+                    blockerId := candidate.id
+                    blockerDistance := distance
+    blockerId
+
+sameBarRouteBlockerId(RawZone target, array<RawZone> allZones) =>
+    int blockerId = na
+    float blockerDistance = na
+    bool targetTappedNow = target.state == STATE_TAPPED and target.stateBar == bar_index
+    bool routeWasArmed = target.eligibilityState == ELIGIBILITY_ELIGIBLE and not na(target.eligibilityBar) and bar_index > target.eligibilityBar
+    int candidateCount = array.size(allZones)
+    if targetTappedNow and routeWasArmed and candidateCount > 0
+        for candidateIndex = 0 to candidateCount - 1
+            RawZone candidate = array.get(allZones, candidateIndex)
+            bool oppositeDirection = candidate.demand != target.demand
+            bool tappedNow = candidate.state == STATE_TAPPED and candidate.stateBar == bar_index
+            bool inFront = target.demand ? candidate.bottom > target.top : candidate.top < target.bottom
+            if oppositeDirection and tappedNow and inFront
+                float distance = target.demand ? candidate.bottom - target.top : target.bottom - candidate.top
+                if na(blockerId) or distance < blockerDistance
+                    blockerId := candidate.id
+                    blockerDistance := distance
+    blockerId
+
+sourceBarOpenTime(int sourceBar) =>
+    int result = na
+    int sourceOffset = bar_index - sourceBar
+    if sourceOffset >= 0 and sourceOffset < 5000
+        result := time[sourceOffset]
+    result
+
+sourceBarCloseTime(int sourceBar) =>
+    int result = na
+    int sourceOffset = bar_index - sourceBar
+    if sourceOffset >= 0 and sourceOffset < 5000
+        result := time_close[sourceOffset]
+    result
+
+freezeSetupLiquidityProvenance(RawZone zone) =>
+    if exportSetupEvents and na(zone.setupLiquidityExtremeTime) and not na(zone.liquidityExtremeBar)
+        zone.setupLiquidityAnchor := zone.liquidityAnchor
+        zone.setupLiquidityAnchorTime := sourceBarOpenTime(zone.liquidityAnchorBar)
+        zone.setupLiquidityExtreme := zone.liquidityExtreme
+        zone.setupLiquidityExtremeTime := sourceBarOpenTime(zone.liquidityExtremeBar)
+        zone.setupLiquidityFormedTime := sourceBarCloseTime(zone.liquidityFormedBar)
+        zone.setupLiquidityTakenTime := sourceBarCloseTime(zone.liquidityTakenBar)
+    true
+
+transitionSetup(RawZone zone, string nextState, string nextReason) =>
+    zone.setupState := nextState
+    zone.setupBar := bar_index
+    zone.setupTime := time_close
+    zone.setupReason := nextReason
+
+updateSetupState(RawZone zone, array<RawZone> allZones) =>
+    string eventName = ""
+    bool terminal = zone.setupState == SETUP_TRIGGERED or zone.setupState == SETUP_REJECTED
+    if not terminal
+        if zone.state == STATE_INVALIDATED
+            transitionSetup(zone, SETUP_REJECTED, REJECT_TARGET_INVALIDATED_ON_RETURN)
+            eventName := "SETUP_REJECTED_NON_EXECUTABLE"
+        else if zone.state == STATE_TAPPED
+            int blockerId = sameBarRouteBlockerId(zone, allZones)
+            if not na(blockerId)
+                zone.eligibilityState := ELIGIBILITY_EXPIRED
+                zone.eligibilityBar := bar_index
+                zone.eligibilityTime := time_close
+                zone.eligibilityReason := EXPIRE_OPPOSITE_ZONE_RETRACE
+                zone.routeBlockerId := blockerId
+                transitionSetup(zone, SETUP_REJECTED, REJECT_AMBIGUOUS_SAME_BAR_ROUTE)
+                eventName := "SETUP_REJECTED_NON_EXECUTABLE"
+            else if zone.eligibilityState == ELIGIBILITY_ELIGIBLE
+                transitionSetup(zone, SETUP_TRIGGERED, TRIGGER_FIRST_FRESH_TAP_AFTER_LIQUIDITY)
+                eventName := "SETUP_TRIGGERED_NON_EXECUTABLE"
+            else
+                transitionSetup(zone, SETUP_REJECTED, REJECT_TARGET_TAP_WITHOUT_ELIGIBILITY)
+                eventName := "SETUP_REJECTED_NON_EXECUTABLE"
+        else if zone.eligibilityState == ELIGIBILITY_EXPIRED
+            transitionSetup(zone, SETUP_REJECTED, zone.eligibilityReason)
+            eventName := "SETUP_REJECTED_NON_EXECUTABLE"
+        else if zone.eligibilityState == ELIGIBILITY_ELIGIBLE
+            if zone.setupState != SETUP_ARMED
+                transitionSetup(zone, SETUP_ARMED, ARM_SETUP_AFTER_LIQUIDITY)
+                eventName := "SETUP_ARMED_NON_EXECUTABLE"
+        else if zone.setupState == SETUP_ARMED
+            transitionSetup(zone, SETUP_WAITING, WAIT_SETUP_ELIGIBILITY)
+            eventName := "SETUP_WAITING_NON_EXECUTABLE"
+    eventName
+
+jsonEscape(string value) =>
+    string escaped = str.replace_all(value, "\\", "\\\\")
+    escaped := str.replace_all(escaped, "\"", "\\\"")
+    escaped := str.replace_all(escaped, "\n", "\\n")
+    escaped := str.replace_all(escaped, "\r", "\\r")
+    escaped
+
+jsonString(string value) =>
+    "\"" + jsonEscape(value) + "\""
+
+epochSeconds(int epochMilliseconds) =>
+    int(epochMilliseconds / 1000)
+
+clearSetupExportTransitionBuffers(array<RawZone> allZones) =>
+    int zoneCount = array.size(allZones)
+    if zoneCount > 0
+        for zoneIndex = 0 to zoneCount - 1
+            RawZone zone = array.get(allZones, zoneIndex)
+            array.clear(zone.setupExportFromStates)
+            array.clear(zone.setupExportToStates)
+            array.clear(zone.setupExportReasons)
+            array.set(allZones, zoneIndex, zone)
+    true
+
+queueSetupExportTransition(RawZone zone, string fromState, string toState, string reasonCode) =>
+    array.push(zone.setupExportFromStates, fromState)
+    array.push(zone.setupExportToStates, toState)
+    array.push(zone.setupExportReasons, reasonCode)
+    true
+
+syncSetupExportLifecycle(RawZone zone) =>
+    bool pairAvailable = not na(zone.liquidityExtremeBar) and not na(zone.liquidityExtreme)
+    bool shouldInitialize = pairAvailable
+    if str.length(zone.exportedSetupState) == 0 and shouldInitialize
+        freezeSetupLiquidityProvenance(zone)
+        queueSetupExportTransition(zone, "", SETUP_WAITING, WAIT_SETUP_ELIGIBILITY)
+        zone.exportedSetupState := SETUP_WAITING
+    // The locked external lifecycle does not disarm on a temporary eligibility recalculation.
+    bool ignoredInternalDisarm = zone.exportedSetupState == SETUP_ARMED and zone.setupState == SETUP_WAITING
+    if str.length(zone.exportedSetupState) > 0 and zone.exportedSetupState != zone.setupState and not ignoredInternalDisarm
+        string previousState = zone.exportedSetupState
+        queueSetupExportTransition(zone, previousState, zone.setupState, zone.setupReason)
+        zone.exportedSetupState := zone.setupState
+    true
+
+setupExportZoneKey(RawZone zone) =>
+    "zone:" + str.tostring(epochSeconds(zone.confirmationTime)) + ":" + str.tostring(epochSeconds(zone.originTime)) + ":" + zone.formation + ":" + zone.geometry
+
+setupExportLiquidityKey(RawZone zone) =>
+    string side = zone.demand ? DIRECTION_DEMAND : DIRECTION_SUPPLY
+    "liquidity:" + side + ":" + str.tostring(epochSeconds(zone.setupLiquidityExtremeTime)) + ":" + str.tostring(zone.setupLiquidityExtreme, format.mintick)
+
+setupExportNaturalKeyPayload(RawZone zone) =>
+    "{" +
+     "\"side\":" + jsonString(zone.demand ? DIRECTION_DEMAND : DIRECTION_SUPPLY) + "," +
+     "\"zone_key\":" + jsonString(setupExportZoneKey(zone)) + "," +
+     "\"liquidity_key\":" + jsonString(setupExportLiquidityKey(zone)) + "," +
+     "\"formation_bar_close_epoch\":" + str.tostring(epochSeconds(zone.confirmationTime)) + "}"
+
+setupExportZonePayload(RawZone zone) =>
+    int originOpenEpoch = epochSeconds(zone.originTime)
+    "{" +
+     "\"top\":" + str.tostring(zone.top, format.mintick) + "," +
+     "\"bottom\":" + str.tostring(zone.bottom, format.mintick) + "," +
+     "\"origin_bar_open_epoch\":" + str.tostring(originOpenEpoch) + "," +
+     "\"origin_bar_close_epoch\":" + str.tostring(originOpenEpoch + 300) + "}"
+
+setupExportLiquidityPayload(RawZone zone) =>
+    int liquidityOpenEpoch = epochSeconds(zone.setupLiquidityExtremeTime)
+    "{" +
+     "\"price\":" + str.tostring(zone.setupLiquidityExtreme, format.mintick) + "," +
+     "\"origin_bar_open_epoch\":" + str.tostring(liquidityOpenEpoch) + "," +
+     "\"origin_bar_close_epoch\":" + str.tostring(liquidityOpenEpoch + 300) + "}"
+
+setupExportSourceCandlePayload() =>
+    "{" +
+     "\"open_epoch\":" + str.tostring(epochSeconds(time)) + "," +
+     "\"close_epoch\":" + str.tostring(epochSeconds(time_close)) + "," +
+     "\"open\":" + str.tostring(open, format.mintick) + "," +
+     "\"high\":" + str.tostring(high, format.mintick) + "," +
+     "\"low\":" + str.tostring(low, format.mintick) + "," +
+     "\"close\":" + str.tostring(close, format.mintick) + "}"
+
+setupExportTransitionPayload(RawZone zone, int bufferedIndex, int transitionIndex) =>
+    string fromState = array.get(zone.setupExportFromStates, bufferedIndex)
+    string toState = array.get(zone.setupExportToStates, bufferedIndex)
+    string reasonCode = array.get(zone.setupExportReasons, bufferedIndex)
+    "{" +
+     "\"transition_index\":" + str.tostring(transitionIndex) + "," +
+     "\"natural_key\":" + setupExportNaturalKeyPayload(zone) + "," +
+     "\"from_state\":" + (str.length(fromState) == 0 ? "null" : jsonString(fromState)) + "," +
+     "\"to_state\":" + jsonString(toState) + "," +
+     "\"reason_code\":" + jsonString(reasonCode) + "," +
+     "\"zone\":" + setupExportZonePayload(zone) + "," +
+     "\"liquidity\":" + setupExportLiquidityPayload(zone) + "," +
+     "\"source_candle\":" + setupExportSourceCandlePayload() + "}"
+
+setupExportSnapshotItemPayload(RawZone zone) =>
+    "{" +
+     "\"natural_key\":" + setupExportNaturalKeyPayload(zone) + "," +
+     "\"state\":" + jsonString(zone.exportedSetupState) + "," +
+     "\"reason_code\":" + jsonString(zone.setupReason) + "," +
+     "\"zone\":" + setupExportZonePayload(zone) + "," +
+     "\"liquidity\":" + setupExportLiquidityPayload(zone) + "," +
+     "\"source_candle\":" + setupExportSourceCandlePayload() + "}"
+
+appendSetupExportItem(array<string> items, string itemPayload) =>
+    array.push(items, itemPayload)
+    true
+
+collectCanonicalSetupTransitions(array<RawZone> allZones, array<string> transitions) =>
+    array.clear(transitions)
+    int zoneCount = array.size(allZones)
+    if zoneCount > 0
+        // Backend ordering is source close, DEMAND/SUPPLY, zone key, liquidity key, then transition index.
+        for sidePass = 0 to 1
+            bool demandSide = sidePass == 0
+            for reverseOffset = 0 to zoneCount - 1
+                int zoneIndex = zoneCount - 1 - reverseOffset
+                RawZone zone = array.get(allZones, zoneIndex)
+                if zone.demand == demandSide
+                    int bufferedCount = array.size(zone.setupExportToStates)
+                    if bufferedCount > 0
+                        for bufferedIndex = 0 to bufferedCount - 1
+                            appendSetupExportItem(transitions, setupExportTransitionPayload(zone, bufferedIndex, array.size(transitions)))
+    true
+
+collectCanonicalSetupSnapshot(array<RawZone> allZones, array<string> activeSetups) =>
+    array.clear(activeSetups)
+    int zoneCount = array.size(allZones)
+    if zoneCount > 0
+        for sidePass = 0 to 1
+            bool demandSide = sidePass == 0
+            for reverseOffset = 0 to zoneCount - 1
+                int zoneIndex = zoneCount - 1 - reverseOffset
+                RawZone zone = array.get(allZones, zoneIndex)
+                bool activeSetup = zone.exportedSetupState == SETUP_WAITING or zone.exportedSetupState == SETUP_ARMED
+                if zone.demand == demandSide and activeSetup
+                    appendSetupExportItem(activeSetups, setupExportSnapshotItemPayload(zone))
+    true
+
+joinSetupExportItems(array<string> items) =>
+    string result = ""
+    int itemCount = array.size(items)
+    if itemCount > 0
+        for itemIndex = 0 to itemCount - 1
+            string itemPayload = array.get(items, itemIndex)
+            result := str.length(result) == 0 ? itemPayload : result + "," + itemPayload
+    result
+
+setupExportContextFields(int sequence) =>
+    string idempotencyKey = setupExportProducerInstanceId + ":" + str.tostring(sequence)
+    "\"schema_version\":" + jsonString(SETUP_EXPORT_SCHEMA) + "," +
+     "\"strategy_id\":" + jsonString(SETUP_EXPORT_STRATEGY_ID) + "," +
+     "\"strategy_version\":" + jsonString(SETUP_EXPORT_STRATEGY_VERSION) + "," +
+     "\"producer_instance_id\":" + jsonString(setupExportProducerInstanceId) + "," +
+     "\"sequence\":" + str.tostring(sequence) + "," +
+     "\"idempotency_key\":" + jsonString(idempotencyKey) + "," +
+     "\"symbol\":" + jsonString(setupContractIdentifier(syminfo.ticker)) + "," +
+     "\"ticker_id\":" + jsonString(setupContractIdentifier(syminfo.tickerid)) + "," +
+     "\"feed\":" + jsonString(setupContractIdentifier(syminfo.prefix)) + "," +
+     "\"timeframe\":\"5\"," +
+     "\"timezone\":" + jsonString(syminfo.timezone) + "," +
+     "\"bar_open_epoch\":" + str.tostring(epochSeconds(time)) + "," +
+     "\"bar_close_epoch\":" + str.tostring(epochSeconds(time_close)) + "," +
+     "\"detector_code_hash\":" + jsonString(setupContractDigestLabel(setupExportDetectorHash)) + "," +
+     "\"settings_hash\":" + jsonString(setupContractDigestLabel(setupExportSettingsHash))
+
+setupExportEnvelope(string payload) =>
+    "{" +
+     "\"credential\":" + jsonString(setupExportCredential) + "," +
+     "\"payload\":" + payload + "}"
+
+setupExportSnapshotPayload(array<string> activeSetups) =>
+    "{" + setupExportContextFields(0) + "," +
+     "\"kind\":\"snapshot\"," +
+     "\"last_confirmed_bar_close_epoch\":" + str.tostring(epochSeconds(time_close)) + "," +
+     "\"active_setups\":[" + joinSetupExportItems(activeSetups) + "]}"
+
+setupExportIncrementalPayload(array<string> transitions, int sequence) =>
+    "{" + setupExportContextFields(sequence) + "," +
+     "\"kind\":\"incremental\"," +
+     "\"chunk_index\":0," +
+     "\"chunk_count\":1," +
+     "\"transitions\":[" + joinSetupExportItems(transitions) + "]}"
+
+setupExportRunInvalid(string reasonCode, int sequence, int itemCount, int itemLimit) =>
+    string failureReason = reasonCode + ":count=" + str.tostring(itemCount) + ":limit=" + str.tostring(itemLimit)
+    log.error(validationBatch(validationFailure("RUN_FAILED_OVERFLOW", failureReason), sequence))
+    true
+
+emitSetupExportSnapshot(array<string> activeSetups) =>
+    int setupCount = array.size(activeSetups)
+    string envelope = setupExportEnvelope(setupExportSnapshotPayload(activeSetups))
+    bool emitted = false
+    if setupCount > SETUP_EXPORT_MAX_SNAPSHOT_SETUPS
+        setupExportRunInvalid("SETUP_EXPORT_SNAPSHOT_LIMIT_EXCEEDED", 0, setupCount, SETUP_EXPORT_MAX_SNAPSHOT_SETUPS)
+    else if str.length(envelope) > SETUP_EXPORT_MAX_PAYLOAD_CHARS
+        setupExportRunInvalid("SETUP_EXPORT_PAYLOAD_TOO_LARGE", 0, str.length(envelope), SETUP_EXPORT_MAX_PAYLOAD_CHARS)
+    else
+        alert(envelope, alert.freq_all)
+        emitted := true
+    emitted
+
+emitSetupExportIncremental(array<string> transitions, int sequence) =>
+    int transitionCount = array.size(transitions)
+    string envelope = setupExportEnvelope(setupExportIncrementalPayload(transitions, sequence))
+    bool emitted = false
+    if transitionCount > SETUP_EXPORT_MAX_TRANSITIONS
+        setupExportRunInvalid("SETUP_EXPORT_TRANSITION_LIMIT_EXCEEDED", sequence, transitionCount, SETUP_EXPORT_MAX_TRANSITIONS)
+    else if str.length(envelope) > SETUP_EXPORT_MAX_PAYLOAD_CHARS
+        setupExportRunInvalid("SETUP_EXPORT_PAYLOAD_TOO_LARGE", sequence, str.length(envelope), SETUP_EXPORT_MAX_PAYLOAD_CHARS)
+    else
+        alert(envelope, alert.freq_all)
+        emitted := true
+    emitted
+
+deleteZone(RawZone zone) =>
+    if not na(zone.zoneBox)
+        box.delete(zone.zoneBox)
+    if not na(zone.liquidityLine)
+        line.delete(zone.liquidityLine)
+    if not na(zone.ownExtremeLine)
+        line.delete(zone.ownExtremeLine)
+    if not na(zone.debugLabel)
+        label.delete(zone.debugLabel)
+
+var Candidate demandCandidate = Candidate.new()
+var Candidate supplyCandidate = Candidate.new()
+var RawZone[] zones = array.new<RawZone>()
+var LiquidityLevel[] liquidityLevels = array.new<LiquidityLevel>()
+var int[] createdLiquidityIndexes = array.new<int>()
+var int[] drawnLiquidityIndexes = array.new<int>()
+var int nextZoneId = 1
+var string lastDecision = "WAITING_FOR_CLOSED_5M_BAR"
+var int validationSequence = 0
+var bool validationStarted = not validationCapture or validationCalculationStart == 0
+var bool validationFailed = false
+var string validationFailureReason = ""
+
+if barstate.isfirst
+    demandCandidate.reset()
+    supplyCandidate.reset()
+
+bool isFiveMinute = timeframe.isminutes and timeframe.multiplier == 5
+bool confirmedEvent = false
+RawZone eventZone = na
+string validationEvents = ""
+
+if barstate.isconfirmed and isFiveMinute and validationCapture and not validationStarted and not validationFailed
+    if time == validationCalculationStart
+        demandCandidate.reset()
+        supplyCandidate.reset()
+        array.clear(zones)
+        array.clear(liquidityLevels)
+        array.clear(createdLiquidityIndexes)
+        array.clear(drawnLiquidityIndexes)
+        nextZoneId := 1
+        validationSequence := 0
+        validationStarted := true
+    else if time > validationCalculationStart
+        validationFailed := true
+        validationFailureReason := "CALCULATION_START_BAR_MISSING"
+        string missingStart = validationBatch(validationFailure("RUN_FAILED_MISSING_HISTORY", validationFailureReason), validationSequence)
+        log.error(missingStart)
+
+bool validationReady = not validationCapture or (validationStarted and not validationFailed)
+
+if barstate.isconfirmed and isFiveMinute and validationReady
+    validationEvents := validationHeartbeat()
+    int validationEventCount = 1
+    array<string> setupExportItems = array.new<string>()
+    bool setupExportReady = exportSetupEvents and str.length(setupExportCredential) > 0 and barstate.isrealtime
+    if exportSetupEvents
+        clearSetupExportTransitionBuffers(zones)
+    bool inEmissionWindow = (validationEmissionStart == 0 or time >= validationEmissionStart) and (validationEmissionEnd == 0 or time <= validationEmissionEnd)
+    bool emissionStartsNow = validationCapture and inEmissionWindow and (validationEmissionStart == 0 ? validationSequence == 0 : time == validationEmissionStart)
+    bool emissionEndsNow = validationCapture and validationEmissionEnd != 0 and time == validationEmissionEnd
+    if emissionStartsNow
+        validationEvents := appendValidationEvent(validationEvents, validationSentinel("CAPTURE_START"))
+        validationEventCount += 1
+    updateConfirmedLiquidityPivots(liquidityLevels, createdLiquidityIndexes)
+
+    int zoneCount = array.size(zones)
+    if zoneCount > 0
+        for index = 0 to zoneCount - 1
+            RawZone zone = array.get(zones, index)
+            if zone.state == STATE_FRESH and bar_index > zone.confirmationBar
+                bool sameDirectionDeparture = zone.demand ? close > open : close < open
+                if not (zone.departureActive and sameDirectionDeparture)
+                    zone.departureActive := false
+                    bool overlaps = high >= zone.bottom and low <= zone.top
+                    if overlaps
+                        bool invalidated = zone.demand ? close < zone.bottom : close > zone.top
+                        zone.state := invalidated ? STATE_INVALIDATED : STATE_TAPPED
+                        zone.stateBar := bar_index
+                        zone.stateTime := time_close
+                        zone.reason := invalidated ? INVALIDATE_CLOSE_BEYOND_DISTAL : TAP_POST_CONFIRM_OVERLAP
+                        lastDecision := zone.reason
+                        if emitDiagnostics or validationCapture
+                            validationEvents := appendValidationEvent(validationEvents, diagnosticPayload(invalidated ? "ZONE_INVALIDATED_NON_EXECUTABLE" : "ZONE_TAPPED_NON_EXECUTABLE", zone))
+                            validationEventCount += 1
+            array.set(zones, index, zone)
+
+        for index = 0 to zoneCount - 1
+            RawZone zone = array.get(zones, index)
+            [primaryAvailable, primaryTaken, primaryChanged] = refreshZoneLiquidity(zone, liquidityLevels, createdLiquidityIndexes)
+            int blockerId = routeBlockerId(zone, zones)
+            if not na(blockerId)
+                zone.eligibilityState := ELIGIBILITY_EXPIRED
+                zone.eligibilityBar := bar_index
+                zone.eligibilityTime := time_close
+                zone.eligibilityReason := EXPIRE_OPPOSITE_ZONE_RETRACE
+                zone.routeBlockerId := blockerId
+                lastDecision := EXPIRE_OPPOSITE_ZONE_RETRACE
+                if emitDiagnostics or validationCapture
+                    validationEvents := appendValidationEvent(validationEvents, diagnosticPayload("ZONE_ROUTE_EXPIRED_NON_EXECUTABLE", zone))
+                    validationEventCount += 1
+            else
+                bool becameEligible = updateZoneEligibility(zone, primaryAvailable, primaryTaken, primaryChanged)
+                if becameEligible
+                    lastDecision := LIQUIDITY_OWN_EXTREME_TAKEN
+                    if emitDiagnostics or validationCapture
+                        validationEvents := appendValidationEvent(validationEvents, diagnosticPayload("ZONE_ELIGIBLE_NON_EXECUTABLE", zone))
+                        validationEventCount += 1
+            array.set(zones, index, zone)
+
+        for index = 0 to zoneCount - 1
+            RawZone zone = array.get(zones, index)
+            string setupEvent = updateSetupState(zone, zones)
+            if str.length(setupEvent) > 0
+                lastDecision := zone.setupReason
+                if emitDiagnostics or validationCapture
+                    validationEvents := appendValidationEvent(validationEvents, diagnosticPayload(setupEvent, zone))
+                    validationEventCount += 1
+            if exportSetupEvents
+                syncSetupExportLifecycle(zone)
+            array.set(zones, index, zone)
+
+    int direction = candleDirection(0)
+    if direction == 1
+        if demandCandidate.isActive
+            bool confirmed = demandCandidate.advance(true)
+            if confirmed
+                string formation = candidateFormation(demandCandidate, true)
+                if str.length(formation) == 0
+                    lastDecision := REJECT_UNKNOWN_APPROACH
+                else
+                    RawZone zone = buildConfirmedZone(demandCandidate, true, nextZoneId, formation)
+                    array.unshift(zones, zone)
+                    nextZoneId += 1
+                    confirmedEvent := true
+                    eventZone := zone
+                    lastDecision := CONFIRM_CLOSE_BEYOND_ORIGIN
+                demandCandidate.reset()
+        bool rebasedSupply = supplyCandidate.rebaseInsideFormation(false)
+        if not rebasedSupply
+            if supplyCandidate.isActive and supplyCandidate.isForming
+                lastDecision := REJECT_FORMATION_INTERRUPTED
+            supplyCandidate.reset()
+            supplyCandidate.begin()
+    else if direction == -1
+        if supplyCandidate.isActive
+            bool confirmed = supplyCandidate.advance(false)
+            if confirmed
+                string formation = candidateFormation(supplyCandidate, false)
+                if str.length(formation) == 0
+                    lastDecision := REJECT_UNKNOWN_APPROACH
+                else
+                    RawZone zone = buildConfirmedZone(supplyCandidate, false, nextZoneId, formation)
+                    array.unshift(zones, zone)
+                    nextZoneId += 1
+                    confirmedEvent := true
+                    eventZone := zone
+                    lastDecision := CONFIRM_CLOSE_BEYOND_ORIGIN
+                supplyCandidate.reset()
+        bool rebasedDemand = demandCandidate.rebaseInsideFormation(true)
+        if not rebasedDemand
+            if demandCandidate.isActive and demandCandidate.isForming
+                lastDecision := REJECT_FORMATION_INTERRUPTED
+            demandCandidate.reset()
+            demandCandidate.begin()
+    else
+        if demandCandidate.isActive and demandCandidate.isForming
+            lastDecision := REJECT_FORMATION_INTERRUPTED
+        if supplyCandidate.isActive and supplyCandidate.isForming
+            lastDecision := REJECT_FORMATION_INTERRUPTED
+        demandCandidate.reset()
+        supplyCandidate.reset()
+
+    // Capture finalized same-bar transitions before bounded retention can remove an old terminal zone.
+    if setupExportReady
+        collectCanonicalSetupTransitions(zones, setupExportItems)
+
+    if array.size(zones) > maxZones and validationCapture
+        validationFailed := true
+        validationFailureReason := "ACTIVE_ZONE_CAP_EXCEEDED"
+        validationEvents := appendValidationEvent(validationEvents, validationFailure("RUN_FAILED_ACTIVE_CAP", validationFailureReason))
+        validationEventCount += 1
+    else
+        while array.size(zones) > maxZones
+            RawZone oldest = array.pop(zones)
+            deleteZone(oldest)
+
+    if setupExportReady
+        if setupExportSnapshotPending
+            array<string> activeSetupItems = array.new<string>()
+            collectCanonicalSetupSnapshot(zones, activeSetupItems)
+            bool snapshotEmitted = emitSetupExportSnapshot(activeSetupItems)
+            if snapshotEmitted
+                setupExportSnapshotPending := false
+                setupExportBatchSequence := 1
+                array.clear(setupExportItems)
+        else if array.size(setupExportItems) > 0
+            emitSetupExportIncremental(setupExportItems, setupExportBatchSequence)
+            setupExportBatchSequence += 1
+
+    if confirmedEvent and (emitDiagnostics or validationCapture) and not na(eventZone)
+        validationEvents := appendValidationEvent(validationEvents, diagnosticPayload("ZONE_CONFIRMED_NON_EXECUTABLE", eventZone))
+        validationEventCount += 1
+
+    if emissionEndsNow
+        validationEvents := appendValidationEvent(validationEvents, validationSentinel("CAPTURE_END"))
+        validationEventCount += 1
+
+    if emitDiagnostics or validationCapture
+        if validationEventCount > VALIDATION_MAX_BATCH_EVENTS
+            validationFailed := true
+            validationFailureReason := "BATCH_EVENT_LIMIT_EXCEEDED"
+            validationEvents := validationFailure("RUN_FAILED_OVERFLOW", validationFailureReason)
+        string batchPayload = validationBatch(validationEvents, validationSequence)
+        if str.length(batchPayload) > VALIDATION_MAX_PAYLOAD_CHARS
+            validationFailed := true
+            validationFailureReason := "BATCH_PAYLOAD_TOO_LARGE"
+            log.error(validationBatch(validationFailure("RUN_FAILED_OVERFLOW", validationFailureReason), validationSequence))
+        else
+            if validationCapture and inEmissionWindow
+                log.info(batchPayload)
+            if emitDiagnostics
+                alert(batchPayload, alert.freq_once_per_bar_close)
+        validationSequence += 1
+
+    if validationCapture and validationFailed
+        int failedZoneCount = array.size(zones)
+        if failedZoneCount > 0
+            for failedIndex = 0 to failedZoneCount - 1
+                deleteZone(array.get(zones, failedIndex))
+        array.clear(zones)
+        array.clear(liquidityLevels)
+
+int drawCount = array.size(zones)
+if drawCount > 0
+    for index = 0 to drawCount - 1
+        RawZone zone = array.get(zones, index)
+        updateZoneDrawing(zone, zones)
+        array.set(zones, index, zone)
+updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)
+
+var table statusTable = table.new(position.top_right, 1, 2, border_width = 0)
+if barstate.islast
+    if showStatusPanel
+        table.cell(statusTable, 0, 0, isFiveMinute ? "SND RD | " + str.upper(displayMode) : "5m chart required", text_color = color.white, bgcolor = isFiveMinute ? color.new(color.black, 58) : color.new(color.red, 25), text_size = size.small)
+        table.cell(statusTable, 0, 1, premiumVisuals ? "" : lastDecision, text_color = color.white, bgcolor = premiumVisuals ? color.new(color.black, 100) : color.new(color.black, 28), text_size = size.tiny)
+    else
+        table.cell(statusTable, 0, 0, "", bgcolor = color.new(color.black, 100))
+        table.cell(statusTable, 0, 1, "", bgcolor = color.new(color.black, 100))

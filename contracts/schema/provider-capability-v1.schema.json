@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "EvidenceStatus": {
+      "enum": [
+        "VERIFIED",
+        "UNVERIFIED",
+        "BLOCKED"
+      ],
+      "title": "EvidenceStatus",
+      "type": "string"
+    },
+    "GateId": {
+      "enum": [
+        "optimizer_1_inputs",
+        "tradingview_alert_configuration",
+        "committed_clean_pine_provenance",
+        "managed_secret_workload_identity",
+        "oidc_mfa",
+        "telemetry",
+        "independent_dead_man",
+        "transactional_email",
+        "metaapi_demo_only_tenant",
+        "metaapi_common_cursor_barrier",
+        "licensed_tick_source",
+        "sequence_complete_ticks",
+        "five_day_tick_pilot"
+      ],
+      "title": "GateId",
+      "type": "string"
+    },
+    "RequirementEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Note",
+          "type": "string"
+        },
+        "requirement": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Requirement",
+          "type": "string"
+        },
+        "satisfied": {
+          "title": "Satisfied",
+          "type": "boolean"
+        },
+        "source": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement",
+        "satisfied",
+        "source",
+        "note"
+      ],
+      "title": "RequirementEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Untrusted evidence claim; only a gate-specific trusted verifier can accept it.",
+  "properties": {
+    "artifact_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Artifact Sha256"
+    },
+    "capability_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "title": "Capability Version",
+      "type": "string"
+    },
+    "details": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Details",
+      "type": "object"
+    },
+    "evidence_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Evidence Id",
+      "type": "string"
+    },
+    "gate_id": {
+      "$ref": "#/$defs/GateId"
+    },
+    "observed_at": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Observed At"
+    },
+    "official_sources": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Official Sources",
+      "type": "array"
+    },
+    "provider": {
+      "maxLength": 160,
+      "minLength": 1,
+      "title": "Provider",
+      "type": "string"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/RequirementEvidence"
+      },
+      "title": "Requirements",
+      "type": "array"
+    },
+    "schema_id": {
+      "const": "phase0.provider-capability.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/EvidenceStatus",
+      "description": "Documentary claim only. It is never gate authority without safe artifact re-hash and trusted approval-signature verification."
+    }
+  },
+  "required": [
+    "schema_id",
+    "evidence_id",
+    "gate_id",
+    "provider",
+    "capability_version",
+    "status",
+    "observed_at",
+    "official_sources",
+    "requirements",
+    "details",
+    "artifact_sha256"
+  ],
+  "title": "ProviderCapabilityEvidence",
+  "type": "object"
+}

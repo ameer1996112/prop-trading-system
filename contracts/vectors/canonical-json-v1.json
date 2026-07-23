@@ -1,0 +1,121 @@
+{
+  "invalid": [
+    {
+      "name": "duplicate-root-key",
+      "operation": "parse",
+      "raw_json": "{\"value\":1,\"value\":2}"
+    },
+    {
+      "name": "duplicate-nested-key",
+      "operation": "parse",
+      "raw_json": "{\"outer\":{\"value\":1,\"value\":2}}"
+    },
+    {
+      "name": "lone-high-surrogate-value",
+      "operation": "parse",
+      "raw_json": "{\"value\":\"\\ud800\"}"
+    },
+    {
+      "name": "lone-low-surrogate-value",
+      "operation": "parse",
+      "raw_json": "{\"value\":\"\\udc00\"}"
+    },
+    {
+      "name": "lone-high-surrogate-key",
+      "operation": "parse",
+      "raw_json": "{\"\\ud800\":\"value\"}"
+    },
+    {
+      "name": "lone-low-surrogate-key",
+      "operation": "parse",
+      "raw_json": "{\"\\udc00\":\"value\"}"
+    },
+    {
+      "name": "postgresql-incompatible-null-code-point",
+      "operation": "parse",
+      "raw_json": "{\"value\":\"\\u0000\"}"
+    },
+    {
+      "name": "binary-float",
+      "operation": "parse",
+      "raw_json": "{\"value\":1.25}"
+    },
+    {
+      "name": "exponent-number",
+      "operation": "parse",
+      "raw_json": "{\"value\":1e3}"
+    },
+    {
+      "name": "unsafe-integer",
+      "operation": "parse",
+      "raw_json": "{\"value\":9007199254740992}"
+    },
+    {
+      "name": "decimal-exponent-string",
+      "operation": "fixed_decimal",
+      "scale": 2,
+      "value": "1e-2"
+    },
+    {
+      "name": "decimal-leading-zero",
+      "operation": "fixed_decimal",
+      "scale": 2,
+      "value": "01.00"
+    },
+    {
+      "name": "decimal-wrong-scale",
+      "operation": "fixed_decimal",
+      "scale": 2,
+      "value": "1.0"
+    }
+  ],
+  "schema_id": "phase0.canonical-json-golden-v1",
+  "valid": [
+    {
+      "canonical_utf8": "{}",
+      "name": "empty-object",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "value": {}
+    },
+    {
+      "canonical_utf8": "{\"a\":\"value\",\"z\":[3,{\"a\":null,\"b\":true}]}",
+      "name": "sorted-nested",
+      "sha256": "34aa98a39b69cd53017d84ad6f9635d59db194a30d8a72f7d1292bcbe6d06074",
+      "value": {
+        "a": "value",
+        "z": [
+          3,
+          {
+            "a": null,
+            "b": true
+          }
+        ]
+      }
+    },
+    {
+      "canonical_utf8": "{\"message\":\"שלום\",\"strategy\":\"rd_liquidity_sd_5m_v1\"}",
+      "name": "unicode-value",
+      "sha256": "a39cfeb1684f6e99583c01fd023ce6047ecbc6f72f68cb48f11da1e0fb6f2f7a",
+      "value": {
+        "message": "שלום",
+        "strategy": "rd_liquidity_sd_5m_v1"
+      }
+    },
+    {
+      "canonical_utf8": "{\"entry_ticks\":108765,\"lot_steps\":7,\"money\":{\"currency\":\"USD\",\"minor_units\":12345,\"scale\":2},\"ratio\":\"0.04000000\",\"tick_size\":\"0.00001\"}",
+      "name": "numeric-domain",
+      "sha256": "b155fcf2e0f390e29273f291f2ee71f6388d92f626c6fec535619d7ac6c7f463",
+      "value": {
+        "entry_ticks": 108765,
+        "lot_steps": 7,
+        "money": {
+          "currency": "USD",
+          "minor_units": 12345,
+          "scale": 2
+        },
+        "ratio": "0.04000000",
+        "tick_size": "0.00001"
+      }
+    }
+  ]
+}

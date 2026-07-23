@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "prop-trading-phase0"
+version = "0.1.0"
+description = "Fail-closed observation-only foundation for the prop-trading system"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic==1.16.5",
+  "asyncpg==0.30.0",
+  "fastapi==0.116.1",
+  "pydantic==2.11.7",
+  "pydantic-settings==2.10.1",
+  "sqlalchemy[asyncio]==2.0.43",
+  "tzdata==2025.2",
+  "uvicorn[standard]==0.35.0",
+]
+
+[dependency-groups]
+dev = [
+  "detect-secrets==1.5.0",
+  "httpx==0.28.1",
+  "mypy==1.17.1",
+  "pytest==8.4.1",
+  "pytest-asyncio==1.1.0",
+  "ruff==0.12.10",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/prop_trading"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests", "scripts", "tools"]
+
+[tool.ruff.lint]
+select = ["A", "ANN", "ASYNC", "B", "C4", "E", "F", "I", "N", "PERF", "PIE", "PT", "PTH", "RUF", "SIM", "UP"]
+ignore = ["ANN401"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN201", "S101"]
+"alembic/**/*.py" = ["ANN001", "ANN201"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["prop_trading"]
+mypy_path = "src"
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["alembic.*"]
+ignore_missing_imports = true

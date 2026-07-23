@@ -1,0 +1,19 @@
+{
+  "schema_id": "phase0.optimizer-1-operator-template.v1",
+  "instructions": "Replace every angle-bracket placeholder from the TradingView Optimizer 1 dialog. Do not infer values from Pine defaults.",
+  "strategy_id": "rd_liquidity_sd_5m_v1",
+  "strategy_version": "<exact-version>",
+  "captured_by": "<operator-id>",
+  "captured_at_utc": "<RFC3339-UTC>",
+  "exchange_qualified_ticker": "<exchange:ticker>",
+  "feed": "<feed-id>",
+  "feed_timezone": "<IANA-zone>",
+  "chart_type": "<CANDLES>",
+  "session_setting": "<REGULAR-or-EXTENDED>",
+  "confirmed_timeframe_minutes": "<5>",
+  "tick_size_decimal": "<fixed-scale-decimal-string>",
+  "optimizer_1_inputs": {
+    "<exact-input-name>": "<exact-serialized-value>"
+  },
+  "canonical_settings_sha256": "<64-lowercase-hex-after-canonicalization>"
+}

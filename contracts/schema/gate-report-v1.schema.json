@@ -1,0 +1,122 @@
+{
+  "$defs": {
+    "GateId": {
+      "enum": [
+        "optimizer_1_inputs",
+        "tradingview_alert_configuration",
+        "committed_clean_pine_provenance",
+        "managed_secret_workload_identity",
+        "oidc_mfa",
+        "telemetry",
+        "independent_dead_man",
+        "transactional_email",
+        "metaapi_demo_only_tenant",
+        "metaapi_common_cursor_barrier",
+        "licensed_tick_source",
+        "sequence_complete_ticks",
+        "five_day_tick_pilot"
+      ],
+      "title": "GateId",
+      "type": "string"
+    },
+    "GateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_id": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Evidence Id"
+        },
+        "gate_id": {
+          "$ref": "#/$defs/GateId"
+        },
+        "missing_requirements": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+            "type": "string"
+          },
+          "title": "Missing Requirements",
+          "type": "array"
+        },
+        "reason": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "VERIFIED",
+            "BLOCKED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gate_id",
+        "status",
+        "evidence_id",
+        "missing_requirements",
+        "reason"
+      ],
+      "title": "GateResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "gates": {
+      "items": {
+        "$ref": "#/$defs/GateResult"
+      },
+      "title": "Gates",
+      "type": "array"
+    },
+    "input_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Input Sha256",
+      "type": "string"
+    },
+    "overall_status": {
+      "enum": [
+        "VERIFIED",
+        "BLOCKED"
+      ],
+      "title": "Overall Status",
+      "type": "string"
+    },
+    "release_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Release Id",
+      "type": "string"
+    },
+    "schema_id": {
+      "const": "phase0.gate-report.v1",
+      "title": "Schema Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_id",
+    "release_id",
+    "input_sha256",
+    "overall_status",
+    "gates"
+  ],
+  "title": "Phase0GateReport",
+  "type": "object"
+}

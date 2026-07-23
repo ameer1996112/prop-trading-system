@@ -1,0 +1,16 @@
+{
+  "account_slots_per_process": 2,
+  "claims_per_account": 1,
+  "entry_fairness": "OLDEST_ELIGIBLE_ROUND_ROBIN",
+  "executor_database_connections": 12,
+  "executor_processes": 4,
+  "global_account_claims": 8,
+  "global_queue_reject": 256,
+  "global_queue_warn": 192,
+  "per_account_queue_reject": 32,
+  "per_account_queue_warn": 24,
+  "recovery_reserve_percent": 25,
+  "safety_work_priority": true,
+  "schema_id": "phase0.capacity-envelope.v1",
+  "total_pool_provider_limit_percent": 75
+}

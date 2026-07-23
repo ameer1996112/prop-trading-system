@@ -1,0 +1,168 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "affected_checkpoint_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Affected Checkpoint Id"
+    },
+    "allocations_frozen": {
+      "const": true,
+      "title": "Allocations Frozen",
+      "type": "boolean"
+    },
+    "conflicting_sequence": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conflicting Sequence"
+    },
+    "detection_reason": {
+      "enum": [
+        "SEQUENCE_GAP",
+        "CONFLICTING_DUPLICATE",
+        "UNPLANNED_GENERATION_RESET",
+        "CHECKPOINT_TIMEOUT"
+      ],
+      "title": "Detection Reason",
+      "type": "string"
+    },
+    "first_observed_after_gap": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "First Observed After Gap"
+    },
+    "gap_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Gap Id",
+      "type": "string"
+    },
+    "last_contiguous_sequence": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Contiguous Sequence"
+    },
+    "pre_gap_setups_permanently_tainted": {
+      "const": true,
+      "title": "Pre Gap Setups Permanently Tainted",
+      "type": "boolean"
+    },
+    "previous_stream_generation": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Previous Stream Generation"
+    },
+    "producer_identity": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Producer Identity",
+      "type": "string"
+    },
+    "recovery_checkpoint_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Recovery Checkpoint Id"
+    },
+    "recovery_checkpoint_setups_permanently_tainted": {
+      "const": true,
+      "title": "Recovery Checkpoint Setups Permanently Tainted",
+      "type": "boolean"
+    },
+    "recovery_state": {
+      "enum": [
+        "GAP_FROZEN",
+        "ACTIVE_FOR_NEW_LIFECYCLES"
+      ],
+      "title": "Recovery State",
+      "type": "string"
+    },
+    "retrospective_execution_forbidden": {
+      "const": true,
+      "title": "Retrospective Execution Forbidden",
+      "type": "boolean"
+    },
+    "schema_id": {
+      "const": "phase0.gap-taint.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "stream_generation": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Stream Generation",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_id",
+    "gap_id",
+    "producer_identity",
+    "stream_generation",
+    "detection_reason",
+    "allocations_frozen",
+    "pre_gap_setups_permanently_tainted",
+    "recovery_checkpoint_setups_permanently_tainted",
+    "retrospective_execution_forbidden",
+    "recovery_state",
+    "recovery_checkpoint_id"
+  ],
+  "title": "GapTaintDeclaration",
+  "type": "object"
+}

@@ -1,0 +1,93 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "account_slots_per_process": {
+      "const": 2,
+      "title": "Account Slots Per Process",
+      "type": "integer"
+    },
+    "claims_per_account": {
+      "const": 1,
+      "title": "Claims Per Account",
+      "type": "integer"
+    },
+    "entry_fairness": {
+      "const": "OLDEST_ELIGIBLE_ROUND_ROBIN",
+      "title": "Entry Fairness",
+      "type": "string"
+    },
+    "executor_database_connections": {
+      "const": 12,
+      "title": "Executor Database Connections",
+      "type": "integer"
+    },
+    "executor_processes": {
+      "const": 4,
+      "title": "Executor Processes",
+      "type": "integer"
+    },
+    "global_account_claims": {
+      "const": 8,
+      "title": "Global Account Claims",
+      "type": "integer"
+    },
+    "global_queue_reject": {
+      "const": 256,
+      "title": "Global Queue Reject",
+      "type": "integer"
+    },
+    "global_queue_warn": {
+      "const": 192,
+      "title": "Global Queue Warn",
+      "type": "integer"
+    },
+    "per_account_queue_reject": {
+      "const": 32,
+      "title": "Per Account Queue Reject",
+      "type": "integer"
+    },
+    "per_account_queue_warn": {
+      "const": 24,
+      "title": "Per Account Queue Warn",
+      "type": "integer"
+    },
+    "recovery_reserve_percent": {
+      "const": 25,
+      "title": "Recovery Reserve Percent",
+      "type": "integer"
+    },
+    "safety_work_priority": {
+      "const": true,
+      "title": "Safety Work Priority",
+      "type": "boolean"
+    },
+    "schema_id": {
+      "const": "phase0.capacity-envelope.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "total_pool_provider_limit_percent": {
+      "const": 75,
+      "title": "Total Pool Provider Limit Percent",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_id",
+    "executor_processes",
+    "account_slots_per_process",
+    "global_account_claims",
+    "claims_per_account",
+    "executor_database_connections",
+    "total_pool_provider_limit_percent",
+    "recovery_reserve_percent",
+    "per_account_queue_warn",
+    "global_queue_warn",
+    "per_account_queue_reject",
+    "global_queue_reject",
+    "safety_work_priority",
+    "entry_fairness"
+  ],
+  "title": "CapacityEnvelope",
+  "type": "object"
+}

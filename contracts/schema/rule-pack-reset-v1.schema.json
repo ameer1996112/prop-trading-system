@@ -1,0 +1,136 @@
+{
+  "$defs": {
+    "RiskPeriodBoundary": {
+      "additionalProperties": false,
+      "properties": {
+        "local_period_date": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "title": "Local Period Date",
+          "type": "string"
+        },
+        "resolution": {
+          "enum": [
+            "EXACT",
+            "GAP_FORWARD",
+            "FOLD_EARLY"
+          ],
+          "title": "Resolution",
+          "type": "string"
+        },
+        "scheduled_local_label": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Scheduled Local Label",
+          "type": "string"
+        },
+        "utc_end": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Utc End",
+          "type": "string"
+        },
+        "utc_offset": {
+          "pattern": "^[+-][0-9]{2}:[0-9]{2}$",
+          "title": "Utc Offset",
+          "type": "string"
+        },
+        "utc_start": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Utc Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_period_date",
+        "scheduled_local_label",
+        "utc_start",
+        "utc_end",
+        "resolution",
+        "utc_offset"
+      ],
+      "title": "RiskPeriodBoundary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ambiguous_local_time_policy": {
+      "const": "FIRST_OCCURRENCE_FOLD_0",
+      "title": "Ambiguous Local Time Policy",
+      "type": "string"
+    },
+    "boundaries": {
+      "items": {
+        "$ref": "#/$defs/RiskPeriodBoundary"
+      },
+      "minItems": 1,
+      "title": "Boundaries",
+      "type": "array"
+    },
+    "iana_timezone": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Iana Timezone",
+      "type": "string"
+    },
+    "local_reset_time": {
+      "pattern": "^[0-9]{2}:[0-9]{2}:[0-9]{2}$",
+      "title": "Local Reset Time",
+      "type": "string"
+    },
+    "nonexistent_local_time_policy": {
+      "const": "NEXT_VALID_INSTANT",
+      "title": "Nonexistent Local Time Policy",
+      "type": "string"
+    },
+    "rule_pack_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Rule Pack Id",
+      "type": "string"
+    },
+    "rule_pack_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "title": "Rule Pack Version",
+      "type": "string"
+    },
+    "schema_id": {
+      "const": "phase0.rule-pack-reset.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "tzdb_version": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Tzdb Version",
+      "type": "string"
+    },
+    "uniqueness_scope": {
+      "const": "account_id,rule_pack_version,local_period_date",
+      "title": "Uniqueness Scope",
+      "type": "string"
+    },
+    "utc_period_semantics": {
+      "const": "HALF_OPEN",
+      "title": "Utc Period Semantics",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_id",
+    "rule_pack_id",
+    "rule_pack_version",
+    "iana_timezone",
+    "tzdb_version",
+    "local_reset_time",
+    "nonexistent_local_time_policy",
+    "ambiguous_local_time_policy",
+    "utc_period_semantics",
+    "uniqueness_scope",
+    "boundaries"
+  ],
+  "title": "RulePackResetMetadata",
+  "type": "object"
+}

@@ -1,0 +1,104 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "account_capability_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Account Capability Id",
+      "type": "string"
+    },
+    "ask_ticks": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Ask Ticks",
+      "type": "integer"
+    },
+    "bid_ticks": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Bid Ticks",
+      "type": "integer"
+    },
+    "broker_event_time": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "Broker Event Time",
+      "type": "string"
+    },
+    "clock_offset_ns": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "title": "Clock Offset Ns",
+      "type": "integer"
+    },
+    "connection_generation": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Connection Generation",
+      "type": "integer"
+    },
+    "connection_healthy": {
+      "title": "Connection Healthy",
+      "type": "boolean"
+    },
+    "feed_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Feed Id",
+      "type": "string"
+    },
+    "ingest_ordinal": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Ingest Ordinal",
+      "type": "integer"
+    },
+    "monotonic_receive_ns": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Monotonic Receive Ns",
+      "type": "integer"
+    },
+    "schema_id": {
+      "const": "phase0.tick-observation.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "upstream_sequence": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Upstream Sequence"
+    },
+    "utc_receive_time": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "Utc Receive Time",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_id",
+    "feed_id",
+    "account_capability_id",
+    "broker_event_time",
+    "utc_receive_time",
+    "monotonic_receive_ns",
+    "connection_generation",
+    "ingest_ordinal",
+    "bid_ticks",
+    "ask_ticks",
+    "clock_offset_ns",
+    "connection_healthy"
+  ],
+  "title": "TickObservation",
+  "type": "object"
+}

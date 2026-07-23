@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.pine text eol=lf
+*.json text eol=lf
+*.lock text eol=lf

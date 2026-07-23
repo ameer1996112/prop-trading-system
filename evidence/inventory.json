@@ -1,0 +1,164 @@
+{
+  "artifacts": [
+    {
+      "content_matches_head": false,
+      "copied_artifact": {
+        "claimed_commit": null,
+        "copied_from_working_tree": true,
+        "destination": "evidence/legacy/canonical/SND_RD_5M_V1_LAB.pine",
+        "sha256": "5a7548af39d0447a54320f97830185c733b83fb3ae07c24d204dc94e59314d30"
+      },
+      "disposition": "PORT",
+      "head_content_sha256": "54cef99d5e26cb3551ed8fd04725d09cffcf853dd3192ad3b48743dece93beac",
+      "intended_destination": "evidence/legacy/canonical/SND_RD_5M_V1_LAB.pine",
+      "known_defects": [
+        "The authorized working file is modified relative to HEAD and is not represented by source_repository_head.",
+        "Committed Pine defaults are development fixtures and do not contain the operator-supplied Optimizer 1 profile.",
+        "The legacy export places a credential in the body and accepts operator-declared detector/settings hashes as if they were provenance.",
+        "Canonical and diagnostic alert calls share one script instance; the source lacks the approved heartbeat, stream-generation, chunked-checkpoint, overflow, and gap-taint protocol."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/scripts/pinescript/indicators/SND_RD_5M_V1_LAB.pine",
+      "source_relative_path": "scripts/pinescript/indicators/SND_RD_5M_V1_LAB.pine",
+      "working_content_sha256": "5a7548af39d0447a54320f97830185c733b83fb3ae07c24d204dc94e59314d30",
+      "working_tree_status": "MODIFIED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "src/prop_trading/contracts/canonical_setup_events.py (Phase 1A; not created in Phase 0)",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "Price and candle geometry use binary float.",
+        "The ingress credential is embedded in the payload contract.",
+        "The snapshot/incremental schema lacks stream generation, heartbeat, bounded checkpoint chunks, and permanent gap-taint semantics."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/src/core/rd_setup_contract.py",
+      "source_relative_path": "src/core/rd_setup_contract.py",
+      "working_content_sha256": "52ca2c5182245ffe4943ec294fdfd275d194609b120012488246cbe4245a7a1b",
+      "working_tree_status": "UNTRACKED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "src/prop_trading/api/ingress.py (Phase 1A; not created in Phase 0)",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "Authentication trusts a body credential instead of a manifest-bound gateway/internal signature.",
+        "The operator guard becomes permissive when its shared key setting is empty.",
+        "The process-local rate limiter and response-driven RESYNC_REQUIRED behavior do not meet the durable ingress protocol."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/src/api_rd_setups.py",
+      "source_relative_path": "src/api_rd_setups.py",
+      "working_content_sha256": "d663ab7136ee6972b05767d15524ff3fa02f1fcfebbfd4a55d8b1de4d501949e",
+      "working_tree_status": "UNTRACKED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "src/prop_trading/application/ingress.py and adapters/postgres.py (Phase 1A)",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "The legacy service implements a single snapshot/resync model rather than staged digest-verified checkpoint chunks.",
+        "It has no permanent gap-taint eligibility boundary or new-lifecycle-only recovery proof.",
+        "Its useful receipt, sequencing, idempotency, redaction, and negative cases must be retained as oracle behavior, not direct code."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/src/services/rd_setup_handoff.py",
+      "source_relative_path": "src/services/rd_setup_handoff.py",
+      "working_content_sha256": "f5f5d09a2ca60dacfc79129dcae5000910b24020e8c2d674f42d95a036129f80",
+      "working_tree_status": "UNTRACKED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "alembic/versions/phase1a_ingress_ledger.py (Phase 1A)",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "RESYNC_REQUIRED cannot be acted upon by Pine and the migration lacks periodic chunk assembly.",
+        "Snapshot projection updates do not encode permanent gap taint or checkpoint-created non-executability.",
+        "The migration is PostgreSQL-specific legacy SQL and is not an expand/contract Alembic revision for the new repository."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/migrations/086_rd_setup_phase1.sql",
+      "source_relative_path": "migrations/086_rd_setup_phase1.sql",
+      "working_content_sha256": "9daa3d2779d7111881eec6a8c46102cc035774919a7450f307ff6d71985a34cd",
+      "working_tree_status": "UNTRACKED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "tests/contract/test_phase1a_ingress_api.py (Phase 1A)",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "Fixtures contain a body credential and assert the legacy snapshot/resync contract.",
+        "The negative cases remain useful, but must be rewritten for manifest-bound authentication and durable chunk/gap behavior."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/tests/test_api_rd_setups.py",
+      "source_relative_path": "tests/test_api_rd_setups.py",
+      "working_content_sha256": "a97a527f3f60167257d25a167d0bf1086625ce7d1e7b02f959cf982a4b986844",
+      "working_tree_status": "UNTRACKED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "tests/contract/test_phase1a_handoff.py (Phase 1A)",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "The suite is coupled to the legacy single-snapshot handoff and lacks chunk conflict/timeout/restart cases.",
+        "Its duplicate, sequence, transaction, review-conflict, and redaction failures are retained as a negative oracle."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/tests/test_rd_setup_handoff.py",
+      "source_relative_path": "tests/test_rd_setup_handoff.py",
+      "working_content_sha256": "d78b0acd4a91ab4c22f60bc19b11f02d69187e6994c2843456bff256a0882708",
+      "working_tree_status": "UNTRACKED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "tests/static/test_canonical_pine_producer.py (Phase 1A)",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "Static text assertions cannot attest to the running TradingView alert snapshot or operator inputs.",
+        "The assertions target the legacy payload rather than heartbeat, stream generation, bounded chunks, overflow, and exclusive canonical mode."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/scripts/pinescript/tests/test_snd_rd_5m_v1_setup_producer_static.py",
+      "source_relative_path": "scripts/pinescript/tests/test_snd_rd_5m_v1_setup_producer_static.py",
+      "working_content_sha256": "7e5fdca1f95ecdaa3dd3645249cf1b99be9e2a32983e6e7e19888afbd4d36709",
+      "working_tree_status": "UNTRACKED"
+    },
+    {
+      "content_matches_head": false,
+      "copied_artifact": null,
+      "disposition": "REWRITE_WITH_NEGATIVE_ORACLE",
+      "head_content_sha256": null,
+      "intended_destination": "tests/contract/test_tick_evidence_manifests.py",
+      "known_defects": [
+        "The file is untracked, so no source commit represents these exact bytes.",
+        "The legacy manifest proves file hashes and bid/ask presence but not immutable chunks, connection/clock coverage, or upstream sequence completeness.",
+        "The reproducibility and missing-field cases remain useful as a negative oracle."
+      ],
+      "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/scripts/pinescript/tests/test_evidence_manifest.py",
+      "source_relative_path": "scripts/pinescript/tests/test_evidence_manifest.py",
+      "working_content_sha256": "5b8009cab58fea7c375ead96cf404715b5da2ff31352fcc27633c8d1be616e1a",
+      "working_tree_status": "UNTRACKED"
+    }
+  ],
+  "capture_scope": "EXPLICIT_ALLOWLIST_ONLY",
+  "inventory_tool_version": "1.0.0",
+  "schema_id": "phase0.legacy-evidence-inventory.v1",
+  "source_repository_dirty_for_authorized_paths": true,
+  "source_repository_head": "1a770f6fcd55e172dcfb8120a3e0c18852dc452d",
+  "source_repository_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading"
+}

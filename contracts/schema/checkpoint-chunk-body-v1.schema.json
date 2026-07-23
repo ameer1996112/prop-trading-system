@@ -1,0 +1,368 @@
+{
+  "$defs": {
+    "ActiveLiquidityGeometry": {
+      "additionalProperties": false,
+      "properties": {
+        "origin_close": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Origin Close",
+          "type": "string"
+        },
+        "origin_open": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Origin Open",
+          "type": "string"
+        },
+        "price_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Price Ticks",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "price_ticks",
+        "origin_open",
+        "origin_close"
+      ],
+      "title": "ActiveLiquidityGeometry",
+      "type": "object"
+    },
+    "ActiveSetupNaturalKey": {
+      "additionalProperties": false,
+      "properties": {
+        "formation_bar_close": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Formation Bar Close",
+          "type": "string"
+        },
+        "liquidity_key": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Liquidity Key",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/SetupSide"
+        },
+        "zone_key": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Zone Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "side",
+        "zone_key",
+        "liquidity_key",
+        "formation_bar_close"
+      ],
+      "title": "ActiveSetupNaturalKey",
+      "type": "object"
+    },
+    "ActiveSourceCandle": {
+      "additionalProperties": false,
+      "properties": {
+        "close_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Close Ticks",
+          "type": "integer"
+        },
+        "close_time": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Close Time",
+          "type": "string"
+        },
+        "high_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "High Ticks",
+          "type": "integer"
+        },
+        "low_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Low Ticks",
+          "type": "integer"
+        },
+        "open_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Open Ticks",
+          "type": "integer"
+        },
+        "open_time": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Open Time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "open_time",
+        "close_time",
+        "open_ticks",
+        "high_ticks",
+        "low_ticks",
+        "close_ticks"
+      ],
+      "title": "ActiveSourceCandle",
+      "type": "object"
+    },
+    "ActiveZoneGeometry": {
+      "additionalProperties": false,
+      "properties": {
+        "bottom_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Bottom Ticks",
+          "type": "integer"
+        },
+        "origin_close": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Origin Close",
+          "type": "string"
+        },
+        "origin_open": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Origin Open",
+          "type": "string"
+        },
+        "top_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Top Ticks",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "top_ticks",
+        "bottom_ticks",
+        "origin_open",
+        "origin_close"
+      ],
+      "title": "ActiveZoneGeometry",
+      "type": "object"
+    },
+    "CheckpointActiveSetup": {
+      "additionalProperties": false,
+      "description": "Full observation-only active body emitted by the authorized detector contract.",
+      "properties": {
+        "liquidity": {
+          "$ref": "#/$defs/ActiveLiquidityGeometry"
+        },
+        "natural_key": {
+          "$ref": "#/$defs/ActiveSetupNaturalKey"
+        },
+        "reason_code": {
+          "enum": [
+            "WAIT_SETUP_ELIGIBILITY",
+            "ARM_SETUP_AFTER_LIQUIDITY"
+          ],
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "source_candle": {
+          "$ref": "#/$defs/ActiveSourceCandle"
+        },
+        "state": {
+          "enum": [
+            "WAITING_FOR_ELIGIBILITY",
+            "ARMED"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "zone": {
+          "$ref": "#/$defs/ActiveZoneGeometry"
+        }
+      },
+      "required": [
+        "natural_key",
+        "state",
+        "reason_code",
+        "zone",
+        "liquidity",
+        "source_candle"
+      ],
+      "title": "CheckpointActiveSetup",
+      "type": "object"
+    },
+    "CheckpointChunkMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "chunk_bytes": {
+          "maximum": 65536,
+          "minimum": 0,
+          "title": "Chunk Bytes",
+          "type": "integer"
+        },
+        "chunk_count": {
+          "maximum": 64,
+          "minimum": 1,
+          "title": "Chunk Count",
+          "type": "integer"
+        },
+        "chunk_index": {
+          "maximum": 63,
+          "minimum": 0,
+          "title": "Chunk Index",
+          "type": "integer"
+        },
+        "chunk_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Chunk Sha256",
+          "type": "string"
+        },
+        "confirmed_bar_close": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+          "title": "Confirmed Bar Close",
+          "type": "string"
+        },
+        "covers_through_sequence": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Covers Through Sequence",
+          "type": "integer"
+        },
+        "first_setup_identity": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Setup Identity"
+        },
+        "full_set_count": {
+          "maximum": 1024,
+          "minimum": 0,
+          "title": "Full Set Count",
+          "type": "integer"
+        },
+        "full_set_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Full Set Sha256",
+          "type": "string"
+        },
+        "last_setup_identity": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Setup Identity"
+        },
+        "logical_sequence": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Logical Sequence",
+          "type": "integer"
+        },
+        "manifest_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Manifest Id",
+          "type": "string"
+        },
+        "producer_identity": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Producer Identity",
+          "type": "string"
+        },
+        "schema_id": {
+          "const": "phase0.checkpoint-chunk.v1",
+          "title": "Schema Id",
+          "type": "string"
+        },
+        "staged_only": {
+          "const": true,
+          "title": "Staged Only",
+          "type": "boolean"
+        },
+        "stream_generation": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Stream Generation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_id",
+        "manifest_id",
+        "producer_identity",
+        "stream_generation",
+        "checkpoint_id",
+        "covers_through_sequence",
+        "logical_sequence",
+        "confirmed_bar_close",
+        "full_set_count",
+        "full_set_sha256",
+        "chunk_index",
+        "chunk_count",
+        "chunk_bytes",
+        "chunk_sha256",
+        "staged_only"
+      ],
+      "title": "CheckpointChunkMetadata",
+      "type": "object"
+    },
+    "SetupSide": {
+      "enum": [
+        "DEMAND",
+        "SUPPLY"
+      ],
+      "title": "SetupSide",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Typed body whose ordering, count, byte length, and digest are executable invariants.",
+  "properties": {
+    "metadata": {
+      "$ref": "#/$defs/CheckpointChunkMetadata"
+    },
+    "schema_id": {
+      "const": "phase0.checkpoint-chunk-body.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "setups": {
+      "items": {
+        "$ref": "#/$defs/CheckpointActiveSetup"
+      },
+      "maxItems": 1024,
+      "title": "Setups",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_id",
+    "metadata",
+    "setups"
+  ],
+  "title": "CheckpointChunkBody",
+  "type": "object"
+}

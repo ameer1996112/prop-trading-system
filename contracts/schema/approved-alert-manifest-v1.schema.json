@@ -1,0 +1,164 @@
+{
+  "$defs": {
+    "EvidenceStatus": {
+      "enum": [
+        "VERIFIED",
+        "UNVERIFIED",
+        "BLOCKED"
+      ],
+      "title": "EvidenceStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "canonical_export_enabled": {
+      "const": true,
+      "title": "Canonical Export Enabled",
+      "type": "boolean"
+    },
+    "diagnostics_enabled": {
+      "const": false,
+      "title": "Diagnostics Enabled",
+      "type": "boolean"
+    },
+    "evidence_status": {
+      "$ref": "#/$defs/EvidenceStatus"
+    },
+    "expected_payload_families": {
+      "items": {
+        "enum": [
+          "HEARTBEAT",
+          "CHECKPOINT_CHUNK",
+          "CHECKPOINT_OVERFLOW"
+        ],
+        "type": "string"
+      },
+      "title": "Expected Payload Families",
+      "type": "array"
+    },
+    "incomplete_checkpoint_after_seconds": {
+      "const": 720,
+      "title": "Incomplete Checkpoint After Seconds",
+      "type": "integer"
+    },
+    "manifest_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "max_active_setups": {
+      "maximum": 1024,
+      "minimum": 1,
+      "title": "Max Active Setups",
+      "type": "integer"
+    },
+    "max_canonical_setup_bytes": {
+      "maximum": 16384,
+      "minimum": 128,
+      "title": "Max Canonical Setup Bytes",
+      "type": "integer"
+    },
+    "max_checkpoint_chunks": {
+      "maximum": 64,
+      "minimum": 1,
+      "title": "Max Checkpoint Chunks",
+      "type": "integer"
+    },
+    "max_chunk_bytes": {
+      "maximum": 65536,
+      "minimum": 256,
+      "title": "Max Chunk Bytes",
+      "type": "integer"
+    },
+    "message_structure_evidence_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Message Structure Evidence Id"
+    },
+    "mode": {
+      "const": "CANONICAL",
+      "title": "Mode",
+      "type": "string"
+    },
+    "payload_contract_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "title": "Payload Contract Version",
+      "type": "string"
+    },
+    "recreation_evidence_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Recreation Evidence Id"
+    },
+    "redacted_destination_evidence_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Redacted Destination Evidence Id"
+    },
+    "schema_id": {
+      "const": "phase0.approved-alert-manifest.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "strategy_manifest_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Strategy Manifest Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_id",
+    "manifest_id",
+    "strategy_manifest_id",
+    "payload_contract_version",
+    "expected_payload_families",
+    "mode",
+    "canonical_export_enabled",
+    "diagnostics_enabled",
+    "max_active_setups",
+    "max_checkpoint_chunks",
+    "max_chunk_bytes",
+    "max_canonical_setup_bytes",
+    "incomplete_checkpoint_after_seconds",
+    "redacted_destination_evidence_id",
+    "message_structure_evidence_id",
+    "recreation_evidence_id",
+    "evidence_status"
+  ],
+  "title": "ApprovedAlertManifest",
+  "type": "object"
+}

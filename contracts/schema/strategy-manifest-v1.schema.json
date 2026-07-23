@@ -1,0 +1,331 @@
+{
+  "$defs": {
+    "EvidenceStatus": {
+      "enum": [
+        "VERIFIED",
+        "UNVERIFIED",
+        "BLOCKED"
+      ],
+      "title": "EvidenceStatus",
+      "type": "string"
+    },
+    "FeedContext": {
+      "additionalProperties": false,
+      "properties": {
+        "chart_type": {
+          "const": "CANDLES",
+          "title": "Chart Type",
+          "type": "string"
+        },
+        "confirmed_timeframe_minutes": {
+          "const": 5,
+          "title": "Confirmed Timeframe Minutes",
+          "type": "integer"
+        },
+        "exchange_qualified_ticker": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Exchange Qualified Ticker",
+          "type": "string"
+        },
+        "feed": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Feed",
+          "type": "string"
+        },
+        "session_setting": {
+          "enum": [
+            "REGULAR",
+            "EXTENDED"
+          ],
+          "title": "Session Setting",
+          "type": "string"
+        },
+        "tick_size": {
+          "title": "Tick Size",
+          "type": "string"
+        },
+        "timezone": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "required": [
+        "exchange_qualified_ticker",
+        "feed",
+        "tick_size",
+        "timezone",
+        "chart_type",
+        "session_setting",
+        "confirmed_timeframe_minutes"
+      ],
+      "title": "FeedContext",
+      "type": "object"
+    },
+    "SourceProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "committed_clean": {
+          "title": "Committed Clean",
+          "type": "boolean"
+        },
+        "content_matches_head": {
+          "title": "Content Matches Head",
+          "type": "boolean"
+        },
+        "head_content_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Head Content Sha256"
+        },
+        "source_path": {
+          "minLength": 1,
+          "title": "Source Path",
+          "type": "string"
+        },
+        "source_repository_head": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "pattern": "^[a-f0-9]{40}$",
+              "type": "string"
+            }
+          ],
+          "title": "Source Repository Head"
+        },
+        "source_working_tree_status": {
+          "$ref": "#/$defs/SourceWorkingTreeStatus"
+        },
+        "working_content_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Working Content Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "source_repository_head",
+        "source_working_tree_status",
+        "working_content_sha256",
+        "head_content_sha256",
+        "content_matches_head",
+        "committed_clean"
+      ],
+      "title": "SourceProvenance",
+      "type": "object"
+    },
+    "SourceWorkingTreeStatus": {
+      "enum": [
+        "CLEAN",
+        "MODIFIED",
+        "UNTRACKED"
+      ],
+      "title": "SourceWorkingTreeStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "activation_status": {
+      "$ref": "#/$defs/EvidenceStatus"
+    },
+    "alert_mode": {
+      "const": "CANONICAL",
+      "title": "Alert Mode",
+      "type": "string"
+    },
+    "alert_recreation_evidence_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Alert Recreation Evidence Id"
+    },
+    "approved_alert_manifest_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Approved Alert Manifest Id",
+      "type": "string"
+    },
+    "checkpoint_cadence_confirmed_bars": {
+      "const": 12,
+      "title": "Checkpoint Cadence Confirmed Bars",
+      "type": "integer"
+    },
+    "decision_matrix_version": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Decision Matrix Version"
+    },
+    "feed_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FeedContext"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "heartbeat_every_confirmed_bar": {
+      "const": true,
+      "title": "Heartbeat Every Confirmed Bar",
+      "type": "boolean"
+    },
+    "heartbeat_slo_seconds": {
+      "maximum": 600,
+      "minimum": 1,
+      "title": "Heartbeat Slo Seconds",
+      "type": "integer"
+    },
+    "manifest_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "optimizer_1_evidence_id": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Optimizer 1 Evidence Id"
+    },
+    "optimizer_1_settings_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Optimizer 1 Settings Sha256"
+    },
+    "pine": {
+      "$ref": "#/$defs/SourceProvenance"
+    },
+    "producer_identity": {
+      "anyOf": [
+        {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Producer Identity"
+    },
+    "schema_id": {
+      "const": "phase0.strategy-manifest.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "strategy_id": {
+      "const": "rd_liquidity_sd_5m_v1",
+      "title": "Strategy Id",
+      "type": "string"
+    },
+    "strategy_version": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Strategy Version"
+    },
+    "stream_generation": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stream Generation"
+    },
+    "webhook_contract_version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "title": "Webhook Contract Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_id",
+    "manifest_id",
+    "strategy_id",
+    "strategy_version",
+    "pine",
+    "decision_matrix_version",
+    "optimizer_1_evidence_id",
+    "optimizer_1_settings_sha256",
+    "feed_context",
+    "webhook_contract_version",
+    "producer_identity",
+    "checkpoint_cadence_confirmed_bars",
+    "heartbeat_every_confirmed_bar",
+    "heartbeat_slo_seconds",
+    "approved_alert_manifest_id",
+    "alert_recreation_evidence_id",
+    "alert_mode",
+    "activation_status"
+  ],
+  "title": "StrategyManifest",
+  "type": "object"
+}

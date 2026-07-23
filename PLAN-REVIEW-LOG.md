@@ -196,3 +196,15 @@ Accepted all five findings; none were rejected.
 All five Round 3 blockers are materially closed. No remaining or newly introduced implementation blocker meets the stated safety, correctness, or verifiability threshold; unresolved provider capabilities are correctly handled as fail-closed kill criteria.
 
 VERDICT: APPROVED
+
+
+## Act 3 — Build
+
+- Built the Phase 0 observation-only foundation in the greenfield `prop-trading-system` repository on branch `codex/phase-0-foundation`; the legacy `trading` repository remained an unchanged provenance source.
+- The build thread completed an initial implementation and two bounded correction rounds. It produced typed canonical contracts, an append-only exact-byte evidence ledger, fail-closed health/readiness APIs, a server-backed operations console, deterministic tick-fixture durability, frozen evidence registries, locked dependencies, secret scanning, and bounded container verification.
+- Primary review hardened unsupported JavaScript state, PostgreSQL-incompatible null code points, authorization redaction, checkpoint timestamp and geometry semantics, repeated crash quarantine recovery, runtime database privileges, envelope binding, frozen-log parsing, lockfile credential detection, and bounded Compose cleanup/diagnostics.
+- Cross-runtime canonicalization now accepts only ordinary dense enumerable data arrays and plain data objects; duplicate decoded keys, lone surrogates, unsupported prototypes/accessors/symbols/hidden state, unsafe integers, noncanonical bytes, and PostgreSQL-incompatible null code points fail closed.
+- Checkpoint comparisons retain all nine fractional-second digits, equivalent UTC spellings compare by instant, active detector geometry is exactly five minutes, formation cannot follow the confirmed checkpoint bar, and the snapshot candle closes at that confirmed instant.
+- The evidence ledger preserves authoritative canonical UTF-8 text and database-generated SHA-256, exposes only SELECT plus the typed append function to the runtime role, rejects unsafe reused roles including ownership of the database or public schema, and blocks direct insert, forged time/hash, schema/envelope mismatch, update, delete, and truncate.
+- Focused primary proof passed 106 Python contract/unit/static tests, 20 frontend canonical tests, Ruff format/lint, ESLint, and TypeScript checking. The final acceptance command for this exact tree is `make verify-phase0`.
+- All 13 external capability gates intentionally remain `BLOCKED`; readiness remains false, no broker or execution adapter is present, and this phase cannot place or simulate trades.

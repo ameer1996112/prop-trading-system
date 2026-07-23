@@ -1,0 +1,17 @@
+.git
+.github
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
+**/.next
+**/node_modules
+tick-data
+.env*
+config/local
+PLAN-REVIEW-LOG.md
+coverage
+htmlcov
+build
+dist
+*.tsbuildinfo

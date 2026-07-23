@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "confirmed_bar_close": {
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$",
+      "title": "Confirmed Bar Close",
+      "type": "string"
+    },
+    "kind": {
+      "const": "HEARTBEAT",
+      "title": "Kind",
+      "type": "string"
+    },
+    "manifest_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Manifest Id",
+      "type": "string"
+    },
+    "producer_identity": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Producer Identity",
+      "type": "string"
+    },
+    "schema_id": {
+      "const": "phase0.heartbeat.v1",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "stream_generation": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Stream Generation",
+      "type": "integer"
+    },
+    "timeframe_minutes": {
+      "const": 5,
+      "title": "Timeframe Minutes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_id",
+    "manifest_id",
+    "producer_identity",
+    "stream_generation",
+    "sequence",
+    "confirmed_bar_close",
+    "timeframe_minutes",
+    "kind"
+  ],
+  "title": "HeartbeatMetadata",
+  "type": "object"
+}
