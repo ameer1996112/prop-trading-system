@@ -21,7 +21,7 @@ def test_domain_has_no_framework_imports() -> None:
         assert not imports.intersection(forbidden), path
 
 
-def test_runtime_settings_cannot_accept_broker_or_account_credentials() -> None:
+def test_runtime_settings_accept_only_observation_ingress_not_broker_credentials() -> None:
     fields = set(Settings.model_fields)
     assert fields == {
         "app_environment",
@@ -33,6 +33,9 @@ def test_runtime_settings_cannot_accept_broker_or_account_credentials() -> None:
         "database_user",
         "database_password_file",
         "phase0_evidence_path",
+        "tradingview_observation_ingress_enabled",
+        "tradingview_observation_credential_sha256",
+        "tradingview_observation_max_body_bytes",
     }
     assert not any("broker" in field or "account" in field or "token" in field for field in fields)
 

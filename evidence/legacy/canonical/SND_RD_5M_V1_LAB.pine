@@ -1,5 +1,5 @@
 //@version=6
-indicator("SND RD 5M V1 LAB", overlay = true, max_bars_back = 5000, max_boxes_count = 300, max_labels_count = 300, max_lines_count = 500)
+indicator("SND RD 5M V1 LAB EDGE", overlay = true, max_bars_back = 5000, max_boxes_count = 300, max_labels_count = 300, max_lines_count = 500)
 
 // Canonical, non-executable raw-zone detector. Decisions occur on closed 5m bars.
 
@@ -27,10 +27,11 @@ const int APPROACH_LOOKBACK_BARS = 20
 const string VALIDATION_SCHEMA = "rd-forex-validation/v1"
 const int VALIDATION_MAX_PAYLOAD_CHARS = 35000
 const int VALIDATION_MAX_BATCH_EVENTS = 200
-const string SETUP_EXPORT_SCHEMA = "1.0"
+const string SETUP_EXPORT_SCHEMA = "1.1"
 const string SETUP_EXPORT_STRATEGY_ID = "rd_liquidity_sd_5m_v1"
-const string SETUP_EXPORT_STRATEGY_VERSION = "1.0.0-phase1"
+const string SETUP_EXPORT_STRATEGY_VERSION = "1.1.0-paper1"
 const int SETUP_EXPORT_MAX_TRANSITIONS = 64
+const int SETUP_EXPORT_MAX_PAPER_COMMANDS = 128
 const int SETUP_EXPORT_MAX_SNAPSHOT_SETUPS = 256
 const int SETUP_EXPORT_MAX_PAYLOAD_CHARS = 35000
 
@@ -74,6 +75,10 @@ setupExportCredential = input.string("", "Setup export credential", group = "Aut
 setupExportProducerTag = input.string("tradingview", "Producer tag", group = "Automation", tooltip = "Operator label used to distinguish chart-alert producers. Reloading the script creates a new producer instance.")
 setupExportDetectorHash = input.string("unverified", "Detector code hash", group = "Automation", tooltip = "Version-control or artifact digest supplied by the operator.")
 setupExportSettingsHash = input.string("unverified", "Settings hash", group = "Automation", tooltip = "Digest of the locked TradingView input profile supplied by the operator.")
+paperAutomationEnabled = input.bool(false, "Enable broker-free paper automation", group = "Paper simulation", tooltip = "Emits versioned paper OPEN and SETTLE commands through the observation webhook. No broker or order API is used.")
+paperAccountIdsCsv = input.string("paper-sandbox-a,paper-sandbox-b", "Paper account IDs", group = "Paper simulation", tooltip = "Comma-separated paper-only account IDs already registered in the Worker.")
+paperRiskBps = input.int(50, "Risk per account (basis points)", minval = 1, maxval = 500, group = "Paper simulation", tooltip = "50 basis points equals 0.50% of each isolated paper account balance.")
+paperRewardR = input.float(2.0, "Target reward (R)", minval = 0.1, maxval = 10.0, step = 0.1, group = "Paper simulation")
 validationCapture = input.bool(false, "Validation capture", group = "Validation")
 validationRunId = input.string("manual-run", "Parent run ID", group = "Validation")
 validationParentHash = input.string("unverified", "Parent manifest hash", group = "Validation")
@@ -205,6 +210,15 @@ type RawZone
     line liquidityLine
     line ownExtremeLine
     label debugLabel
+
+type PaperTrade
+    string intentId
+    bool buy
+    float entry
+    float stop
+    float target
+    int openedBar
+    bool open
 
 method reset(Candidate this) =>
     this.isActive := false
@@ -949,7 +963,6 @@ jsonEscape(string value) =>
     string escaped = str.replace_all(value, "\\", "\\\\")
     escaped := str.replace_all(escaped, "\"", "\\\"")
     escaped := str.replace_all(escaped, "\n", "\\n")
-    escaped := str.replace_all(escaped, "\r", "\\r")
     escaped
 
 jsonString(string value) =>
@@ -1042,6 +1055,84 @@ setupExportTransitionPayload(RawZone zone, int bufferedIndex, int transitionInde
      "\"liquidity\":" + setupExportLiquidityPayload(zone) + "," +
      "\"source_candle\":" + setupExportSourceCandlePayload() + "}"
 
+paperAccountIdsPayload() =>
+    array<string> rawIds = str.split(paperAccountIdsCsv, ",")
+    string result = ""
+    int idCount = array.size(rawIds)
+    if idCount > 0
+        for idIndex = 0 to idCount - 1
+            string accountId = setupContractIdentifier(str.trim(array.get(rawIds, idIndex)))
+            string encoded = jsonString(accountId)
+            result := str.length(result) == 0 ? encoded : result + "," + encoded
+    "[" + result + "]"
+
+paperIntentId(RawZone zone) =>
+    string side = zone.demand ? "BUY" : "SELL"
+    "tv:" + setupContractIdentifier(syminfo.ticker) + ":" + side + ":" + str.tostring(epochSeconds(zone.confirmationTime)) + ":" + str.tostring(epochSeconds(zone.originTime)) + ":" + str.tostring(epochSeconds(zone.setupLiquidityExtremeTime))
+
+paperOpenCommandPayload(string intentId, bool buy, float entry, float stop, float target) =>
+    "{" +
+     "\"command_version\":\"1.0\"," +
+     "\"action\":\"OPEN\"," +
+     "\"intent\":{" +
+     "\"schema_version\":\"1.0\"," +
+     "\"intent_id\":" + jsonString(intentId) + "," +
+     "\"symbol\":" + jsonString(setupContractIdentifier(syminfo.ticker)) + "," +
+     "\"side\":" + jsonString(buy ? "BUY" : "SELL") + "," +
+     "\"entry_price\":" + jsonString(str.tostring(entry, format.mintick)) + "," +
+     "\"stop_loss\":" + jsonString(str.tostring(stop, format.mintick)) + "," +
+     "\"take_profit\":" + jsonString(str.tostring(target, format.mintick)) + "," +
+     "\"risk_bps\":" + str.tostring(paperRiskBps) + "," +
+     "\"account_ids\":" + paperAccountIdsPayload() + "}}"
+
+paperSettlementCommandPayload(PaperTrade trade, string exitReason, int outcomeRMillis) =>
+    "{" +
+     "\"command_version\":\"1.0\"," +
+     "\"action\":\"SETTLE\"," +
+     "\"intent_id\":" + jsonString(trade.intentId) + "," +
+     "\"settlement\":{" +
+     "\"schema_version\":\"1.0\"," +
+     "\"outcome_r_millis\":" + str.tostring(outcomeRMillis) + "," +
+     "\"exit_reason\":" + jsonString(exitReason) + "}}"
+
+queuePaperOpen(RawZone zone, array<string> commands, array<PaperTrade> trades) =>
+    bool queued = false
+    string intentId = paperIntentId(zone)
+    bool buy = zone.demand
+    float stop = buy ? zone.bottom : zone.top
+    float entry = buy ? math.max(close, stop + syminfo.mintick) : math.min(close, stop - syminfo.mintick)
+    float riskDistance = math.abs(entry - stop)
+    float target = buy ? entry + riskDistance * paperRewardR : entry - riskDistance * paperRewardR
+    bool validGeometry = riskDistance > 0 and target > 0
+    bool duplicate = false
+    int tradeCount = array.size(trades)
+    if tradeCount > 0
+        for tradeIndex = 0 to tradeCount - 1
+            PaperTrade existing = array.get(trades, tradeIndex)
+            duplicate := duplicate or existing.intentId == intentId
+    if validGeometry and not duplicate
+        array.push(commands, paperOpenCommandPayload(intentId, buy, entry, stop, target))
+        array.push(trades, PaperTrade.new(intentId, buy, entry, stop, target, bar_index, true))
+        queued := true
+    queued
+
+collectPaperSettlements(array<string> commands, array<PaperTrade> trades) =>
+    int tradeCount = array.size(trades)
+    if tradeCount > 0
+        for tradeIndex = 0 to tradeCount - 1
+            PaperTrade trade = array.get(trades, tradeIndex)
+            if trade.open and bar_index > trade.openedBar
+                bool stopHit = trade.buy ? low <= trade.stop : high >= trade.stop
+                bool targetHit = trade.buy ? high >= trade.target : low <= trade.target
+                if stopHit or targetHit
+                    // A bar that touches both boundaries is conservatively a stop.
+                    string exitReason = stopHit ? "STOP" : "TARGET"
+                    int outcomeRMillis = stopHit ? -1000 : int(math.round(paperRewardR * 1000.0))
+                    array.push(commands, paperSettlementCommandPayload(trade, exitReason, outcomeRMillis))
+                    trade.open := false
+                    array.set(trades, tradeIndex, trade)
+    true
+
 setupExportSnapshotItemPayload(RawZone zone) =>
     "{" +
      "\"natural_key\":" + setupExportNaturalKeyPayload(zone) + "," +
@@ -1122,14 +1213,16 @@ setupExportSnapshotPayload(array<string> activeSetups) =>
     "{" + setupExportContextFields(0) + "," +
      "\"kind\":\"snapshot\"," +
      "\"last_confirmed_bar_close_epoch\":" + str.tostring(epochSeconds(time_close)) + "," +
-     "\"active_setups\":[" + joinSetupExportItems(activeSetups) + "]}"
+     "\"active_setups\":[" + joinSetupExportItems(activeSetups) + "]," +
+     "\"paper_commands\":[]}"
 
-setupExportIncrementalPayload(array<string> transitions, int sequence) =>
+setupExportIncrementalPayload(array<string> transitions, array<string> paperCommands, int sequence) =>
     "{" + setupExportContextFields(sequence) + "," +
      "\"kind\":\"incremental\"," +
      "\"chunk_index\":0," +
      "\"chunk_count\":1," +
-     "\"transitions\":[" + joinSetupExportItems(transitions) + "]}"
+     "\"transitions\":[" + joinSetupExportItems(transitions) + "]," +
+     "\"paper_commands\":[" + joinSetupExportItems(paperCommands) + "]}"
 
 setupExportRunInvalid(string reasonCode, int sequence, int itemCount, int itemLimit) =>
     string failureReason = reasonCode + ":count=" + str.tostring(itemCount) + ":limit=" + str.tostring(itemLimit)
@@ -1149,12 +1242,15 @@ emitSetupExportSnapshot(array<string> activeSetups) =>
         emitted := true
     emitted
 
-emitSetupExportIncremental(array<string> transitions, int sequence) =>
+emitSetupExportIncremental(array<string> transitions, array<string> paperCommands, int sequence) =>
     int transitionCount = array.size(transitions)
-    string envelope = setupExportEnvelope(setupExportIncrementalPayload(transitions, sequence))
+    int paperCommandCount = array.size(paperCommands)
+    string envelope = setupExportEnvelope(setupExportIncrementalPayload(transitions, paperCommands, sequence))
     bool emitted = false
     if transitionCount > SETUP_EXPORT_MAX_TRANSITIONS
         setupExportRunInvalid("SETUP_EXPORT_TRANSITION_LIMIT_EXCEEDED", sequence, transitionCount, SETUP_EXPORT_MAX_TRANSITIONS)
+    else if paperCommandCount > SETUP_EXPORT_MAX_PAPER_COMMANDS
+        setupExportRunInvalid("SETUP_EXPORT_PAPER_COMMAND_LIMIT_EXCEEDED", sequence, paperCommandCount, SETUP_EXPORT_MAX_PAPER_COMMANDS)
     else if str.length(envelope) > SETUP_EXPORT_MAX_PAYLOAD_CHARS
         setupExportRunInvalid("SETUP_EXPORT_PAYLOAD_TOO_LARGE", sequence, str.length(envelope), SETUP_EXPORT_MAX_PAYLOAD_CHARS)
     else
@@ -1184,6 +1280,7 @@ var int validationSequence = 0
 var bool validationStarted = not validationCapture or validationCalculationStart == 0
 var bool validationFailed = false
 var string validationFailureReason = ""
+var array<PaperTrade> paperTrades = array.new<PaperTrade>()
 
 if barstate.isfirst
     demandCandidate.reset()
@@ -1217,7 +1314,11 @@ if barstate.isconfirmed and isFiveMinute and validationReady
     validationEvents := validationHeartbeat()
     int validationEventCount = 1
     array<string> setupExportItems = array.new<string>()
+    array<string> paperCommandItems = array.new<string>()
     bool setupExportReady = exportSetupEvents and str.length(setupExportCredential) > 0 and barstate.isrealtime
+    bool paperAutomationReady = setupExportReady and paperAutomationEnabled and not setupExportSnapshotPending
+    if paperAutomationReady
+        collectPaperSettlements(paperCommandItems, paperTrades)
     if exportSetupEvents
         clearSetupExportTransitionBuffers(zones)
     bool inEmissionWindow = (validationEmissionStart == 0 or time >= validationEmissionStart) and (validationEmissionEnd == 0 or time <= validationEmissionEnd)
@@ -1280,6 +1381,8 @@ if barstate.isconfirmed and isFiveMinute and validationReady
                 if emitDiagnostics or validationCapture
                     validationEvents := appendValidationEvent(validationEvents, diagnosticPayload(setupEvent, zone))
                     validationEventCount += 1
+            if paperAutomationReady and setupEvent == "SETUP_TRIGGERED_NON_EXECUTABLE"
+                queuePaperOpen(zone, paperCommandItems, paperTrades)
             if exportSetupEvents
                 syncSetupExportLifecycle(zone)
             array.set(zones, index, zone)
@@ -1358,8 +1461,10 @@ if barstate.isconfirmed and isFiveMinute and validationReady
                 setupExportSnapshotPending := false
                 setupExportBatchSequence := 1
                 array.clear(setupExportItems)
-        else if array.size(setupExportItems) > 0
-            emitSetupExportIncremental(setupExportItems, setupExportBatchSequence)
+        else
+            // A confirmed-bar envelope is also the delivery heartbeat. Empty
+            // command/transition arrays prove the alert path is still alive.
+            emitSetupExportIncremental(setupExportItems, paperCommandItems, setupExportBatchSequence)
             setupExportBatchSequence += 1
 
     if confirmedEvent and (emitDiagnostics or validationCapture) and not na(eventZone)

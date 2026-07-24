@@ -6,7 +6,7 @@
         "claimed_commit": null,
         "copied_from_working_tree": true,
         "destination": "evidence/legacy/canonical/SND_RD_5M_V1_LAB.pine",
-        "sha256": "5a7548af39d0447a54320f97830185c733b83fb3ae07c24d204dc94e59314d30"
+        "sha256": "52cd0d465a5a519fd89c26faa4a1438ef7b8bd817d3408d579cb1147c0c1d50a"
       },
       "disposition": "PORT",
       "head_content_sha256": "54cef99d5e26cb3551ed8fd04725d09cffcf853dd3192ad3b48743dece93beac",
@@ -15,11 +15,11 @@
         "The authorized working file is modified relative to HEAD and is not represented by source_repository_head.",
         "Committed Pine defaults are development fixtures and do not contain the operator-supplied Optimizer 1 profile.",
         "The legacy export places a credential in the body and accepts operator-declared detector/settings hashes as if they were provenance.",
-        "Canonical and diagnostic alert calls share one script instance; the source lacks the approved heartbeat, stream-generation, chunked-checkpoint, overflow, and gap-taint protocol."
+        "Canonical and diagnostic alert calls share one script instance; the source still lacks the approved stream-generation, chunked-checkpoint, and gap-taint protocol."
       ],
       "source_path": "/Users/ameeramer/dev/projects/galilsoftware/sources/trading/scripts/pinescript/indicators/SND_RD_5M_V1_LAB.pine",
       "source_relative_path": "scripts/pinescript/indicators/SND_RD_5M_V1_LAB.pine",
-      "working_content_sha256": "5a7548af39d0447a54320f97830185c733b83fb3ae07c24d204dc94e59314d30",
+      "working_content_sha256": "52cd0d465a5a519fd89c26faa4a1438ef7b8bd817d3408d579cb1147c0c1d50a",
       "working_tree_status": "MODIFIED"
     },
     {

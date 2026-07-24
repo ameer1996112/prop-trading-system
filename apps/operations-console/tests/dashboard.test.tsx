@@ -1,62 +1,103 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const routerRefresh = vi.hoisted(() => vi.fn());
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: routerRefresh }),
+const apiMocks = vi.hoisted(() => ({
+  loadApiHealth: vi.fn(),
+  loadObservationReceipts: vi.fn(),
 }));
+
+vi.mock("../src/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/lib/api")>();
+  return {
+    ...actual,
+    loadApiHealth: apiMocks.loadApiHealth,
+    loadObservationReceipts: apiMocks.loadObservationReceipts,
+  };
+});
 
 import { FoundationDashboard } from "../src/components/FoundationDashboard";
 
+beforeEach(() => {
+  apiMocks.loadApiHealth.mockResolvedValue({
+    state: "ONLINE",
+    paperSimulator: "ENABLED",
+    execution: "DISABLED",
+    message: "Observation API is online.",
+  });
+  apiMocks.loadObservationReceipts.mockResolvedValue({
+    state: "EMPTY",
+    ingressEnabled: true,
+    count: 0,
+    items: [],
+    message: "No receipts.",
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.clearAllMocks();
+});
+
 describe("FoundationDashboard", () => {
-  afterEach(() => {
-    cleanup();
-    vi.useRealTimers();
-    routerRefresh.mockReset();
-  });
+  it("starts fail-closed, then renders verified API and ingress state", async () => {
+    render(<FoundationDashboard />);
 
-  it("labels unconfigured data and never renders an empty-success state", () => {
-    render(
-      <FoundationDashboard
-        snapshot={{
-          source: "UNCONFIGURED",
-          ready: false,
-          status: "UNKNOWN",
-          gates: [],
-          message: "No server configured",
-          evaluatedAt: null,
-          evidenceLastModifiedAt: null,
-        }}
-      />,
-    );
-    expect(screen.getByText("UNCONFIGURED")).toBeInTheDocument();
-    expect(screen.getByText(/not an empty-success state/i)).toBeInTheDocument();
-    expect(screen.queryByText("READY")).not.toBeInTheDocument();
-  });
-
-  it("refreshes the dynamic server snapshot on cadence and stops after unmount", async () => {
-    vi.useFakeTimers();
-    const rendered = render(
-      <FoundationDashboard
-        snapshot={{
-          source: "SERVER_API",
-          ready: false,
-          status: "BLOCKED",
-          gates: [],
-          message: "Fail-closed snapshot",
-          evaluatedAt: "2026-07-23T00:00:00Z",
-          evidenceLastModifiedAt: null,
-        }}
-      />,
-    );
-    expect(screen.getByText("Refresh cadence: 30 seconds")).toBeInTheDocument();
+    expect(screen.getByText("PAPER LAB")).toBeInTheDocument();
+    expect(screen.getAllByText("NO EXECUTION").length).toBeGreaterThan(0);
+    expect(screen.getByText("OFFLINE")).toBeInTheDocument();
     expect(screen.getByText("BLOCKED")).toBeInTheDocument();
-    await vi.advanceTimersByTimeAsync(30_000);
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/Last refresh requested: 2026-/u)).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByText("ONLINE")).toBeInTheDocument());
+    expect(screen.getAllByText("ENABLED")).toHaveLength(2);
+    expect(screen.getByText(/no broker connection/i)).toBeInTheDocument();
+  });
+
+  it("keeps API and ingress fail-closed when polling cannot verify them", async () => {
+    apiMocks.loadApiHealth.mockResolvedValue({
+      state: "OFFLINE",
+      paperSimulator: "UNKNOWN",
+      execution: "UNKNOWN",
+      message: "Health unavailable.",
+    });
+    apiMocks.loadObservationReceipts.mockResolvedValue({
+      state: "ERROR",
+      ingressEnabled: null,
+      count: 0,
+      items: [],
+      message: "Receipt state unavailable.",
+    });
+
+    render(<FoundationDashboard />);
+
+    await waitFor(() => expect(screen.getByText("Ledger unavailable")).toBeInTheDocument());
+    expect(screen.getByText("OFFLINE")).toBeInTheDocument();
+    expect(screen.getByText("BLOCKED")).toBeInTheDocument();
+    expect(screen.queryByText("ENABLED")).not.toBeInTheDocument();
+  });
+
+  it("polls both endpoints every 30 seconds and stops after unmount", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-23T12:00:00Z"));
+    const rendered = render(<FoundationDashboard />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(apiMocks.loadApiHealth).toHaveBeenCalledTimes(1);
+    expect(apiMocks.loadObservationReceipts).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(apiMocks.loadApiHealth).toHaveBeenCalledTimes(2);
+    expect(apiMocks.loadObservationReceipts).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("2026-07-23 12:00:30 UTC")).toBeInTheDocument();
+
     rendered.unmount();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
+    expect(apiMocks.loadApiHealth).toHaveBeenCalledTimes(2);
+    expect(apiMocks.loadObservationReceipts).toHaveBeenCalledTimes(2);
   });
 });

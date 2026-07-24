@@ -41,7 +41,16 @@ services:
       dockerfile: docker/backend.Dockerfile
     environment:
       PTS_APP_ENVIRONMENT: foundation
+      PTS_DATABASE_HOST: postgres
+      PTS_DATABASE_PORT: "5432"
+      PTS_DATABASE_NAME: phase0
+      PTS_DATABASE_USER: phase0
+      PTS_DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
       PTS_PHASE0_EVIDENCE_PATH: /app/evidence/phase0/evidence-registry.json
+      PTS_TRADINGVIEW_OBSERVATION_INGRESS_ENABLED: "${PTS_TRADINGVIEW_OBSERVATION_INGRESS_ENABLED:-false}"
+      PTS_TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256: "${PTS_TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256:-e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855}"
+    secrets:
+      - postgres_password
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -61,10 +70,8 @@ services:
 
   operations-console:
     build:
-      context: .
-      dockerfile: docker/frontend.Dockerfile
-    environment:
-      PHASE0_API_BASE_URL: http://api:8000
+      context: apps/operations-console
+      dockerfile: Dockerfile
     depends_on:
       api:
         condition: service_healthy

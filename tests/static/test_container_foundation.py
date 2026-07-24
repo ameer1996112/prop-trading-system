@@ -17,14 +17,18 @@ def test_example_configuration_uses_compose_password_file_boundary() -> None:
     assert "\nPOSTGRES_PASSWORD=" not in example
 
 
-def test_backend_image_contains_runnable_alembic_path_and_frontend_is_dynamic() -> None:
+def test_backend_image_contains_runnable_alembic_path_and_frontend_is_static() -> None:
     backend = Path("docker/backend.Dockerfile").read_text()
     assert "COPY alembic.ini" in backend
     assert "COPY alembic" in backend
     compose = Path("compose.yaml").read_text()
     assert 'command: ["alembic", "upgrade", "head"]' in compose
+    next_config = Path("apps/operations-console/next.config.ts").read_text()
+    assert 'output: "export"' in next_config
     page = Path("apps/operations-console/src/app/page.tsx").read_text()
-    assert 'dynamic = "force-dynamic"' in page
+    assert 'dynamic = "force-dynamic"' not in page
+    console_image = Path("apps/operations-console/Dockerfile").read_text()
+    assert "COPY --from=build /app/out /usr/share/nginx/html" in console_image
 
 
 def test_container_build_startup_and_cleanup_are_explicitly_bounded() -> None:

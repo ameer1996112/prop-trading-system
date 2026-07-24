@@ -23,7 +23,7 @@ async def test_health_and_gate_surfaces_are_truthful() -> None:
     assert gates.json()["overall_status"] == "BLOCKED"
 
 
-def test_api_has_no_ingress_or_broker_command_routes() -> None:
+def test_api_exposes_only_observation_ingress_and_no_broker_command_routes() -> None:
     paths = {route.path for route in create_app().routes}
     assert paths == {
         "/openapi.json",
@@ -33,4 +33,6 @@ def test_api_has_no_ingress_or_broker_command_routes() -> None:
         "/health/live",
         "/health/readiness",
         "/api/v1/phase0/gates",
+        "/api/v1/tradingview/observations",
+        "/api/v1/observation-receipts",
     }

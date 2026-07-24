@@ -1,9 +1,8 @@
-"""Prove the production home route is built for runtime evaluation, not prerendered."""
+"""Prove the production console is a deployable static export."""
 
 from __future__ import annotations
 
 import argparse
-import json
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -12,17 +11,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--console-root", type=Path, required=True)
     args = parser.parse_args(argv)
-    prerender_path = args.console_root / ".next" / "prerender-manifest.json"
-    manifest: dict[str, object] = json.loads(prerender_path.read_text())
-    routes = manifest.get("routes")
-    if not isinstance(routes, dict):
-        raise SystemExit("Next prerender manifest has no routes mapping")
-    if "/" in routes:
-        raise SystemExit("operations console / route was frozen into a prerendered snapshot")
+    exported_index = args.console_root / "out" / "index.html"
+    if not exported_index.is_file():
+        raise SystemExit("operations console has no static out/index.html export")
+    next_config = (args.console_root / "next.config.ts").read_text()
+    if 'output: "export"' not in next_config:
+        raise SystemExit('operations console lacks output: "export"')
     source = (args.console_root / "src" / "app" / "page.tsx").read_text()
-    if 'dynamic = "force-dynamic"' not in source:
-        raise SystemExit("operations console / route lacks its force-dynamic declaration")
-    print("frontend runtime check: / is dynamic and absent from prerendered routes")
+    if 'dynamic = "force-dynamic"' in source:
+        raise SystemExit("operations console / route still forces server rendering")
+    print("frontend runtime check: static out/index.html export is present")
     return 0
 
 

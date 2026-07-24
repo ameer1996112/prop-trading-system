@@ -9,13 +9,24 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from functools import lru_cache
 from importlib import metadata, resources
+from itertools import pairwise
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 from prop_trading.domain.canonical import (
     canonical_json_bytes,
@@ -135,6 +146,20 @@ class SourceWorkingTreeStatus(StrEnum):
 class AlertMode(StrEnum):
     CANONICAL = "CANONICAL"
     DIAGNOSTIC = "DIAGNOSTIC"
+
+
+class RuleFidelity(StrEnum):
+    EXACT = "EXACT"
+    CALIBRATED = "CALIBRATED"
+    DISCRETIONARY = "DISCRETIONARY"
+    UNRESOLVED = "UNRESOLVED"
+
+
+class RuleAutomation(StrEnum):
+    EXECUTE = "EXECUTE"
+    SHADOW_ONLY = "SHADOW_ONLY"
+    DISABLED = "DISABLED"
+    RISK_LAYER = "RISK_LAYER"
 
 
 class StreamOperationalState(StrEnum):
@@ -258,6 +283,177 @@ class StrategyManifest(ContractModel):
             or not self.pine.committed_clean
         ):
             raise ValueError("verified strategy manifest is missing activation evidence")
+        return self
+
+
+class RDStrategySource(ContractModel):
+    source_id: Identifier
+    youtube_video_id: Identifier
+    published_date: LocalDate
+    authority: Literal[
+        "BASELINE",
+        "LATEST_OVERRIDE",
+        "COMPATIBLE_GAP_FILL",
+        "HISTORICAL_ONLY",
+    ]
+    title: str = Field(min_length=1, max_length=240)
+
+
+class RDStrategyEvidenceRef(ContractModel):
+    source_id: Identifier
+    timestamp_seconds: int = Field(ge=0, le=86_400)
+
+
+class RDStrategyRule(ContractModel):
+    rule_id: Identifier
+    category: Literal["ZONE", "LIQUIDITY", "ENTRY", "MANAGEMENT", "RISK", "TIMEFRAME"]
+    fidelity: RuleFidelity
+    automation: RuleAutomation
+    open_requirement: bool
+    summary: str = Field(min_length=1, max_length=1_000)
+    evidence: list[RDStrategyEvidenceRef] = Field(min_length=1, max_length=12)
+    unresolved_terms: list[str] = Field(default_factory=list, max_length=24)
+
+    @model_validator(mode="after")
+    def _execution_requires_exact_fidelity(self) -> RDStrategyRule:
+        if self.automation is RuleAutomation.EXECUTE and self.fidelity is not RuleFidelity.EXACT:
+            raise ValueError("executable strategy rules must have EXACT fidelity")
+        return self
+
+
+class RDDistanceGuidance(ContractModel):
+    profile_id: Identifier
+    symbol_patterns: list[Identifier] = Field(min_length=1, max_length=24)
+    confirmed_timeframe_minutes: Literal[5]
+    unit: Literal["PIP", "VISUAL_CONTEXT"]
+    guidance_min: str | None
+    guidance_max: str | None
+    fidelity: Literal[
+        RuleFidelity.CALIBRATED,
+        RuleFidelity.DISCRETIONARY,
+        RuleFidelity.UNRESOLVED,
+    ]
+    automation: Literal[RuleAutomation.SHADOW_ONLY]
+    summary: str = Field(min_length=1, max_length=1_000)
+    evidence: list[RDStrategyEvidenceRef] = Field(min_length=1, max_length=12)
+
+    @field_validator("guidance_min", "guidance_max")
+    @classmethod
+    def _guidance_is_fixed_decimal(cls, value: str | None) -> str | None:
+        if value is not None:
+            validate_fixed_decimal(value, scale=2, non_negative=True)
+        return value
+
+    @model_validator(mode="after")
+    def _guidance_range_is_ordered(self) -> RDDistanceGuidance:
+        if (self.guidance_min is None) != (self.guidance_max is None):
+            raise ValueError("distance guidance min and max must both be present or absent")
+        guidance_min = self.guidance_min
+        guidance_max = self.guidance_max
+        if (
+            guidance_min is not None
+            and guidance_max is not None
+            and Decimal(guidance_min) > Decimal(guidance_max)
+        ):
+            raise ValueError("distance guidance min must not exceed max")
+        if self.unit == "VISUAL_CONTEXT" and self.guidance_min is not None:
+            raise ValueError("visual-context distance guidance cannot claim numeric bounds")
+        return self
+
+
+class RDStrategyAutomationPolicy(ContractModel):
+    paper_only: Literal[True]
+    real_execution_allowed: Literal[False]
+    first_touch_action: Literal["WAIT"]
+    unknown_rule_action: Literal["SHADOW_ONLY"]
+    ambiguous_same_bar_order_action: Literal["SHADOW_ONLY"]
+    required_decision_fidelity: Literal[RuleFidelity.EXACT]
+    executable_entry_models: list[Literal["DIR_CLOSE"]]
+    shadow_entry_models: list[Literal["HTF_FLIP"]]
+    disabled_entry_models: list[Literal["BREAK_CANDLE"]]
+
+    @model_validator(mode="after")
+    def _entry_model_partition_is_frozen(self) -> RDStrategyAutomationPolicy:
+        if self.executable_entry_models != ["DIR_CLOSE"]:
+            raise ValueError("DIR_CLOSE is the only executable entry model")
+        if self.shadow_entry_models != ["HTF_FLIP"]:
+            raise ValueError("HTF_FLIP must remain shadow-only")
+        if self.disabled_entry_models != ["BREAK_CANDLE"]:
+            raise ValueError("BREAK_CANDLE must remain disabled")
+        return self
+
+
+class RDStrategyRuleContract(ContractModel):
+    schema_id: Literal["phase0.rd-strategy-rule-contract.v1"]
+    contract_id: Identifier
+    contract_version: VersionLabel
+    strategy_id: Literal["rd_liquidity_sd_5m_v1"]
+    producer_strategy_version: Annotated[
+        str,
+        Field(
+            min_length=1,
+            max_length=64,
+            pattern=r"^[0-9]+\.[0-9]+\.[0-9]+-(?:paper|contract)[0-9]+$",
+        ),
+    ]
+    confirmed_timeframe_minutes: Literal[5]
+    sources: list[RDStrategySource] = Field(min_length=4, max_length=12)
+    rules: list[RDStrategyRule] = Field(min_length=1, max_length=128)
+    distance_guidance: list[RDDistanceGuidance] = Field(min_length=1, max_length=64)
+    automation_policy: RDStrategyAutomationPolicy
+
+    @model_validator(mode="after")
+    def _references_and_identifiers_are_closed(self) -> RDStrategyRuleContract:
+        source_ids = [source.source_id for source in self.sources]
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("strategy source IDs must be unique")
+        youtube_video_ids = [source.youtube_video_id for source in self.sources]
+        if len(youtube_video_ids) != len(set(youtube_video_ids)):
+            raise ValueError("strategy source videos must be unique")
+        sources_by_authority = {source.authority: source for source in self.sources}
+        required_authorities = {
+            "BASELINE",
+            "LATEST_OVERRIDE",
+            "COMPATIBLE_GAP_FILL",
+            "HISTORICAL_ONLY",
+        }
+        if len(sources_by_authority) != len(self.sources):
+            raise ValueError("strategy source authorities must be unique")
+        if set(sources_by_authority) != required_authorities:
+            raise ValueError("strategy source authority set must be complete")
+        precedence_dates = [
+            date.fromisoformat(sources_by_authority["LATEST_OVERRIDE"].published_date),
+            date.fromisoformat(sources_by_authority["BASELINE"].published_date),
+            date.fromisoformat(sources_by_authority["COMPATIBLE_GAP_FILL"].published_date),
+            date.fromisoformat(sources_by_authority["HISTORICAL_ONLY"].published_date),
+        ]
+        if any(newer <= older for newer, older in pairwise(precedence_dates)):
+            raise ValueError("strategy source dates violate authority precedence")
+        rule_ids = [rule.rule_id for rule in self.rules]
+        if len(rule_ids) != len(set(rule_ids)):
+            raise ValueError("strategy rule IDs must be unique")
+        profile_ids = [profile.profile_id for profile in self.distance_guidance]
+        if len(profile_ids) != len(set(profile_ids)):
+            raise ValueError("distance profile IDs must be unique")
+        known_sources = set(source_ids)
+        evidence_refs = [
+            evidence.source_id for rule in self.rules for evidence in rule.evidence
+        ] + [
+            evidence.source_id
+            for profile in self.distance_guidance
+            for evidence in profile.evidence
+        ]
+        if not set(evidence_refs).issubset(known_sources):
+            raise ValueError("strategy evidence references an unknown source")
+        authority_by_source = {source.source_id: source.authority for source in self.sources}
+        for rule in self.rules:
+            if rule.automation is RuleAutomation.EXECUTE and all(
+                authority_by_source[evidence.source_id] == "HISTORICAL_ONLY"
+                for evidence in rule.evidence
+            ):
+                raise ValueError(
+                    "executable strategy rules cannot rely only on historical evidence"
+                )
         return self
 
 
@@ -924,6 +1120,255 @@ class TickChunkManifest(ContractModel):
         return self
 
 
+_WIRE_IDENTIFIER_PATTERN = re.compile(r"^[\x21-\x5b\x5d-\x7e]+$")
+_MAX_OBSERVATIONS_PER_MESSAGE = 1024
+
+
+def _validate_wire_identifier(value: str) -> str:
+    """Reject escaped/control corruption while allowing exchange-qualified tickers."""
+    if _WIRE_IDENTIFIER_PATTERN.fullmatch(value) is None:
+        raise ValueError(
+            "identifier must contain printable non-whitespace ASCII and must not contain backslash"
+        )
+    return value
+
+
+def _validate_finite_decimal(value: object) -> Decimal:
+    """Convert a JSON number without permitting strings, booleans, NaN, or infinity."""
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
+        raise ValueError("market value must be a JSON number")
+    try:
+        decimal_value = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("market value must be Decimal-compatible") from exc
+    if not decimal_value.is_finite():
+        raise ValueError("market value must be finite")
+    return decimal_value
+
+
+WireIdentifier = Annotated[
+    str,
+    Field(min_length=1, max_length=256),
+    AfterValidator(_validate_wire_identifier),
+]
+ObservationEpoch = Annotated[int, Field(ge=0, le=9_007_199_254_740_991)]
+FiniteMarketNumber = Annotated[
+    Decimal,
+    BeforeValidator(_validate_finite_decimal),
+    Field(max_digits=38, decimal_places=18, allow_inf_nan=False),
+]
+
+
+class ObservationNaturalKey(ContractModel):
+    side: Literal["DEMAND", "SUPPLY"]
+    zone_key: WireIdentifier
+    liquidity_key: WireIdentifier
+    formation_bar_close_epoch: ObservationEpoch
+
+
+class ObservationZone(ContractModel):
+    top: FiniteMarketNumber
+    bottom: FiniteMarketNumber
+    origin_bar_open_epoch: ObservationEpoch
+    origin_bar_close_epoch: ObservationEpoch
+
+    @model_validator(mode="after")
+    def _geometry_is_ordered(self) -> ObservationZone:
+        if self.top <= self.bottom:
+            raise ValueError("zone top must be greater than bottom")
+        if self.origin_bar_close_epoch <= self.origin_bar_open_epoch:
+            raise ValueError("zone origin close epoch must be after open epoch")
+        return self
+
+
+class ObservationLiquidity(ContractModel):
+    price: FiniteMarketNumber
+    origin_bar_open_epoch: ObservationEpoch
+    origin_bar_close_epoch: ObservationEpoch
+
+    @model_validator(mode="after")
+    def _origin_is_ordered(self) -> ObservationLiquidity:
+        if self.origin_bar_close_epoch <= self.origin_bar_open_epoch:
+            raise ValueError("liquidity origin close epoch must be after open epoch")
+        return self
+
+
+class ObservationSourceCandle(ContractModel):
+    open_epoch: ObservationEpoch
+    close_epoch: ObservationEpoch
+    open: FiniteMarketNumber
+    high: FiniteMarketNumber
+    low: FiniteMarketNumber
+    close: FiniteMarketNumber
+
+    @model_validator(mode="after")
+    def _candle_is_ordered(self) -> ObservationSourceCandle:
+        if self.close_epoch <= self.open_epoch:
+            raise ValueError("source candle close epoch must be after open epoch")
+        if self.high < max(self.open, self.close, self.low):
+            raise ValueError("source candle high is inconsistent")
+        if self.low > min(self.open, self.close, self.high):
+            raise ValueError("source candle low is inconsistent")
+        return self
+
+
+class ObservationTransition(ContractModel):
+    transition_index: int = Field(ge=0, le=_MAX_OBSERVATIONS_PER_MESSAGE - 1)
+    natural_key: ObservationNaturalKey
+    from_state: WireIdentifier | None
+    to_state: WireIdentifier
+    reason_code: WireIdentifier
+    zone: ObservationZone
+    liquidity: ObservationLiquidity
+    source_candle: ObservationSourceCandle
+
+    @model_validator(mode="after")
+    def _epochs_are_causal(self) -> ObservationTransition:
+        if self.natural_key.formation_bar_close_epoch > self.source_candle.close_epoch:
+            raise ValueError("setup formation epoch cannot follow transition source candle")
+        if self.zone.origin_bar_close_epoch > self.source_candle.close_epoch:
+            raise ValueError("zone origin cannot follow transition source candle")
+        if self.liquidity.origin_bar_close_epoch > self.source_candle.close_epoch:
+            raise ValueError("liquidity origin cannot follow transition source candle")
+        return self
+
+
+class ObservationActiveSetup(ContractModel):
+    natural_key: ObservationNaturalKey
+    state: WireIdentifier
+    reason_code: WireIdentifier
+    zone: ObservationZone
+    liquidity: ObservationLiquidity
+    source_candle: ObservationSourceCandle
+
+    @model_validator(mode="after")
+    def _epochs_are_causal(self) -> ObservationActiveSetup:
+        if self.natural_key.formation_bar_close_epoch > self.source_candle.close_epoch:
+            raise ValueError("setup formation epoch cannot follow active setup source candle")
+        if self.zone.origin_bar_close_epoch > self.source_candle.close_epoch:
+            raise ValueError("zone origin cannot follow active setup source candle")
+        if self.liquidity.origin_bar_close_epoch > self.source_candle.close_epoch:
+            raise ValueError("liquidity origin cannot follow active setup source candle")
+        return self
+
+
+class TradingViewObservationCommon(ContractModel):
+    schema_version: Literal["1.0"]
+    strategy_id: Literal["rd_liquidity_sd_5m_v1"]
+    strategy_version: Literal["1.0.0-phase1"]
+    producer_instance_id: WireIdentifier
+    sequence: ObservationEpoch
+    idempotency_key: WireIdentifier
+    symbol: WireIdentifier
+    ticker_id: WireIdentifier
+    feed: WireIdentifier
+    timeframe: Literal["5"]
+    timezone: WireIdentifier
+    bar_open_epoch: ObservationEpoch
+    bar_close_epoch: ObservationEpoch
+    detector_code_hash: Sha256
+    settings_hash: Sha256
+
+    @model_validator(mode="after")
+    def _common_fields_are_consistent(self) -> TradingViewObservationCommon:
+        expected_idempotency_key = f"{self.producer_instance_id}:{self.sequence}"
+        if self.idempotency_key != expected_idempotency_key:
+            raise ValueError("idempotency_key must equal producer_instance_id + ':' + sequence")
+        if self.bar_close_epoch <= self.bar_open_epoch:
+            raise ValueError("bar_close_epoch must be after bar_open_epoch")
+        return self
+
+
+class TradingViewIncrementalObservation(TradingViewObservationCommon):
+    sequence: int = Field(ge=1, le=9_007_199_254_740_991)
+    kind: Literal["incremental"]
+    chunk_index: Literal[0]
+    chunk_count: Literal[1]
+    transitions: list[ObservationTransition] = Field(
+        min_length=1,
+        max_length=_MAX_OBSERVATIONS_PER_MESSAGE,
+    )
+
+    @model_validator(mode="after")
+    def _transition_set_is_ordered(self) -> TradingViewIncrementalObservation:
+        indices = [transition.transition_index for transition in self.transitions]
+        if indices != list(range(len(self.transitions))):
+            raise ValueError("transition_index values must be contiguous and zero-based")
+        if any(
+            transition.source_candle.close_epoch > self.bar_close_epoch
+            for transition in self.transitions
+        ):
+            raise ValueError("transition source candle cannot follow observation bar close")
+        return self
+
+
+class TradingViewSnapshotObservation(TradingViewObservationCommon):
+    sequence: Literal[0]
+    kind: Literal["snapshot"]
+    last_confirmed_bar_close_epoch: ObservationEpoch
+    active_setups: list[ObservationActiveSetup] = Field(
+        max_length=_MAX_OBSERVATIONS_PER_MESSAGE,
+    )
+
+    @model_validator(mode="after")
+    def _snapshot_epochs_are_ordered(self) -> TradingViewSnapshotObservation:
+        if self.last_confirmed_bar_close_epoch > self.bar_close_epoch:
+            raise ValueError("last confirmed bar close cannot follow observation bar close")
+        if any(
+            setup.source_candle.close_epoch > self.last_confirmed_bar_close_epoch
+            for setup in self.active_setups
+        ):
+            raise ValueError("active setup source candle cannot follow last confirmed bar")
+        return self
+
+
+TradingViewObservationPayload = Annotated[
+    TradingViewIncrementalObservation | TradingViewSnapshotObservation,
+    Field(discriminator="kind"),
+]
+
+
+class TradingViewObservationEnvelope(ContractModel):
+    credential: SecretStr = Field(min_length=1, max_length=1024)
+    payload: TradingViewObservationPayload
+
+
+class ObservationReceiptStatus(StrEnum):
+    RECEIVED = "RECEIVED"
+    DUPLICATE = "DUPLICATE"
+
+
+class ObservationReceipt(ContractModel):
+    receipt_id: WireIdentifier
+    received_at: UtcTimestamp
+    idempotency_key: WireIdentifier
+    payload_sha256: Sha256
+    schema_version: Literal["1.0"]
+    strategy_id: Literal["rd_liquidity_sd_5m_v1"]
+    strategy_version: Literal["1.0.0-phase1"]
+    producer_instance_id: WireIdentifier
+    sequence: ObservationEpoch
+    symbol: WireIdentifier
+    ticker_id: WireIdentifier
+    feed: WireIdentifier
+    timeframe: Literal["5"]
+    kind: Literal["incremental", "snapshot"]
+    status: ObservationReceiptStatus
+
+
+class ObservationReceiptList(ContractModel):
+    mode: Literal["OBSERVATION_ONLY"]
+    ingress_enabled: bool
+    items: list[ObservationReceipt] = Field(max_length=200)
+    count: int = Field(ge=0, le=200)
+
+    @model_validator(mode="after")
+    def _count_matches_items(self) -> ObservationReceiptList:
+        if self.count != len(self.items):
+            raise ValueError("count must equal the number of returned receipt items")
+        return self
+
+
 SCHEMA_MODELS: dict[str, type[ContractModel]] = {
     "action-grant-protocol-v1": ActionGrantProtocol,
     "approved-alert-manifest-v1": ApprovedAlertManifest,
@@ -935,6 +1380,7 @@ SCHEMA_MODELS: dict[str, type[ContractModel]] = {
     "heartbeat-v1": HeartbeatMetadata,
     "provider-capability-v1": ProviderCapabilityEvidence,
     "rule-pack-reset-v1": RulePackResetMetadata,
+    "rd-strategy-rule-contract-v1": RDStrategyRuleContract,
     "strategy-manifest-v1": StrategyManifest,
     "tick-chunk-manifest-v1": TickChunkManifest,
     "tick-observation-v1": TickObservation,

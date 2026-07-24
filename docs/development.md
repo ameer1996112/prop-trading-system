@@ -8,10 +8,11 @@
 - Docker Compose for local PostgreSQL, API, and operations-console containers.
 
 `make bootstrap` installs exactly the locked dependency graphs. `make format` applies Python
-formatting. `make verify-phase0` is the complete proof and does not require a provider credential,
-provider account, provider call, or legacy-repository checkout. Its container category builds both
-production images and starts an isolated local Compose project with an ephemeral local PostgreSQL
-password file; the trap removes its containers and volume.
+formatting. `make verify-observation` is the complete proof and does not require a provider
+credential, provider account, provider call, or legacy-repository checkout. `make verify-phase0`
+remains a compatibility alias. The container category builds both production images and starts an
+isolated local Compose project with an ephemeral local PostgreSQL password file; the trap removes
+its containers and volume.
 
 The general secret scan excludes only generated caches and its own narrow baseline. Audited false positives are
 matched by path, detector type, and hashed candidate in `.secrets.baseline`; there are no broad
@@ -31,18 +32,46 @@ home route is forced dynamic so `PHASE0_API_BASE_URL` is read by the server at r
 The open console asks that dynamic server route for a fresh snapshot every 30 seconds, cleans up
 its timer on unmount, and keeps the last fail-closed snapshot visible while refreshing.
 
-The real container smoke has explicit pull/build/startup/cleanup time bounds. It migrates a fresh
-PostgreSQL volume, exercises the typed evidence append repository as `phase0_runtime`, compares
-the database-generated exact-byte SHA-256/JSON projection, and proves forged direct insertion and
-UPDATE/DELETE/TRUNCATE attempts fail.
+Observation ingress remains disabled unless
+`PTS_TRADINGVIEW_OBSERVATION_INGRESS_ENABLED=true` and
+`PTS_TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256` contains the lowercase SHA-256 of a dedicated
+credential. The raw value is supplied only by the TradingView LAB script. It is never stored,
+logged, returned, or placed in an environment variable.
 
-The only Phase 0 endpoints are:
+The real container smoke has explicit pull/build/startup/cleanup time bounds. It migrates a fresh
+PostgreSQL volume, switches receipt transactions to `phase0_runtime`, proves restricted
+append/projection access, validates receipt idempotency and authentication, and proves forged
+direct insertion and UPDATE/DELETE/TRUNCATE attempts fail.
+
+The runtime endpoints are:
 
 - `GET /health/live`
 - `GET /health/readiness`
 - `GET /api/v1/phase0/gates`
+- `POST /api/v1/tradingview/observations`
+- `GET /api/v1/observation-receipts?limit=50`
 
-There is no external-ingress endpoint and no broker or account-management endpoint.
+There is no broker, trade, order, position, or account-management endpoint. An accepted
+observation receipt is metadata evidence only and cannot reach an execution path.
+
+## Zero-cost edge layout
+
+Production paper-observation traffic uses one Cloudflare Worker under
+`apps/observation-edge`. The Worker handles only `/api/*` and `/health/*`; Cloudflare Static Assets
+serves the exported operations console directly for every other path. D1 stores append-only
+receipt metadata. The public `workers.dev` hostname is stable and requires neither a custom domain
+nor an always-on local machine.
+
+`TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256` is a Cloudflare Worker secret containing only the
+lowercase SHA-256 digest. The raw value exists only in the TradingView LAB input and request body.
+Apply the D1 migrations before deployment, run the edge test suite and Wrangler dry run, then
+deploy the Worker. Cloudflare free-tier exhaustion fails closed; it never bypasses the Worker into
+an execution service.
+
+The Python/PostgreSQL implementation stays authoritative as a local development, recovery, and
+portability path. Railway manifests are intentionally absent. If a future live phase needs an SLA
+or long-running broker connection, move the broker bridge—not the public dashboard contract—to a
+small reviewed host.
 
 ## Generated contracts
 

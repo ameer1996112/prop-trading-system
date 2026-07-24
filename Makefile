@@ -3,20 +3,24 @@ SHELL := /bin/sh
 
 PYTHON := uv run python
 CONSOLE := apps/operations-console
-DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_cache|node_modules|\.next)(/|$$)|(^|/)(tsconfig\.tsbuildinfo|\.secrets\.baseline)$$
+EDGE := apps/observation-edge
+DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_cache|node_modules|\.next|dist|out|\.wrangler)(/|$$)|(^|/)(tsconfig\.tsbuildinfo|\.secrets\.baseline)$$
 
 .PHONY: help bootstrap format format-check lint typecheck backend-tests frontend-checks \
+	edge-checks \
 	verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check \
-	verify-phase0
+	verify-observation verify-phase0
 
 help:
 	@echo "make bootstrap       Install exactly locked Python and Node dependencies"
 	@echo "make format          Apply Python formatting"
-	@echo "make verify-phase0   Run the complete deterministic Phase 0 proof"
+	@echo "make verify-observation  Run the complete observation-ingress proof"
+	@echo "make verify-phase0      Compatibility alias for the complete proof"
 
 bootstrap:
 	uv sync --locked --python 3.12
 	cd $(CONSOLE) && npm ci --ignore-scripts --no-audit --no-fund
+	cd $(EDGE) && npm ci --ignore-scripts --no-audit --no-fund
 
 format:
 	uv run ruff format .
@@ -40,6 +44,12 @@ frontend-checks:
 	cd $(CONSOLE) && npm test
 	cd $(CONSOLE) && npm run build
 	$(PYTHON) scripts/assert_frontend_runtime.py --console-root $(CONSOLE)
+
+edge-checks: frontend-checks
+	cd $(EDGE) && npm run lint
+	cd $(EDGE) && npm run typecheck
+	cd $(EDGE) && npm test
+	cd $(EDGE) && npm run build
 
 verify-generated:
 	$(PYTHON) scripts/build_phase0_evidence.py --output evidence/phase0/evidence-registry.json --check
@@ -66,5 +76,7 @@ boundary-check:
 container-check:
 	./scripts/container_smoke.sh
 
-verify-phase0: bootstrap format-check lint typecheck backend-tests frontend-checks verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check
-	@echo "PHASE 0 VERIFICATION PASSED — foundation remains observation-only and BLOCKED"
+verify-observation: bootstrap format-check lint typecheck backend-tests edge-checks verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check
+	@echo "OBSERVATION VERIFICATION PASSED — ingress records metadata and no execution surface exists"
+
+verify-phase0: verify-observation

@@ -1,0 +1,335 @@
+{
+  "default_request": {
+    "ambiguous_same_bar_order": false,
+    "at_htf_boundary": false,
+    "confirmed_timeframe_minutes": 5,
+    "contract_version": "1.0.0",
+    "distance_observation_id": "fixture-distance-001",
+    "distance_profile_id": "gbpjpy-5m-guidance",
+    "directional_close_confirmed": true,
+    "entry_model": "DIR_CLOSE",
+    "feed_id": "OANDA",
+    "liquidity_distance": "8.00",
+    "liquidity_kind": "NORMAL",
+    "multiple_liquidity_candidates": false,
+    "producer_strategy_version": "1.2.0-contract1",
+    "replacement_liquidity_qualified": false,
+    "stale_move_detected": false,
+    "symbol": "GBPJPY",
+    "zone_engaged": true
+  },
+  "default_rule_decisions": {
+    "ENTRY_DIR_CLOSE": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "LIQ_ACTUAL_EXTREME_SWEPT": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "LIQ_DISTANCE_INFLUENCES_ZONE": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "LIQ_EVENT_ORDER": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "LIQ_NORMAL_TWO_OPPOSITE_CANDLES": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "LIQ_OWN_EXTREME_SAME_LEG": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "LIQ_STRICT_OWN_EXTREME_BREAK": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "MANAGEMENT_STOP_TRIGGER_CANDLE": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "MANAGEMENT_TP_BE_TABLE": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "RISK_SESSION_PROFILE": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "TIMEFRAME_FIVE_MINUTE_ONLY": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "ZONE_ACCURACY_BOUNDS": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "ZONE_FRESH_UNTAPPED": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "ZONE_FIRST_ENGAGEMENT": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "ZONE_ORIGIN_OPPOSITE_CANDLE": {
+      "fidelity": "EXACT",
+      "passed": true
+    },
+    "ZONE_PRE_ENTRY_CLOSE_OUTSIDE": {
+      "fidelity": "EXACT",
+      "passed": true
+    }
+  },
+  "cases": [
+    {
+      "case_id": "first_touch_without_entry_model_waits",
+      "expected_action": "WAIT",
+      "expected_reason": "WAIT_ENTRY_CONFIRMATION",
+      "request_overrides": {
+        "directional_close_confirmed": false,
+        "entry_model": null
+      },
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "first_touch_without_directional_close_waits",
+      "expected_action": "WAIT",
+      "expected_reason": "WAIT_DIRECTIONAL_CLOSE",
+      "request_overrides": {
+        "directional_close_confirmed": false
+      },
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "same_touch_directional_close_waits_for_contract_completion",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_CONTRACT_RULE_NOT_EXECUTABLE:LIQ_DISTANCE_INFLUENCES_ZONE",
+      "request_overrides": {},
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "own_extreme_not_strictly_broken_rejects",
+      "expected_action": "REJECT",
+      "expected_reason": "REJECT_RULE_FAILED:LIQ_STRICT_OWN_EXTREME_BREAK",
+      "request_overrides": {},
+      "rule_overrides": {
+        "LIQ_STRICT_OWN_EXTREME_BREAK": {
+          "fidelity": "EXACT",
+          "passed": false
+        }
+      }
+    },
+    {
+      "case_id": "sweep_before_break_rejects",
+      "expected_action": "REJECT",
+      "expected_reason": "REJECT_RULE_FAILED:LIQ_EVENT_ORDER",
+      "request_overrides": {},
+      "rule_overrides": {
+        "LIQ_EVENT_ORDER": {
+          "fidelity": "EXACT",
+          "passed": false
+        }
+      }
+    },
+    {
+      "case_id": "ambiguous_same_bar_order_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_AMBIGUOUS_SAME_BAR_ORDER",
+      "request_overrides": {
+        "ambiguous_same_bar_order": true
+      },
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "visual_distance_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_NON_EXACT_RULE:LIQ_DISTANCE_INFLUENCES_ZONE",
+      "request_overrides": {},
+      "rule_overrides": {
+        "LIQ_DISTANCE_INFLUENCES_ZONE": {
+          "fidelity": "DISCRETIONARY",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "missing_distance_decision_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_MISSING_RULE_DECISION:LIQ_DISTANCE_INFLUENCES_ZONE",
+      "remove_rules": [
+        "LIQ_DISTANCE_INFLUENCES_ZONE"
+      ],
+      "request_overrides": {},
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "one_candle_liquidity_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_NON_EXACT_RULE:LIQ_ONE_CANDLE_EXCEPTION",
+      "remove_rules": [
+        "LIQ_NORMAL_TWO_OPPOSITE_CANDLES"
+      ],
+      "request_overrides": {
+        "liquidity_kind": "ONE_CANDLE"
+      },
+      "rule_overrides": {
+        "LIQ_ONE_CANDLE_EXCEPTION": {
+          "fidelity": "DISCRETIONARY",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "internal_liquidity_without_exact_rebreak_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_NON_EXACT_RULE:LIQ_INTERNAL_REBREAK",
+      "request_overrides": {
+        "liquidity_kind": "INTERNAL"
+      },
+      "rule_overrides": {
+        "LIQ_INTERNAL_REBREAK": {
+          "fidelity": "CALIBRATED",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "multiple_candidate_arbitration_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_NON_EXACT_RULE:LIQ_MULTIPLE_CANDIDATE_ARBITRATION",
+      "request_overrides": {
+        "multiple_liquidity_candidates": true
+      },
+      "rule_overrides": {
+        "LIQ_MULTIPLE_CANDIDATE_ARBITRATION": {
+          "fidelity": "UNRESOLVED",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "stale_move_without_exact_replacement_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_NON_EXACT_RULE:LIQ_REPLACEMENT_AFTER_STALE_MOVE",
+      "request_overrides": {
+        "replacement_liquidity_qualified": true,
+        "stale_move_detected": true
+      },
+      "rule_overrides": {
+        "LIQ_REPLACEMENT_AFTER_STALE_MOVE": {
+          "fidelity": "DISCRETIONARY",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "stale_move_without_qualified_replacement_rejects",
+      "expected_action": "REJECT",
+      "expected_reason": "REJECT_STALE_MOVE_WITHOUT_QUALIFIED_REPLACEMENT",
+      "request_overrides": {
+        "stale_move_detected": true
+      },
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "replacement_without_stale_move_rejects",
+      "expected_action": "REJECT",
+      "expected_reason": "REJECT_REPLACEMENT_WITHOUT_STALE_MOVE",
+      "request_overrides": {
+        "replacement_liquidity_qualified": true
+      },
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "distance_profile_symbol_mismatch_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_DISTANCE_PROFILE_SYMBOL_MISMATCH",
+      "request_overrides": {
+        "distance_profile_id": "eurusd-5m-guidance"
+      },
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "unknown_rule_decision_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_UNKNOWN_RULE_DECISION:FUTURE_UNMAPPED_RULE",
+      "request_overrides": {},
+      "rule_overrides": {
+        "FUTURE_UNMAPPED_RULE": {
+          "fidelity": "EXACT",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "close_inside_before_entry_rejects",
+      "expected_action": "REJECT",
+      "expected_reason": "REJECT_RULE_FAILED:ZONE_PRE_ENTRY_CLOSE_OUTSIDE",
+      "request_overrides": {
+        "directional_close_confirmed": false
+      },
+      "rule_overrides": {
+        "ZONE_PRE_ENTRY_CLOSE_OUTSIDE": {
+          "fidelity": "EXACT",
+          "passed": false
+        }
+      }
+    },
+    {
+      "case_id": "generic_break_candle_is_disabled",
+      "expected_action": "REJECT",
+      "expected_reason": "REJECT_BREAK_CANDLE_DISABLED",
+      "request_overrides": {
+        "directional_close_confirmed": false,
+        "entry_model": "BREAK_CANDLE"
+      },
+      "rule_overrides": {}
+    },
+    {
+      "case_id": "htf_flip_requires_lower_timeframe_replay",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_HTF_REPLAY_REQUIRED",
+      "remove_rules": [
+        "ENTRY_DIR_CLOSE"
+      ],
+      "request_overrides": {
+        "directional_close_confirmed": false,
+        "entry_model": "HTF_FLIP"
+      },
+      "rule_overrides": {
+        "ENTRY_HTF_FLIP": {
+          "fidelity": "EXACT",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "htf_boundary_exception_is_shadow_only",
+      "expected_action": "SHADOW_ONLY",
+      "expected_reason": "SHADOW_NON_EXACT_RULE:ENTRY_HTF_BOUNDARY_CAUTION",
+      "request_overrides": {
+        "at_htf_boundary": true
+      },
+      "rule_overrides": {
+        "ENTRY_HTF_BOUNDARY_CAUTION": {
+          "fidelity": "DISCRETIONARY",
+          "passed": true
+        }
+      }
+    },
+    {
+      "case_id": "contract_version_mismatch_rejects",
+      "expected_action": "REJECT",
+      "expected_reason": "REJECT_CONTRACT_VERSION_MISMATCH",
+      "request_overrides": {
+        "contract_version": "9.9.9"
+      },
+      "rule_overrides": {}
+    }
+  ],
+  "schema_version": "1.0.0"
+}

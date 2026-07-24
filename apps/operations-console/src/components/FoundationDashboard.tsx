@@ -1,55 +1,154 @@
-import type { FoundationSnapshot } from "../lib/api";
-import { SnapshotRefresh } from "./SnapshotRefresh";
+"use client";
 
-export function FoundationDashboard({ snapshot }: { snapshot: FoundationSnapshot }) {
+import { useEffect, useState } from "react";
+
+import {
+  type ApiHealthSnapshot,
+  loadApiHealth,
+  loadObservationReceipts,
+  type ObservationReceiptsSnapshot,
+} from "../lib/api";
+import {
+  LOADING_OBSERVATION_RECEIPTS,
+  ObservationReceiptsPanel,
+} from "./ObservationReceipts";
+import { PaperSimulationPanel } from "./PaperSimulationPanel";
+
+const POLL_INTERVAL_MS = 30_000;
+
+const OFFLINE_HEALTH: ApiHealthSnapshot = {
+  state: "OFFLINE",
+  paperSimulator: "UNKNOWN",
+  execution: "UNKNOWN",
+  message: "API health has not been verified. The console remains fail-closed.",
+};
+
+function ingressLabel(snapshot: ObservationReceiptsSnapshot): "ENABLED" | "BLOCKED" {
+  return snapshot.ingressEnabled === true ? "ENABLED" : "BLOCKED";
+}
+
+function formatCheckTime(value: Date | null): string {
+  if (value === null) return "Awaiting first check";
+  return `${value.toISOString().replace("T", " ").replace(/\.\d{3}Z$/u, " UTC")}`;
+}
+
+export function FoundationDashboard() {
+  const [health, setHealth] = useState<ApiHealthSnapshot>(OFFLINE_HEALTH);
+  const [receipts, setReceipts] = useState<ObservationReceiptsSnapshot>(
+    LOADING_OBSERVATION_RECEIPTS,
+  );
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let inFlight: AbortController | null = null;
+
+    const poll = async () => {
+      inFlight?.abort();
+      const controller = new AbortController();
+      inFlight = controller;
+      const [nextHealth, nextReceipts] = await Promise.all([
+        loadApiHealth(controller.signal),
+        loadObservationReceipts(controller.signal),
+      ]);
+      if (!active || controller.signal.aborted) return;
+      setHealth(nextHealth);
+      setReceipts(nextReceipts);
+      setLastCheckedAt(new Date());
+    };
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      inFlight?.abort();
+    };
+  }, []);
+
+  const ingress = ingressLabel(receipts);
+
   return (
-    <main>
-      <header>
-        <p className="eyebrow">Observation-only foundation</p>
-        <h1>Phase 0 operations console</h1>
-        <p className="lede">No broker execution capability exists in this repository.</p>
+    <main className="ledger-shell">
+      <div className="safety-ribbon" role="note">
+        <span>PAPER LAB</span>
+        <strong>NO EXECUTION</strong>
+        <span>OBSERVE · RECORD · REVIEW</span>
+      </div>
+
+      <header className="editorial-header">
+        <div className="header-index" aria-hidden="true">
+          01
+        </div>
+        <div className="header-copy">
+          <p className="eyebrow">TradingView observation ledger</p>
+          <h1>Signals enter here. Orders never do.</h1>
+        </div>
+        <p className="header-note">
+          Alert delivery plus protected paper simulation. This console has no broker connection
+          or live execution path.
+        </p>
       </header>
-      <section className={`status status-${snapshot.status.toLowerCase()}`} aria-live="polite">
-        <div>
-          <span className="label">Readiness</span>
-          <strong>{snapshot.status}</strong>
+
+      <section className="system-strip" aria-labelledby="system-state-heading">
+        <div className="strip-heading">
+          <p className="section-number">A / SYSTEM STATE</p>
+          <h2 id="system-state-heading">Fail-closed monitor</h2>
         </div>
-        <div>
-          <span className="label">Data source</span>
-          <strong>{snapshot.source}</strong>
-        </div>
-        <p>{snapshot.message}</p>
-        <p>
-          <span className="label">Evaluated</span>{" "}
-          {snapshot.evaluatedAt ?? "UNKNOWN — no validated server timestamp"}
-        </p>
-        <p>
-          <span className="label">Evidence freshness</span>{" "}
-          {snapshot.evidenceLastModifiedAt ?? "UNKNOWN — no validated evidence timestamp"}
+        <dl className="system-readings">
+          <div>
+            <dt>Observation API</dt>
+            <dd className={`reading reading-${health.state.toLowerCase()}`}>
+              <span aria-hidden="true" />
+              {health.state}
+            </dd>
+          </div>
+          <div>
+            <dt>Ingress</dt>
+            <dd className={`reading reading-${ingress.toLowerCase()}`}>
+              <span aria-hidden="true" />
+              {ingress}
+            </dd>
+          </div>
+          <div>
+            <dt>Paper simulator</dt>
+            <dd
+              className={`reading reading-${health.paperSimulator.toLowerCase()}`}
+            >
+              <span aria-hidden="true" />
+              {health.paperSimulator}
+            </dd>
+          </div>
+          <div>
+            <dt>Broker execution</dt>
+            <dd className={`reading reading-${health.execution.toLowerCase()}`}>
+              <span aria-hidden="true" />
+              {health.execution}
+            </dd>
+          </div>
+          <div>
+            <dt>Last check</dt>
+            <dd>
+              <time dateTime={lastCheckedAt?.toISOString()}>{formatCheckTime(lastCheckedAt)}</time>
+            </dd>
+          </div>
+        </dl>
+        <p className="system-message" role="status" aria-live="polite">
+          {health.message}
         </p>
       </section>
-      <SnapshotRefresh />
-      <section>
-        <h2>Activation gates</h2>
-        {snapshot.gates.length === 0 ? (
-          <div className="empty">Gate data is unavailable. This is not an empty-success state.</div>
-        ) : (
-          <ul className="gates">
-            {snapshot.gates.map((gate) => (
-              <li key={gate.gate_id}>
-                <div>
-                  <strong>{gate.gate_id.replaceAll("_", " ")}</strong>
-                  <span>{gate.status}</span>
-                </div>
-                <p>{gate.reason}</p>
-                {gate.missing_requirements.length > 0 && (
-                  <small>{gate.missing_requirements.length} required proof item(s) absent</small>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+
+      <ObservationReceiptsPanel snapshot={receipts} />
+      <PaperSimulationPanel />
+
+      <footer className="ledger-footer">
+        <p>
+          <strong>PAPER LAB · BROKER EXECUTION DISABLED</strong>
+          Simulation outcomes are bookkeeping facts only. Nothing on this page can reach a
+          broker or prop-firm account.
+        </p>
+        <span>Auto-check every 30 seconds</span>
+      </footer>
     </main>
   );
 }

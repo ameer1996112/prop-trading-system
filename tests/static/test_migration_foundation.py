@@ -5,8 +5,11 @@ from pathlib import Path
 from prop_trading.adapters.orm import Base
 
 
-def test_phase0_metadata_contains_only_append_only_evidence() -> None:
-    assert set(Base.metadata.tables) == {"phase0_evidence_records"}
+def test_metadata_contains_only_append_only_evidence_and_observation_receipts() -> None:
+    assert set(Base.metadata.tables) == {
+        "phase0_evidence_records",
+        "observation_receipts",
+    }
     migration = Path("alembic/versions/0001_phase0_evidence.py").read_text(encoding="utf-8")
     assert "BEFORE UPDATE OR DELETE" in migration
     assert "BEFORE TRUNCATE" in migration

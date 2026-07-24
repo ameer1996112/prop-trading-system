@@ -1,5 +1,5 @@
 {
-  "name": "phase0-operations-console",
+  "name": "paper-lab-operations-console",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -9,7 +9,6 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint . --max-warnings=0",
-    "start": "next start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
