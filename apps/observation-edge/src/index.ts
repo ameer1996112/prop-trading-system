@@ -96,6 +96,7 @@ import {
   ObservationValidationError,
   validateObservationEnvelope,
 } from "./validation";
+import { RD_ENTRY_PROMOTION_BINDING } from "./generated/rd-entry-promotion-binding";
 
 const DEFAULT_MAX_BODY_BYTES = 262_144;
 const MIN_MAX_BODY_BYTES = 1_024;
@@ -103,6 +104,42 @@ const MAX_MAX_BODY_BYTES = 1_048_576;
 const PAPER_MAX_BODY_BYTES = 16_384;
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const SHA256 = /^[a-f0-9]{64}$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+const GIT_COMMIT_HEX = /^[0-9a-f]{40}$/u;
+
+export interface EntryCodeIdentity {
+  readonly rule_contract_version: string;
+  readonly strategy_version: string;
+  readonly detector_code_hash: string;
+  readonly settings_hash: string;
+}
+
+export function canonicalPaperSelectionConfigured(
+  env: Env,
+  identity: EntryCodeIdentity,
+): boolean {
+  const approved = RD_ENTRY_PROMOTION_BINDING;
+  return (
+    approved !== null &&
+    env.RD_ENTRY_CANONICAL_PAPER_ENABLED === "true" &&
+    SHA256_HEX.test(approved.report_sha256) &&
+    GIT_COMMIT_HEX.test(approved.source_commit) &&
+    SHA256_HEX.test(approved.pine_artifact_sha256) &&
+    approved.rule_contract_version.length > 0 &&
+    approved.producer_strategy_version.length > 0 &&
+    SHA256_HEX.test(approved.detector_code_hash) &&
+    SHA256_HEX.test(approved.settings_hash) &&
+    SHA256_HEX.test(approved.build_metadata_digest) &&
+    env.RD_ENTRY_PROMOTION_REPORT_SHA256 === approved.report_sha256 &&
+    env.RD_ENTRY_PROMOTION_SOURCE_COMMIT === approved.source_commit &&
+    env.RD_ENTRY_PROMOTION_PINE_SHA256 === approved.pine_artifact_sha256 &&
+    env.CF_VERSION_METADATA?.tag === approved.build_metadata_digest &&
+    identity.rule_contract_version === approved.rule_contract_version &&
+    identity.strategy_version === approved.producer_strategy_version &&
+    identity.detector_code_hash === approved.detector_code_hash &&
+    identity.settings_hash === approved.settings_hash
+  );
+}
 
 class BodyTooLargeError extends Error {}
 class MalformedBodyError extends Error {}
@@ -2707,6 +2744,17 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       status: "ALIVE",
       mode: "OBSERVATION_ONLY",
       paper_simulator: paperLedgerConfigured(env) ? "ENABLED" : "DISABLED",
+      canonical_paper:
+        RD_ENTRY_PROMOTION_BINDING !== null &&
+        env.RD_ENTRY_CANONICAL_PAPER_ENABLED === "true" &&
+        env.CF_VERSION_METADATA?.tag ===
+          RD_ENTRY_PROMOTION_BINDING.build_metadata_digest
+          ? "ARMED_IDENTITY_REQUIRED"
+          : "DISABLED",
+      deployment_version: {
+        id: env.CF_VERSION_METADATA?.id ?? null,
+        tag: env.CF_VERSION_METADATA?.tag ?? null,
+      },
       execution: "DISABLED",
     });
   }

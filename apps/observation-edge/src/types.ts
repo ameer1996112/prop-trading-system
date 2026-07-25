@@ -421,8 +421,17 @@ export interface PaperReadinessReport {
 export interface Env {
   readonly DB: D1Database;
   readonly ASSETS?: Fetcher;
+  readonly CF_VERSION_METADATA?: {
+    readonly id: string;
+    readonly tag: string;
+    readonly timestamp: string;
+  };
   readonly PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256?: string;
   readonly PAPER_LEDGER_ENABLED?: string;
+  readonly RD_ENTRY_CANONICAL_PAPER_ENABLED?: string;
+  readonly RD_ENTRY_PROMOTION_PINE_SHA256?: string;
+  readonly RD_ENTRY_PROMOTION_REPORT_SHA256?: string;
+  readonly RD_ENTRY_PROMOTION_SOURCE_COMMIT?: string;
   readonly TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256?: string;
   readonly TRADINGVIEW_PAPER_AUTOMATION_CREDENTIAL_SHA256?: string;
   readonly TRADINGVIEW_OBSERVATION_INGRESS_ENABLED?: string;

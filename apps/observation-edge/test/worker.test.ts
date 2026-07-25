@@ -451,6 +451,11 @@ describe("observation edge Worker", () => {
       status: "ALIVE",
       mode: "OBSERVATION_ONLY",
       paper_simulator: "DISABLED",
+      canonical_paper: "DISABLED",
+      deployment_version: {
+        id: null,
+        tag: null,
+      },
       execution: "DISABLED",
     });
     expect(posted.status).toBe(503);
