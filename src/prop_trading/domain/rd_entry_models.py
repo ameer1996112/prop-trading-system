@@ -646,6 +646,42 @@ def candidate_id(identity: EntryCandidateIdentity) -> str:
     )
 
 
+def evidence_payload_sha256(
+    *,
+    candidate_id: str,
+    observed_trigger_epoch: int | None,
+    observed_trigger_ticks: int | None,
+    htf_context_minutes: tuple[int, ...],
+    fidelity: CandidateFidelity,
+    proof_plane: ProofPlane,
+    proof_resolution_seconds: int,
+    coverage_start_epoch: int,
+    coverage_end_epoch: int,
+    ambiguity_codes: tuple[AmbiguityCode, ...],
+    passed_rule_ids: tuple[str, ...],
+    failed_rule_ids: tuple[str, ...],
+    source_claim_ids: tuple[str, ...],
+) -> str:
+    """Hash the frozen expanded evidence payload shared by every strict producer."""
+    return canonical_sha256(
+        {
+            "ambiguity_codes": [item.value for item in ambiguity_codes],
+            "candidate_id": candidate_id,
+            "coverage_end_epoch": coverage_end_epoch,
+            "coverage_start_epoch": coverage_start_epoch,
+            "failed_rule_ids": list(failed_rule_ids),
+            "fidelity": fidelity.value,
+            "htf_context_minutes": list(htf_context_minutes),
+            "observed_trigger_epoch": observed_trigger_epoch,
+            "observed_trigger_ticks": observed_trigger_ticks,
+            "passed_rule_ids": list(passed_rule_ids),
+            "proof_plane": proof_plane.value,
+            "proof_resolution_seconds": proof_resolution_seconds,
+            "source_claim_ids": list(source_claim_ids),
+        }
+    )
+
+
 def evidence_id(identity: EntryEvidenceIdentity) -> str:
     return canonical_sha256(
         {

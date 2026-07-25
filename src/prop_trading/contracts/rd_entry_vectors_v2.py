@@ -13,6 +13,16 @@ from prop_trading.contracts.models import (
     SafeInteger,
     Sha256,
 )
+from prop_trading.domain.rd_entry_models import (
+    AmbiguityCode as DomainAmbiguityCode,
+)
+from prop_trading.domain.rd_entry_models import (
+    CandidateFidelity,
+    evidence_payload_sha256,
+)
+from prop_trading.domain.rd_entry_models import (
+    ProofPlane as DomainProofPlane,
+)
 
 NonNegativeInteger = Annotated[SafeInteger, Field(ge=0)]
 PositiveInteger = Annotated[SafeInteger, Field(gt=0)]
@@ -306,6 +316,23 @@ class RDEntryEvidenceVectorV2(ContractModel):
             raise ValueError("HTF contexts must be sorted")
         if len(set(self.htf_context_minutes)) != len(self.htf_context_minutes):
             raise ValueError("HTF contexts must be unique")
+        authoritative_payload_sha256 = evidence_payload_sha256(
+            candidate_id=self.candidate_id,
+            observed_trigger_epoch=self.observed_trigger_epoch,
+            observed_trigger_ticks=self.observed_trigger_ticks,
+            htf_context_minutes=self.htf_context_minutes,
+            fidelity=CandidateFidelity(self.fidelity),
+            proof_plane=DomainProofPlane(self.proof_plane),
+            proof_resolution_seconds=self.proof_resolution_seconds,
+            coverage_start_epoch=self.coverage_start_epoch,
+            coverage_end_epoch=self.coverage_end_epoch,
+            ambiguity_codes=tuple(DomainAmbiguityCode(item) for item in self.ambiguity_codes),
+            passed_rule_ids=self.passed_rule_ids,
+            failed_rule_ids=self.failed_rule_ids,
+            source_claim_ids=self.source_claim_ids,
+        )
+        if self.payload_sha256 != authoritative_payload_sha256:
+            raise ValueError("payload_sha256 conflicts with its expanded payload digest")
         return self
 
 

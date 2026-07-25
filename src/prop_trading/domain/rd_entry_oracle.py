@@ -41,6 +41,7 @@ from prop_trading.domain.rd_entry_models import (
     SetupAttemptTerminalReason,
     candidate_id,
     evidence_id,
+    evidence_payload_sha256,
     handling_id,
     selection_id,
 )
@@ -755,6 +756,23 @@ def _parse_evidence(value: object, name: str) -> EntryCandidateEvidence:
             non_negative=True,
         ),
     )
+    authoritative_payload_sha256 = evidence_payload_sha256(
+        candidate_id=parsed.candidate_id,
+        observed_trigger_epoch=parsed.observed_trigger_epoch,
+        observed_trigger_ticks=parsed.observed_trigger_ticks,
+        htf_context_minutes=parsed.htf_context_minutes,
+        fidelity=parsed.fidelity,
+        proof_plane=parsed.proof_plane,
+        proof_resolution_seconds=parsed.proof_resolution_seconds,
+        coverage_start_epoch=parsed.coverage_start_epoch,
+        coverage_end_epoch=parsed.coverage_end_epoch,
+        ambiguity_codes=parsed.ambiguity_codes,
+        passed_rule_ids=parsed.passed_rule_ids,
+        failed_rule_ids=parsed.failed_rule_ids,
+        source_claim_ids=parsed.source_claim_ids,
+    )
+    if parsed.payload_sha256 != authoritative_payload_sha256:
+        raise ValueError(f"{name}.payload_sha256 conflicts with its expanded payload digest")
     identity = EntryEvidenceIdentity(
         candidate_id=parsed.candidate_id,
         proof_plane=parsed.proof_plane,

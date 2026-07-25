@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from prop_trading.domain.canonical import canonical_sha256
 from prop_trading.domain.rd_entry_models import (
     AmbiguityCode,
     AttemptKind,
@@ -26,6 +25,7 @@ from prop_trading.domain.rd_entry_models import (
     SetupAttemptTerminalReason,
     candidate_id,
     evidence_id,
+    evidence_payload_sha256,
     handling_id,
 )
 
@@ -245,28 +245,22 @@ def _candidate(
     )
 
 
-def _evidence_payload(candidate: EntryCandidate, fields: _EvidenceFields) -> str:
-    return canonical_sha256(
-        {
-            "ambiguity_codes": [item.value for item in fields.ambiguity_codes],
-            "candidate_id": candidate.candidate_id,
-            "coverage_end_epoch": fields.coverage_end_epoch,
-            "coverage_start_epoch": fields.coverage_start_epoch,
-            "failed_rule_ids": list(fields.failed_rule_ids),
-            "fidelity": fields.fidelity.value,
-            "htf_context_minutes": list(fields.htf_context_minutes),
-            "observed_trigger_epoch": fields.observed_trigger_epoch,
-            "observed_trigger_ticks": fields.observed_trigger_ticks,
-            "passed_rule_ids": list(fields.passed_rule_ids),
-            "proof_plane": fields.proof_plane.value,
-            "proof_resolution_seconds": fields.proof_resolution_seconds,
-            "source_claim_ids": list(fields.source_claim_ids),
-        }
-    )
-
-
 def _evidence(candidate: EntryCandidate, fields: _EvidenceFields) -> EntryCandidateEvidence:
-    payload_sha256 = _evidence_payload(candidate, fields)
+    payload_sha256 = evidence_payload_sha256(
+        candidate_id=candidate.candidate_id,
+        observed_trigger_epoch=fields.observed_trigger_epoch,
+        observed_trigger_ticks=fields.observed_trigger_ticks,
+        htf_context_minutes=fields.htf_context_minutes,
+        fidelity=fields.fidelity,
+        proof_plane=fields.proof_plane,
+        proof_resolution_seconds=fields.proof_resolution_seconds,
+        coverage_start_epoch=fields.coverage_start_epoch,
+        coverage_end_epoch=fields.coverage_end_epoch,
+        ambiguity_codes=fields.ambiguity_codes,
+        passed_rule_ids=fields.passed_rule_ids,
+        failed_rule_ids=fields.failed_rule_ids,
+        source_claim_ids=fields.source_claim_ids,
+    )
     identity = EntryEvidenceIdentity(
         candidate_id=candidate.candidate_id,
         proof_plane=fields.proof_plane,

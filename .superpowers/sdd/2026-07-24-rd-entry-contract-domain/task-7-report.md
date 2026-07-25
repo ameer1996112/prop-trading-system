@@ -38,7 +38,24 @@ records, reused setup IDs across initial/re-entry attempts, and Pine promotion.
   the close event.
 - RED: nested fixture expectations accepted unknown fields and a forged
   `candidate_id`; added strict nested record parsing and identity recomputation.
-- Final focused oracle result: 62 passed.
+- Initial focused oracle result: 62 passed.
+
+### Fix round 1 — expanded evidence payload integrity
+
+- RED: a fixture expectation with a forged `payload_sha256` was accepted when
+  `evidence_id`, dependent `handling_id`, and dependent `selection_id` were
+  coordinately recomputed.
+- RED: the independently loaded strict generated-vector model accepted the same
+  coordinated forgery.
+- GREEN: added the shared canonical `evidence_payload_sha256(...)` helper for
+  the frozen expanded evidence fields. The matcher now uses this helper for
+  authoritative evidence construction.
+- GREEN: both `EntryOracleCase.from_mapping(...)` and
+  `RDEntryArbitrationVectorsV2` recompute the expanded payload digest and reject
+  a mismatch before trusting the evidence identity chain.
+- The 24 literal fixture cases, generated vectors, strategy behavior, and Pine
+  fail-closed results are unchanged.
+- Fix-round focused oracle/matcher/contract result: 132 passed.
 
 ## Manual review of the 24 frozen cases
 
@@ -101,8 +118,8 @@ pre-existing debt files with no semantic changes:
 - `uv run ruff format --check .` — passed; 72 files already formatted.
 - `uv run ruff check .` — passed.
 - `uv run mypy` — passed; no issues in 29 source files.
-- Required seven-file contract/domain matrix — 217 passed.
-- `uv run pytest -q` — 420 passed.
+- Required seven-file contract/domain matrix — 219 passed.
+- `uv run pytest -q` — 422 passed.
 - Vector generation and `--check` — passed.
 - Schema export and `--check` — passed.
 - `make verify-generated` — passed; the expected Phase 0 artifact assertion

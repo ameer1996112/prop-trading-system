@@ -24,12 +24,19 @@ from prop_trading.domain.rd_entry_models import (
     AttemptKind,
     CandidateFidelity,
     EntryDirection,
+    EntryEvidenceIdentity,
+    EntryHandlingIdentity,
     EntryModelV2,
+    EntrySelectionIdentity,
     HandlingMode,
     OrderedCandle,
+    ProofPlane,
     SelectionAction,
     SelectionReason,
     SetupAttemptTerminalReason,
+    evidence_id,
+    handling_id,
+    selection_id,
 )
 from prop_trading.domain.rd_entry_oracle import (
     EntryOracleCase,
@@ -160,6 +167,64 @@ def test_fixture_parser_rejects_unknown_or_conflicting_expected_records() -> Non
     conflicting_id["expected"]["candidates"][0]["candidate_id"] = "a" * 64
     with pytest.raises(ValueError, match="candidate_id|identity"):
         EntryOracleCase.from_mapping(conflicting_id)
+
+
+def _coordinate_forged_evidence_payload(expected: dict[str, object]) -> None:
+    evidence = expected["evidence"][0]
+    old_evidence_id = evidence["evidence_id"]
+    evidence["payload_sha256"] = "a" * 64
+    forged_evidence_id = evidence_id(
+        EntryEvidenceIdentity(
+            candidate_id=evidence["candidate_id"],
+            proof_plane=ProofPlane(evidence["proof_plane"]),
+            proof_resolution_seconds=evidence["proof_resolution_seconds"],
+            coverage_start_epoch=evidence["coverage_start_epoch"],
+            coverage_end_epoch=evidence["coverage_end_epoch"],
+            observed_trigger_epoch=evidence["observed_trigger_epoch"],
+            payload_sha256=evidence["payload_sha256"],
+        )
+    )
+    evidence["evidence_id"] = forged_evidence_id
+
+    handling = next(item for item in expected["handling"] if item["evidence_id"] == old_evidence_id)
+    handling["evidence_id"] = forged_evidence_id
+    handling["handling_id"] = handling_id(
+        EntryHandlingIdentity(
+            candidate_id=handling["candidate_id"],
+            evidence_id=handling["evidence_id"],
+            handling_mode=HandlingMode(handling["handling_mode"]),
+            attempt_kind=AttemptKind(handling["attempt_kind"]),
+            observed_epoch=handling["observed_epoch"],
+            observed_ticks=handling["observed_ticks"],
+            fidelity=CandidateFidelity(handling["fidelity"]),
+            source_claim_ids=tuple(handling["source_claim_ids"]),
+        )
+    )
+
+    selection = expected["selection"]
+    assert selection["canonical_evidence_id"] == old_evidence_id
+    selection["canonical_evidence_id"] = forged_evidence_id
+    selection["selection_id"] = selection_id(
+        EntrySelectionIdentity(
+            setup_id=selection["setup_id"],
+            policy_version=selection["policy_version"],
+            revision=selection["revision"],
+            candidate_ids_considered=tuple(selection["candidate_ids_considered"]),
+            canonical_candidate_id=selection["canonical_candidate_id"],
+            canonical_evidence_id=selection["canonical_evidence_id"],
+            reason=SelectionReason(selection["reason"]),
+            fidelity=CandidateFidelity(selection["fidelity"]),
+            action=SelectionAction(selection["action"]),
+        )
+    )
+
+
+def test_fixture_parser_rejects_coordinated_forged_evidence_payload() -> None:
+    forged = deepcopy(cases()[0])
+    _coordinate_forged_evidence_payload(forged["expected"])
+
+    with pytest.raises(ValueError, match="payload_sha256|payload digest"):
+        EntryOracleCase.from_mapping(forged)
 
 
 def test_fixture_replay_metadata_attempts_and_pine_support_are_explicit() -> None:
@@ -352,6 +417,15 @@ def test_strict_vector_document_rejects_duplicate_expected_ids() -> None:
 
     with pytest.raises(ValueError, match="candidate IDs must be unique"):
         RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(duplicate))
+
+
+def test_strict_vector_document_rejects_coordinated_forged_evidence_payload() -> None:
+    document = build_vectors(load_fixture_document(FIXTURES))
+    forged = deepcopy(document)
+    _coordinate_forged_evidence_payload(forged["cases"][0]["expected"])
+
+    with pytest.raises(ValueError, match="payload_sha256|payload digest"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
 
 
 def _setup(
