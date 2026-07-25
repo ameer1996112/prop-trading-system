@@ -13,3 +13,6 @@ and bounds; and tick exact-replay eligibility derived from all persisted qualifi
 version-matched typed validator and canonical hash verification before treating an artifact as
 valid. In Phase 0, even a valid capability artifact remains an untrusted claim unless a
 gate-specific verifier re-hashes it and validates an approval signature against a trust root.
+
+- [RD strategy rule contract v1 schema](schema/rd-strategy-rule-contract-v1.schema.json)
+- [RD strategy rule contract v2 schema](schema/rd-strategy-rule-contract-v2.schema.json)

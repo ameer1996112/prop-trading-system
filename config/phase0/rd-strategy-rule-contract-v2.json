@@ -1,0 +1,67 @@
+{
+  "schema_id": "phase0.rd-strategy-rule-contract.v2",
+  "contract_id": "rd-5m-video-contract-v2",
+  "contract_version": "2.0.0",
+  "producer_strategy_version": "2.0.0-contract2",
+  "strategy_id": "rd_liquidity_sd_5m_v1",
+  "confirmed_timeframe_minutes": 5,
+  "base_contract_sha256": "289cbf0bd1a59f3e3ca3ec12450f27bb326d210ec1e2444e17e7f90d10f17e28",
+  "inherited_rule_ids": [
+    "TIMEFRAME_FIVE_MINUTE_ONLY", "ZONE_ORIGIN_OPPOSITE_CANDLE", "ZONE_ACCURACY_BOUNDS", "ZONE_FRESH_UNTAPPED", "ZONE_PRE_ENTRY_CLOSE_OUTSIDE", "LIQ_NORMAL_TWO_OPPOSITE_CANDLES", "LIQ_ONE_CANDLE_EXCEPTION", "LIQ_OWN_EXTREME_SAME_LEG", "LIQ_STRICT_OWN_EXTREME_BREAK", "LIQ_ACTUAL_EXTREME_SWEPT", "LIQ_EVENT_ORDER", "LIQ_INTERNAL_REBREAK", "LIQ_DISTANCE_INFLUENCES_ZONE", "LIQ_REPLACEMENT_AFTER_STALE_MOVE"
+  ],
+  "sources_by_id": {
+    "rd-course-2024-03": {"youtube_video_id": "kxh_3__oAqg", "published_date": "2024-03-25", "title_snapshot": "FULL course for LIQUIDITY supply and demand best NEW trading strategy 2026", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-5m-optimized-2025-03": {"youtube_video_id": "84LZqvMiyos", "published_date": "2025-03-15", "title_snapshot": "I Optimized The 5m Timeframe To Make it OP - RD Concepts", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-first-5m-live-2025-03": {"youtube_video_id": "Gr0njSOtC10", "published_date": "2025-03-20", "title_snapshot": "First 5m livestream (1 win 1 loss) 1:2.5r trade on gj", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-5m-howto-2025-05": {"youtube_video_id": "f3X9T69y24c", "published_date": "2025-05-20", "title_snapshot": "How To Trade The 5m Timeframe (it's not the same)", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-full-guide-2025-08": {"youtube_video_id": "E5EBc1MtiXQ", "published_date": "2025-08-17", "title_snapshot": "The Trading Strategy That Changed My Life - RD Concepts Full Guide", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-strategy-week-2025-11": {"youtube_video_id": "UqYlKtPjKvY", "published_date": "2025-11-20", "title_snapshot": "The Strategy That Just Makes Sense - 6 Simple 1:4 Trades In 1 Week", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-live-nc-2026-05": {"youtube_video_id": "lo_7HDQK9WM", "published_date": "2026-05-21", "title_snapshot": "liquidity supply & demand live trading - 1:4 on NC", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-live-5m-2026-06": {"youtube_video_id": "zglv2r9xXnE", "published_date": "2026-06-11", "title_snapshot": "Liquidity supply & demand live trading - 5m timeframe", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
+    "rd-futures-backtest-2026-07": {"youtube_video_id": "T86aLDxzlbM", "published_date": "2026-07-15", "title_snapshot": "180% in 2 weeks - Full Futures Strategy Backtest Breakdown", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"}
+  },
+  "claims_by_id": {
+    "zone-untapped-2024-03": {"source_id": "rd-course-2024-03", "timestamp_start_seconds": 223, "timestamp_end_seconds": 298, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering the untapped-zone condition."},
+    "standard-close-2024-03": {"source_id": "rd-course-2024-03", "timestamp_start_seconds": 794, "timestamp_end_seconds": 876, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering the standard close entry model."},
+    "htf-flip-2024-03": {"source_id": "rd-course-2024-03", "timestamp_start_seconds": 892, "timestamp_end_seconds": 1005, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering the higher-timeframe flip model."},
+    "gold-break-exception-2025-03": {"source_id": "rd-5m-optimized-2025-03", "timestamp_start_seconds": 193, "timestamp_end_seconds": 223, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering the gold break exception."},
+    "closure-or-flip-2025-03": {"source_id": "rd-first-5m-live-2025-03", "timestamp_start_seconds": 3106, "timestamp_end_seconds": 3149, "relationship": "NARROWS", "target_claim_id": "standard-close-2024-03", "summary": "Official narrowing claim for close-or-flip selection."},
+    "next-candle-wick-2025-05": {"source_id": "rd-5m-howto-2025-05", "timestamp_start_seconds": 40, "timestamp_end_seconds": 97, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering next-candle wick handling."},
+    "prompt-close-2025-05": {"source_id": "rd-5m-howto-2025-05", "timestamp_start_seconds": 211, "timestamp_end_seconds": 223, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering prompt close handling."},
+    "directional-close-2025-08": {"source_id": "rd-full-guide-2025-08", "timestamp_start_seconds": 999, "timestamp_end_seconds": 1094, "relationship": "NARROWS", "target_claim_id": "closure-or-flip-2025-03", "summary": "Official narrowing claim for directional close."},
+    "htf-context-set-2025-08": {"source_id": "rd-full-guide-2025-08", "timestamp_start_seconds": 1189, "timestamp_end_seconds": 1198, "relationship": "NARROWS", "target_claim_id": "htf-flip-2024-03", "summary": "Official narrowing claim for higher-timeframe context."},
+    "htf-flip-definition-2025-08": {"source_id": "rd-full-guide-2025-08", "timestamp_start_seconds": 1270, "timestamp_end_seconds": 1345, "relationship": "NARROWS", "target_claim_id": "htf-flip-2024-03", "summary": "Official narrowing definition of a higher-timeframe flip."},
+    "htf-boundary-caution-2025-08": {"source_id": "rd-full-guide-2025-08", "timestamp_start_seconds": 1906, "timestamp_end_seconds": 2088, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering higher-timeframe boundary caution."},
+    "discretionary-break-2025-11": {"source_id": "rd-strategy-week-2025-11", "timestamp_start_seconds": 144, "timestamp_end_seconds": 229, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering discretionary break treatment."},
+    "close-fallback-2025-11": {"source_id": "rd-strategy-week-2025-11", "timestamp_start_seconds": 362, "timestamp_end_seconds": 430, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim covering close fallback handling."},
+    "pure-flip-narrowing-2026-05": {"source_id": "rd-live-nc-2026-05", "timestamp_start_seconds": 3647, "timestamp_end_seconds": 3984, "relationship": "NARROWS", "target_claim_id": "htf-flip-definition-2025-08", "summary": "Official narrowing claim for a pure higher-timeframe flip."},
+    "reject-non-htf-break-2026-05": {"source_id": "rd-live-nc-2026-05", "timestamp_start_seconds": 4388, "timestamp_end_seconds": 4395, "relationship": "SUPERSEDES", "target_claim_id": "gold-break-exception-2025-03", "summary": "Official superseding claim rejecting a non-higher-timeframe break."},
+    "directional-close-required-2026-06": {"source_id": "rd-live-5m-2026-06", "timestamp_start_seconds": 655, "timestamp_end_seconds": 665, "relationship": "NARROWS", "target_claim_id": "directional-close-2025-08", "summary": "Official narrowing claim requiring directional close."},
+    "break-normalized-to-flip-2026-06": {"source_id": "rd-live-5m-2026-06", "timestamp_start_seconds": 679, "timestamp_end_seconds": 694, "relationship": "SUPERSEDES", "target_claim_id": "discretionary-break-2025-11", "summary": "Official superseding claim normalizing a break to a flip."},
+    "model-continuation-2026-07": {"source_id": "rd-futures-backtest-2026-07", "timestamp_start_seconds": 247, "timestamp_end_seconds": 2550, "relationship": "SUPPORTS", "target_claim_id": null, "summary": "Official claim supporting continuation of the documented models."}
+  },
+  "rules_by_id": {
+    "ZONE_FIRST_ENGAGEMENT": {"category": "ZONE", "fidelity": "EXACT", "automation": "SHADOW_ONLY", "proof_eligibility": "NOT_ELIGIBLE", "open_requirement": true, "summary": "The first touch records zone engagement only.", "source_claim_ids": ["zone-untapped-2024-03"]},
+    "ENTRY_DIR_CLOSE": {"category": "ENTRY", "fidelity": "EXACT", "automation": "PAPER_EVALUATE", "proof_eligibility": "COMPLETE_REPLAYABLE_EXACT", "open_requirement": true, "summary": "Directional close is an active paper-selection model.", "source_claim_ids": ["standard-close-2024-03", "closure-or-flip-2025-03", "directional-close-2025-08", "directional-close-required-2026-06", "model-continuation-2026-07"]},
+    "ENTRY_HTF_FLIP": {"category": "ENTRY", "fidelity": "EXACT", "automation": "PAPER_EVALUATE", "proof_eligibility": "COMPLETE_REPLAYABLE_EXACT", "open_requirement": true, "summary": "Higher-timeframe flip is an active paper-selection model.", "source_claim_ids": ["htf-flip-2024-03", "htf-context-set-2025-08", "htf-flip-definition-2025-08", "pure-flip-narrowing-2026-05", "model-continuation-2026-07"]},
+    "ENTRY_HTF_BOUNDARY_CAUTION": {"category": "ENTRY", "fidelity": "DISCRETIONARY", "automation": "SHADOW_ONLY", "proof_eligibility": "NOT_ELIGIBLE", "open_requirement": true, "summary": "Higher-timeframe boundary caution remains shadow-only.", "source_claim_ids": ["htf-boundary-caution-2025-08"], "unresolved_terms": ["boundary caution"]},
+    "ENTRY_BREAK_CANDLE_NORMALIZATION": {"category": "ENTRY", "fidelity": "EXACT", "automation": "DISABLED", "proof_eligibility": "NOT_ELIGIBLE", "open_requirement": true, "summary": "Break-candle normalization is a disabled legacy observation.", "source_claim_ids": ["gold-break-exception-2025-03", "discretionary-break-2025-11", "reject-non-htf-break-2026-05", "break-normalized-to-flip-2026-06"]},
+    "ENTRY_REJECTION_RESPECT_DISABLED": {"category": "ENTRY", "fidelity": "EXACT", "automation": "DISABLED", "proof_eligibility": "NOT_ELIGIBLE", "open_requirement": true, "summary": "Rejection-respect is a disabled legacy observation.", "source_claim_ids": ["closure-or-flip-2025-03", "directional-close-2025-08", "directional-close-required-2026-06"]},
+    "ENTRY_NEXT_CANDLE_WICK_HANDLING": {"category": "ENTRY", "fidelity": "DISCRETIONARY", "automation": "SHADOW_ONLY", "proof_eligibility": "NOT_ELIGIBLE", "open_requirement": true, "summary": "Next-candle wick handling remains shadow-only.", "source_claim_ids": ["next-candle-wick-2025-05", "prompt-close-2025-05", "close-fallback-2025-11"], "unresolved_terms": ["prompt close", "fallback"]}
+  },
+  "automation_policy": {
+    "paper_only": true,
+    "real_execution_allowed": false,
+    "first_touch_action": "ZONE_ENGAGED",
+    "required_selection_fidelity": "EXACT",
+    "arbitration_policy_version": "rd-entry-arbitration-v2",
+    "current_producer_common_setup_fidelity": "UNRESOLVED",
+    "current_producer_promotion_eligible": false,
+    "realtime_evidence_action": "SHADOW_ONLY",
+    "paper_eligibility_requirement": "COMPLETE_REPLAYABLE_EXACT",
+    "active_entry_models": ["DIR_CLOSE", "HTF_FLIP"],
+    "legacy_entry_models": ["LEGACY_BREAK_CANDLE", "LEGACY_REJECTION_RESPECT"],
+    "htf_context_minutes": [15, 30, 60],
+    "selection_actions": ["OBSERVE", "PAPER_ELIGIBLE", "SHADOW_ONLY", "NONE"]
+  }
+}

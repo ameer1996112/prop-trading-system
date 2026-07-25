@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -15,11 +14,131 @@ CONTRACT = Path("config/phase0/rd-strategy-rule-contract-v2.json")
 OFFICIAL_CHANNEL = "UC54xbL96tU58iez3YbTVTAg"
 PROHIBITED_VIDEOS = {"LCydpj3CaHo", "rO5els-o3Oo"}
 
+EXPECTED_SOURCES = {
+    "rd-course-2024-03": ("kxh_3__oAqg", "2024-03-25"),
+    "rd-5m-optimized-2025-03": ("84LZqvMiyos", "2025-03-15"),
+    "rd-first-5m-live-2025-03": ("Gr0njSOtC10", "2025-03-20"),
+    "rd-5m-howto-2025-05": ("f3X9T69y24c", "2025-05-20"),
+    "rd-full-guide-2025-08": ("E5EBc1MtiXQ", "2025-08-17"),
+    "rd-strategy-week-2025-11": ("UqYlKtPjKvY", "2025-11-20"),
+    "rd-live-nc-2026-05": ("lo_7HDQK9WM", "2026-05-21"),
+    "rd-live-5m-2026-06": ("zglv2r9xXnE", "2026-06-11"),
+    "rd-futures-backtest-2026-07": ("T86aLDxzlbM", "2026-07-15"),
+}
+
+EXPECTED_TITLES = {
+    "rd-course-2024-03": (
+        "FULL course for LIQUIDITY supply and demand best NEW trading strategy 2026"
+    ),
+    "rd-5m-optimized-2025-03": "I Optimized The 5m Timeframe To Make it OP - RD Concepts",
+    "rd-first-5m-live-2025-03": "First 5m livestream (1 win 1 loss) 1:2.5r trade on gj",
+    "rd-5m-howto-2025-05": "How To Trade The 5m Timeframe (it's not the same)",
+    "rd-full-guide-2025-08": "The Trading Strategy That Changed My Life - RD Concepts Full Guide",
+    "rd-strategy-week-2025-11": (
+        "The Strategy That Just Makes Sense - 6 Simple 1:4 Trades In 1 Week"
+    ),
+    "rd-live-nc-2026-05": "liquidity supply & demand live trading - 1:4 on NC",
+    "rd-live-5m-2026-06": "Liquidity supply & demand live trading - 5m timeframe",
+    "rd-futures-backtest-2026-07": "180% in 2 weeks - Full Futures Strategy Backtest Breakdown",
+}
+
+EXPECTED_CLAIMS = {
+    "zone-untapped-2024-03",
+    "standard-close-2024-03",
+    "htf-flip-2024-03",
+    "gold-break-exception-2025-03",
+    "closure-or-flip-2025-03",
+    "next-candle-wick-2025-05",
+    "prompt-close-2025-05",
+    "directional-close-2025-08",
+    "htf-context-set-2025-08",
+    "htf-flip-definition-2025-08",
+    "htf-boundary-caution-2025-08",
+    "discretionary-break-2025-11",
+    "close-fallback-2025-11",
+    "pure-flip-narrowing-2026-05",
+    "reject-non-htf-break-2026-05",
+    "directional-close-required-2026-06",
+    "break-normalized-to-flip-2026-06",
+    "model-continuation-2026-07",
+}
+
+EXPECTED_INHERITED_RULE_IDS = {
+    "TIMEFRAME_FIVE_MINUTE_ONLY",
+    "ZONE_ORIGIN_OPPOSITE_CANDLE",
+    "ZONE_ACCURACY_BOUNDS",
+    "ZONE_FRESH_UNTAPPED",
+    "ZONE_PRE_ENTRY_CLOSE_OUTSIDE",
+    "LIQ_NORMAL_TWO_OPPOSITE_CANDLES",
+    "LIQ_ONE_CANDLE_EXCEPTION",
+    "LIQ_OWN_EXTREME_SAME_LEG",
+    "LIQ_STRICT_OWN_EXTREME_BREAK",
+    "LIQ_ACTUAL_EXTREME_SWEPT",
+    "LIQ_EVENT_ORDER",
+    "LIQ_INTERNAL_REBREAK",
+    "LIQ_DISTANCE_INFLUENCES_ZONE",
+    "LIQ_REPLACEMENT_AFTER_STALE_MOVE",
+}
+
+EXPECTED_RULE_CLAIMS = {
+    "ZONE_FIRST_ENGAGEMENT": ("zone-untapped-2024-03",),
+    "ENTRY_DIR_CLOSE": (
+        "standard-close-2024-03",
+        "closure-or-flip-2025-03",
+        "directional-close-2025-08",
+        "directional-close-required-2026-06",
+        "model-continuation-2026-07",
+    ),
+    "ENTRY_HTF_FLIP": (
+        "htf-flip-2024-03",
+        "htf-context-set-2025-08",
+        "htf-flip-definition-2025-08",
+        "pure-flip-narrowing-2026-05",
+        "model-continuation-2026-07",
+    ),
+    "ENTRY_HTF_BOUNDARY_CAUTION": ("htf-boundary-caution-2025-08",),
+    "ENTRY_BREAK_CANDLE_NORMALIZATION": (
+        "gold-break-exception-2025-03",
+        "discretionary-break-2025-11",
+        "reject-non-htf-break-2026-05",
+        "break-normalized-to-flip-2026-06",
+    ),
+    "ENTRY_REJECTION_RESPECT_DISABLED": (
+        "closure-or-flip-2025-03",
+        "directional-close-2025-08",
+        "directional-close-required-2026-06",
+    ),
+    "ENTRY_NEXT_CANDLE_WICK_HANDLING": (
+        "next-candle-wick-2025-05",
+        "prompt-close-2025-05",
+        "close-fallback-2025-11",
+    ),
+}
+
 
 def payload() -> dict[str, object]:
-    loaded: object = json.loads(CONTRACT.read_text(encoding="utf-8"))
-    assert isinstance(loaded, dict)
-    return loaded
+    return RDStrategyRuleContractV2.model_validate_json(CONTRACT.read_bytes()).model_dump(
+        mode="python"
+    )
+
+
+def test_official_inventory_and_claim_ids_are_frozen() -> None:
+    contract = RDStrategyRuleContractV2.model_validate_json(CONTRACT.read_bytes())
+    assert {
+        source_id: (source.youtube_video_id, source.published_date)
+        for source_id, source in contract.sources_by_id.items()
+    } == EXPECTED_SOURCES
+    assert {
+        source_id: source.title_snapshot for source_id, source in contract.sources_by_id.items()
+    } == EXPECTED_TITLES
+    assert set(contract.claims_by_id) == EXPECTED_CLAIMS
+    assert set(contract.inherited_rule_ids) == EXPECTED_INHERITED_RULE_IDS
+    assert {
+        rule_id: rule.source_claim_ids for rule_id, rule in contract.rules_by_id.items()
+    } == EXPECTED_RULE_CLAIMS
+    assert {
+        claim_id for claim_ids in EXPECTED_RULE_CLAIMS.values() for claim_id in claim_ids
+    } == EXPECTED_CLAIMS
 
 
 def test_v2_policy_is_closed_and_paper_only() -> None:
@@ -40,10 +159,7 @@ def test_v2_policy_is_closed_and_paper_only() -> None:
         "LEGACY_REJECTION_RESPECT",
     )
     assert contract.automation_policy.htf_context_minutes == (15, 30, 60)
-    assert (
-        contract.automation_policy.arbitration_policy_version
-        == "rd-entry-arbitration-v2"
-    )
+    assert contract.automation_policy.arbitration_policy_version == "rd-entry-arbitration-v2"
 
 
 def test_v2_sources_are_official_and_exclude_third_parties() -> None:
@@ -220,25 +336,18 @@ def test_complete_replayable_exact_evidence_is_the_only_paper_eligible_shape() -
     assert contract.automation_policy.current_producer_common_setup_fidelity == "UNRESOLVED"
     assert contract.automation_policy.current_producer_promotion_eligible is False
     assert contract.automation_policy.realtime_evidence_action == "SHADOW_ONLY"
-    assert (
-        contract.automation_policy.paper_eligibility_requirement
-        == "COMPLETE_REPLAYABLE_EXACT"
-    )
+    assert contract.automation_policy.paper_eligibility_requirement == "COMPLETE_REPLAYABLE_EXACT"
 
 
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
         (
-            lambda value: value["claims_by_id"]["claim-1"].update(
-                {"source_id": "official-old"}
-            ),
+            lambda value: value["claims_by_id"]["claim-1"].update({"source_id": "official-old"}),
             "not older",
         ),
         (
-            lambda value: value.update(
-                {"inherited_rule_ids": value["inherited_rule_ids"][:-1]}
-            ),
+            lambda value: value.update({"inherited_rule_ids": value["inherited_rule_ids"][:-1]}),
             "inherited qualification rule set is not exact",
         ),
         (

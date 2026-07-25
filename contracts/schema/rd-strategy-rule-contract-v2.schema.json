@@ -1,0 +1,458 @@
+{
+  "$defs": {
+    "ClaimRelationship": {
+      "enum": [
+        "SUPPORTS",
+        "NARROWS",
+        "SUPERSEDES"
+      ],
+      "title": "ClaimRelationship",
+      "type": "string"
+    },
+    "RDEntryRuleV2": {
+      "additionalProperties": false,
+      "properties": {
+        "automation": {
+          "enum": [
+            "PAPER_EVALUATE",
+            "SHADOW_ONLY",
+            "DISABLED"
+          ],
+          "title": "Automation",
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "ZONE",
+            "LIQUIDITY",
+            "ENTRY",
+            "TIMEFRAME"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/RuleFidelity"
+        },
+        "open_requirement": {
+          "title": "Open Requirement",
+          "type": "boolean"
+        },
+        "proof_eligibility": {
+          "enum": [
+            "COMPLETE_REPLAYABLE_EXACT",
+            "NOT_ELIGIBLE"
+          ],
+          "title": "Proof Eligibility",
+          "type": "string"
+        },
+        "source_claim_ids": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+            "type": "string"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Source Claim Ids",
+          "type": "array"
+        },
+        "summary": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "unresolved_terms": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 24,
+          "title": "Unresolved Terms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "category",
+        "fidelity",
+        "automation",
+        "proof_eligibility",
+        "open_requirement",
+        "summary",
+        "source_claim_ids"
+      ],
+      "title": "RDEntryRuleV2",
+      "type": "object"
+    },
+    "RDStrategyAutomationPolicyV2": {
+      "additionalProperties": false,
+      "properties": {
+        "active_entry_models": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "const": "DIR_CLOSE",
+              "type": "string"
+            },
+            {
+              "const": "HTF_FLIP",
+              "type": "string"
+            }
+          ],
+          "title": "Active Entry Models",
+          "type": "array"
+        },
+        "arbitration_policy_version": {
+          "const": "rd-entry-arbitration-v2",
+          "title": "Arbitration Policy Version",
+          "type": "string"
+        },
+        "current_producer_common_setup_fidelity": {
+          "const": "UNRESOLVED",
+          "title": "Current Producer Common Setup Fidelity",
+          "type": "string"
+        },
+        "current_producer_promotion_eligible": {
+          "const": false,
+          "title": "Current Producer Promotion Eligible",
+          "type": "boolean"
+        },
+        "first_touch_action": {
+          "const": "ZONE_ENGAGED",
+          "title": "First Touch Action",
+          "type": "string"
+        },
+        "htf_context_minutes": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "const": 15,
+              "type": "integer"
+            },
+            {
+              "const": 30,
+              "type": "integer"
+            },
+            {
+              "const": 60,
+              "type": "integer"
+            }
+          ],
+          "title": "Htf Context Minutes",
+          "type": "array"
+        },
+        "legacy_entry_models": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "const": "LEGACY_BREAK_CANDLE",
+              "type": "string"
+            },
+            {
+              "const": "LEGACY_REJECTION_RESPECT",
+              "type": "string"
+            }
+          ],
+          "title": "Legacy Entry Models",
+          "type": "array"
+        },
+        "paper_eligibility_requirement": {
+          "const": "COMPLETE_REPLAYABLE_EXACT",
+          "title": "Paper Eligibility Requirement",
+          "type": "string"
+        },
+        "paper_only": {
+          "const": true,
+          "title": "Paper Only",
+          "type": "boolean"
+        },
+        "real_execution_allowed": {
+          "const": false,
+          "title": "Real Execution Allowed",
+          "type": "boolean"
+        },
+        "realtime_evidence_action": {
+          "const": "SHADOW_ONLY",
+          "title": "Realtime Evidence Action",
+          "type": "string"
+        },
+        "required_selection_fidelity": {
+          "const": "EXACT",
+          "title": "Required Selection Fidelity",
+          "type": "string"
+        },
+        "selection_actions": {
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "const": "OBSERVE",
+              "type": "string"
+            },
+            {
+              "const": "PAPER_ELIGIBLE",
+              "type": "string"
+            },
+            {
+              "const": "SHADOW_ONLY",
+              "type": "string"
+            },
+            {
+              "const": "NONE",
+              "type": "string"
+            }
+          ],
+          "title": "Selection Actions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "paper_only",
+        "real_execution_allowed",
+        "first_touch_action",
+        "required_selection_fidelity",
+        "arbitration_policy_version",
+        "current_producer_common_setup_fidelity",
+        "current_producer_promotion_eligible",
+        "realtime_evidence_action",
+        "paper_eligibility_requirement",
+        "active_entry_models",
+        "legacy_entry_models",
+        "htf_context_minutes",
+        "selection_actions"
+      ],
+      "title": "RDStrategyAutomationPolicyV2",
+      "type": "object"
+    },
+    "RDStrategySourceClaimV2": {
+      "additionalProperties": false,
+      "properties": {
+        "relationship": {
+          "$ref": "#/$defs/ClaimRelationship"
+        },
+        "source_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Source Id",
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Summary",
+          "type": "string"
+        },
+        "target_claim_id": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Claim Id"
+        },
+        "timestamp_end_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 86400,
+          "title": "Timestamp End Seconds",
+          "type": "integer"
+        },
+        "timestamp_start_seconds": {
+          "maximum": 86400,
+          "minimum": 0,
+          "title": "Timestamp Start Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_id",
+        "timestamp_start_seconds",
+        "timestamp_end_seconds",
+        "relationship",
+        "target_claim_id",
+        "summary"
+      ],
+      "title": "RDStrategySourceClaimV2",
+      "type": "object"
+    },
+    "RDStrategySourceV2": {
+      "additionalProperties": false,
+      "properties": {
+        "channel_handle": {
+          "const": "@RD_Forex",
+          "title": "Channel Handle",
+          "type": "string"
+        },
+        "channel_id": {
+          "const": "UC54xbL96tU58iez3YbTVTAg",
+          "title": "Channel Id",
+          "type": "string"
+        },
+        "published_date": {
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "title": "Published Date",
+          "type": "string"
+        },
+        "title_snapshot": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Title Snapshot",
+          "type": "string"
+        },
+        "youtube_video_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Youtube Video Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "youtube_video_id",
+        "published_date",
+        "title_snapshot",
+        "channel_id",
+        "channel_handle"
+      ],
+      "title": "RDStrategySourceV2",
+      "type": "object"
+    },
+    "RuleFidelity": {
+      "enum": [
+        "EXACT",
+        "CALIBRATED",
+        "DISCRETIONARY",
+        "UNRESOLVED"
+      ],
+      "title": "RuleFidelity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "automation_policy": {
+      "$ref": "#/$defs/RDStrategyAutomationPolicyV2"
+    },
+    "base_contract_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Base Contract Sha256",
+      "type": "string"
+    },
+    "claims_by_id": {
+      "maxProperties": 128,
+      "minProperties": 1,
+      "patternProperties": {
+        "^[A-Za-z0-9_.:@|+/-]+$": {
+          "$ref": "#/$defs/RDStrategySourceClaimV2"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 160,
+        "minLength": 1
+      },
+      "title": "Claims By Id",
+      "type": "object"
+    },
+    "confirmed_timeframe_minutes": {
+      "const": 5,
+      "title": "Confirmed Timeframe Minutes",
+      "type": "integer"
+    },
+    "contract_id": {
+      "maxLength": 160,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+      "title": "Contract Id",
+      "type": "string"
+    },
+    "contract_version": {
+      "const": "2.0.0",
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "inherited_rule_ids": {
+      "items": {
+        "maxLength": 160,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Inherited Rule Ids",
+      "type": "array"
+    },
+    "producer_strategy_version": {
+      "const": "2.0.0-contract2",
+      "title": "Producer Strategy Version",
+      "type": "string"
+    },
+    "rules_by_id": {
+      "maxProperties": 64,
+      "minProperties": 1,
+      "patternProperties": {
+        "^[A-Za-z0-9_.:@|+/-]+$": {
+          "$ref": "#/$defs/RDEntryRuleV2"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 160,
+        "minLength": 1
+      },
+      "title": "Rules By Id",
+      "type": "object"
+    },
+    "schema_id": {
+      "const": "phase0.rd-strategy-rule-contract.v2",
+      "title": "Schema Id",
+      "type": "string"
+    },
+    "sources_by_id": {
+      "maxProperties": 32,
+      "minProperties": 1,
+      "patternProperties": {
+        "^[A-Za-z0-9_.:@|+/-]+$": {
+          "$ref": "#/$defs/RDStrategySourceV2"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 160,
+        "minLength": 1
+      },
+      "title": "Sources By Id",
+      "type": "object"
+    },
+    "strategy_id": {
+      "const": "rd_liquidity_sd_5m_v1",
+      "title": "Strategy Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_id",
+    "contract_id",
+    "contract_version",
+    "producer_strategy_version",
+    "strategy_id",
+    "confirmed_timeframe_minutes",
+    "base_contract_sha256",
+    "inherited_rule_ids",
+    "sources_by_id",
+    "claims_by_id",
+    "rules_by_id",
+    "automation_policy"
+  ],
+  "title": "RDStrategyRuleContractV2",
+  "type": "object"
+}
