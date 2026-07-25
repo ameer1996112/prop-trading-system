@@ -17,6 +17,7 @@ dist/
 build/
 node_modules/
 .next/
+.worktrees/
 coverage/
 tick-data/
 reports/*.tmp
