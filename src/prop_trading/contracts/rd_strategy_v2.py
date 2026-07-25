@@ -42,9 +42,7 @@ class RDStrategySourceClaimV2(ContractModel):
     def _range_and_target_are_consistent(self) -> RDStrategySourceClaimV2:
         if self.timestamp_start_seconds >= self.timestamp_end_seconds:
             raise ValueError("claim timestamp range must increase")
-        if (self.relationship is ClaimRelationship.SUPPORTS) != (
-            self.target_claim_id is None
-        ):
+        if (self.relationship is ClaimRelationship.SUPPORTS) != (self.target_claim_id is None):
             raise ValueError("claim relationship target is inconsistent")
         return self
 
@@ -65,15 +63,11 @@ class RDEntryRuleV2(ContractModel):
             self.fidelity is not RuleFidelity.EXACT
             or self.proof_eligibility != "COMPLETE_REPLAYABLE_EXACT"
         ):
-            raise ValueError(
-                "paper evaluation requires complete replayable exact evidence"
-            )
+            raise ValueError("paper evaluation requires complete replayable exact evidence")
         if self.automation in {"SHADOW_ONLY", "DISABLED"} and (
             self.proof_eligibility != "NOT_ELIGIBLE"
         ):
-            raise ValueError(
-                "shadow-only and disabled rules must be marked not eligible"
-            )
+            raise ValueError("shadow-only and disabled rules must be marked not eligible")
         return self
 
 
@@ -195,9 +189,7 @@ class RDStrategyRuleContractV2(ContractModel):
             raise ValueError("paper-eligible rule set is not exact")
         if REQUIRED_INHERITED_RULE_IDS & REQUIRED_V2_RULE_IDS:
             raise ValueError("inherited and v2 rule sets overlap")
-        video_ids = [
-            source.youtube_video_id for source in self.sources_by_id.values()
-        ]
+        video_ids = [source.youtube_video_id for source in self.sources_by_id.values()]
         if len(video_ids) != len(set(video_ids)):
             raise ValueError("strategy source videos must be unique")
         if any(
@@ -218,9 +210,7 @@ class RDStrategyRuleContractV2(ContractModel):
                 target = self.claims_by_id.get(target_id)
                 if target is None:
                     raise ValueError(f"claim target is unknown: {claim_id}")
-                source_date = date.fromisoformat(
-                    self.sources_by_id[claim.source_id].published_date
-                )
+                source_date = date.fromisoformat(self.sources_by_id[claim.source_id].published_date)
                 target_date = date.fromisoformat(
                     self.sources_by_id[target.source_id].published_date
                 )

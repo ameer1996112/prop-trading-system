@@ -130,9 +130,7 @@ def test_evidence_identity_changes_with_proof_plane() -> None:
         payload_sha256="b" * 64,
     )
 
-    assert evidence_id(base) != evidence_id(
-        replace(base, proof_plane=ProofPlane.REALTIME_TICK)
-    )
+    assert evidence_id(base) != evidence_id(replace(base, proof_plane=ProofPlane.REALTIME_TICK))
 
 
 def test_identity_hashes_use_the_cross_language_canonical_payloads() -> None:

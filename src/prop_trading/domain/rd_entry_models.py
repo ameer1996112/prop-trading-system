@@ -231,10 +231,7 @@ class HTFFlipProofTranscript:
                     "observed_child_count",
                 },
             )
-        if (
-            self.proof_resolution_seconds >= 300
-            or 300 % self.proof_resolution_seconds != 0
-        ):
+        if self.proof_resolution_seconds >= 300 or 300 % self.proof_resolution_seconds != 0:
             raise ValueError("proof_resolution_seconds must divide 300 and be below 300")
         if self.coverage_start_epoch != self.htf_open_epoch:
             raise ValueError("coverage_start_epoch must equal htf_open_epoch")
