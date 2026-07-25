@@ -35,6 +35,10 @@ from prop_trading.domain.rd_entry_models import (
     evidence_id,
     handling_id,
 )
+from prop_trading.domain.rd_intrabar_oracle import (
+    HTFFlipScanRequest,
+    scan_htf_flip,
+)
 
 CONTRACT = Path("config/phase0/rd-strategy-rule-contract-v2.json")
 
@@ -161,6 +165,36 @@ def _flip_proof(
         transcript_sha256=canonical_sha256(transcript.to_mapping()),
         full_lifecycle_ordered=full_lifecycle_ordered,
         transcript=transcript,
+    )
+
+
+def _scanned_flip_proof(
+    *,
+    context_minutes: int,
+    recross_index: int = 2,
+) -> HTFFlipProof:
+    children = tuple(
+        OrderedCandle(
+            open_epoch=1_000 + index * 60,
+            close_epoch=1_060 + index * 60,
+            open_ticks=101,
+            high_ticks=(101 if index == 1 else 103 if index == recross_index else 102),
+            low_ticks=95 if index == 1 else 101,
+            close_ticks=97 if index == 1 else 102 if index == recross_index else 101,
+        )
+        for index in range(5)
+    )
+    return scan_htf_flip(
+        HTFFlipScanRequest(
+            setup=_setup(),
+            timeframe_minutes=context_minutes,
+            htf_open_epoch=1_000,
+            scan_cutoff_epoch=1_300,
+            htf_open_ticks=102,
+            children=children,
+            proof_resolution_seconds=60,
+            full_lifecycle_ordered=True,
+        )
     )
 
 
@@ -365,6 +399,20 @@ def test_one_flip_combines_contexts_independent_of_input_order() -> None:
     assert forward.evidence[0].htf_context_minutes == (15, 30, 60)
 
 
+def test_scanned_flip_combines_15_30_60_contexts_in_matcher() -> None:
+    proofs = tuple(_scanned_flip_proof(context_minutes=context) for context in (15, 30, 60))
+
+    result = match_entry_candidates(_request(open_ticks=101, close_ticks=100, htf_proofs=proofs))
+
+    flip_candidates = [item for item in result.candidates if item.model is EntryModelV2.HTF_FLIP]
+    assert len(flip_candidates) == 1
+    flip_evidence = [
+        item for item in result.evidence if item.candidate_id == flip_candidates[0].candidate_id
+    ]
+    assert len(flip_evidence) == 1
+    assert flip_evidence[0].htf_context_minutes == (15, 30, 60)
+
+
 def test_mixed_context_fidelity_stays_separate_and_state_is_order_independent() -> None:
     unresolved = _flip_proof(
         context_minutes=15,
@@ -435,6 +483,23 @@ def test_matching_htf_break_normalizes_without_rejected_legacy_duplicate() -> No
         *MODEL_SOURCE_CLAIMS[EntryModelV2.HTF_FLIP],
         *MODEL_SOURCE_CLAIMS[EntryModelV2.LEGACY_BREAK_CANDLE],
     )
+
+
+def test_scanned_htf_break_normalizes_to_flip() -> None:
+    proof = _scanned_flip_proof(context_minutes=15, recross_index=4)
+
+    result = match_entry_candidates(
+        _request(
+            open_ticks=101,
+            close_ticks=100,
+            htf_proofs=(proof,),
+            generic_break=True,
+        )
+    )
+
+    assert len(result.candidates) == 1
+    assert result.candidates[0].model is EntryModelV2.HTF_FLIP
+    assert result.candidates[0].normalized_from is EntryModelV2.LEGACY_BREAK_CANDLE
 
 
 def test_same_trigger_close_outside_htf_boundary_does_not_normalize_break() -> None:
