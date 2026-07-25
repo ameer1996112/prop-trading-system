@@ -353,8 +353,8 @@ def _validate_authoritative_candidate(
     )
     if candidate.candidate_id != authoritative_id:
         raise ValueError("candidate_id conflicts with its canonical identity")
-    if candidate.state is not CandidateState.MATCHED:
-        raise ValueError("canonical candidate must remain matched")
+    if candidate.state not in {CandidateState.MATCHED, CandidateState.NORMALIZED}:
+        raise ValueError("canonical candidate must remain matched or normalized")
     if candidate.observed_at_epoch > selection.evaluated_at_epoch:
         raise ValueError("canonical candidate observation exceeds selection evaluation")
     if (

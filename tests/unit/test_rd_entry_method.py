@@ -1,4 +1,6 @@
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -31,6 +33,9 @@ from prop_trading.domain.rd_entry_models import (
     evidence_payload_sha256,
     selection_id,
 )
+from prop_trading.domain.rd_entry_oracle import EntryOracleCase, evaluate_entry_stream
+
+FIXTURES = Path("tests/fixtures/rd_entry_arbitration_cases_v2.json")
 
 
 def candidate(
@@ -465,3 +470,42 @@ def test_short_wick_profile_adds_its_offset_to_the_frozen_trigger() -> None:
 
     assert result.method is EntryMethod.NEXT_CANDLE_WICK
     assert result.limit_ticks == 18_503
+
+
+def test_normalized_authoritative_htf_flip_remains_paper_eligible() -> None:
+    loaded: object = json.loads(FIXTURES.read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict)
+    case_mapping = next(
+        item for item in loaded["cases"] if item["case_id"] == "htf-break-normalized"
+    )
+    assert isinstance(case_mapping, dict)
+    result = evaluate_entry_stream(EntryOracleCase.from_mapping(case_mapping))
+    selected = next(
+        item
+        for item in result.candidates
+        if item.candidate_id == result.selection.canonical_candidate_id
+    )
+    proof = next(
+        item
+        for item in result.evidence
+        if item.evidence_id == result.selection.canonical_evidence_id
+    )
+
+    decision = resolve_entry_method(
+        selection=result.selection,
+        candidate=selected,
+        evidence=proof,
+        context=EntryMethodContext(
+            feed_id="OANDA",
+            symbol="GBPJPY",
+            evaluated_at_epoch=result.selection.evaluated_at_epoch,
+            trigger_epoch=proof.observed_trigger_epoch,
+            trigger_ticks=proof.observed_trigger_ticks,
+            direction=selected.direction,
+        ),
+        profiles=(),
+    )
+
+    assert selected.state is CandidateState.NORMALIZED
+    assert decision.method is EntryMethod.INTRABAR_FLIP
+    assert decision.action is EntryMethodAction.PAPER_ELIGIBLE
