@@ -1,0 +1,924 @@
+{
+  "$defs": {
+    "EntryMethodDecisionVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PAPER_ELIGIBLE",
+            "PENDING_WICK",
+            "SHADOW_ONLY",
+            "MISSED",
+            "NONE"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "candidate_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Id"
+        },
+        "decision_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "evaluated_at_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Evaluated At Epoch",
+          "type": "integer"
+        },
+        "fill_epoch": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fill Epoch"
+        },
+        "fill_ticks": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fill Ticks"
+        },
+        "limit_ticks": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Limit Ticks"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "enum": [
+                "INTRABAR_FLIP",
+                "CLOSE_CONFIRMATION",
+                "NEXT_CANDLE_WICK"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Method"
+        },
+        "profile_id": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Profile Id"
+        },
+        "reason": {
+          "enum": [
+            "HTF_FLIP_SELECTED",
+            "DEFAULT_PROMPT_CLOSE",
+            "PROFILE_PROMPT_CLOSE",
+            "PROFILE_WICK_PENDING",
+            "WICK_REPLAY_FILLED",
+            "MISSED_WICK_FILL",
+            "CONFLICTING_FILL_PROFILES",
+            "INCOMPLETE_WICK_REPLAY",
+            "CANDIDATE_NOT_PAPER_ELIGIBLE",
+            "NO_CANONICAL_CANDIDATE"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "selection_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Selection Id",
+          "type": "string"
+        },
+        "setup_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Setup Id",
+          "type": "string"
+        },
+        "trigger_epoch": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Trigger Epoch"
+        },
+        "trigger_ticks": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Trigger Ticks"
+        },
+        "wait_until_epoch": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wait Until Epoch"
+        }
+      },
+      "required": [
+        "decision_id",
+        "selection_id",
+        "setup_id",
+        "candidate_id",
+        "method",
+        "action",
+        "reason",
+        "profile_id",
+        "trigger_epoch",
+        "trigger_ticks",
+        "limit_ticks",
+        "wait_until_epoch",
+        "fill_epoch",
+        "fill_ticks",
+        "evaluated_at_epoch"
+      ],
+      "title": "EntryMethodDecisionVectorV1",
+      "type": "object"
+    },
+    "RDEntryFillProfileVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Approved At Epoch",
+          "type": "integer"
+        },
+        "approved_by": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Approved By",
+          "type": "string"
+        },
+        "dir_close_method": {
+          "enum": [
+            "CLOSE_CONFIRMATION",
+            "NEXT_CANDLE_WICK"
+          ],
+          "title": "Dir Close Method",
+          "type": "string"
+        },
+        "evidence_manifest_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Evidence Manifest Sha256",
+          "type": "string"
+        },
+        "feed_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Feed Id",
+          "type": "string"
+        },
+        "limit_offset_ticks": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Limit Offset Ticks"
+        },
+        "max_wait_seconds": {
+          "const": 300,
+          "title": "Max Wait Seconds",
+          "type": "integer"
+        },
+        "profile_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Profile Id",
+          "type": "string"
+        },
+        "session_end_minute_utc": {
+          "maximum": 1439,
+          "minimum": 0,
+          "title": "Session End Minute Utc",
+          "type": "integer"
+        },
+        "session_start_minute_utc": {
+          "maximum": 1439,
+          "minimum": 0,
+          "title": "Session Start Minute Utc",
+          "type": "integer"
+        },
+        "status": {
+          "const": "APPROVED",
+          "title": "Status",
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Symbol",
+          "type": "string"
+        },
+        "version": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "profile_id",
+        "version",
+        "feed_id",
+        "symbol",
+        "session_start_minute_utc",
+        "session_end_minute_utc",
+        "dir_close_method",
+        "limit_offset_ticks",
+        "max_wait_seconds",
+        "evidence_manifest_sha256",
+        "status",
+        "approved_by",
+        "approved_at_epoch"
+      ],
+      "title": "RDEntryFillProfileVectorV1",
+      "type": "object"
+    },
+    "RDEntryMethodCandidateVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "event_anchor_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Event Anchor Epoch",
+          "type": "integer"
+        },
+        "model": {
+          "enum": [
+            "DIR_CLOSE",
+            "HTF_FLIP"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "normalized_from": {
+          "anyOf": [
+            {
+              "enum": [
+                "DIR_CLOSE",
+                "HTF_FLIP",
+                "LEGACY_BREAK_CANDLE",
+                "LEGACY_REJECTION_RESPECT"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Normalized From"
+        },
+        "observed_at_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Observed At Epoch",
+          "type": "integer"
+        },
+        "setup_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Setup Id",
+          "type": "string"
+        },
+        "source_claim_ids": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+            "type": "string"
+          },
+          "title": "Source Claim Ids",
+          "type": "array"
+        },
+        "state": {
+          "enum": [
+            "MATCHED",
+            "NORMALIZED"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "trigger_ordinal": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Trigger Ordinal",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "setup_id",
+        "model",
+        "state",
+        "event_anchor_epoch",
+        "trigger_ordinal",
+        "direction",
+        "source_claim_ids",
+        "normalized_from",
+        "observed_at_epoch"
+      ],
+      "title": "RDEntryMethodCandidateVectorV1",
+      "type": "object"
+    },
+    "RDEntryMethodContextVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "evaluated_at_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Evaluated At Epoch",
+          "type": "integer"
+        },
+        "feed_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Feed Id",
+          "type": "string"
+        },
+        "symbol": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Symbol",
+          "type": "string"
+        },
+        "trigger_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Trigger Epoch",
+          "type": "integer"
+        },
+        "trigger_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Trigger Ticks",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "feed_id",
+        "symbol",
+        "evaluated_at_epoch",
+        "trigger_epoch",
+        "trigger_ticks",
+        "direction"
+      ],
+      "title": "RDEntryMethodContextVectorV1",
+      "type": "object"
+    },
+    "RDEntryMethodEvidenceVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "ambiguity_codes": {
+          "items": {
+            "enum": [
+              "SHADOW_SAME_CHILD_BAR_ORDER",
+              "SHADOW_MISSING_INTRABAR_COVERAGE",
+              "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE"
+            ],
+            "type": "string"
+          },
+          "title": "Ambiguity Codes",
+          "type": "array"
+        },
+        "candidate_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "coverage_end_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Coverage End Epoch",
+          "type": "integer"
+        },
+        "coverage_start_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Coverage Start Epoch",
+          "type": "integer"
+        },
+        "evidence_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "failed_rule_ids": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+            "type": "string"
+          },
+          "title": "Failed Rule Ids",
+          "type": "array"
+        },
+        "fidelity": {
+          "const": "EXACT",
+          "title": "Fidelity",
+          "type": "string"
+        },
+        "htf_context_minutes": {
+          "items": {
+            "enum": [
+              15,
+              30,
+              60
+            ],
+            "type": "integer"
+          },
+          "title": "Htf Context Minutes",
+          "type": "array"
+        },
+        "observed_at_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Observed At Epoch",
+          "type": "integer"
+        },
+        "observed_trigger_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Observed Trigger Epoch",
+          "type": "integer"
+        },
+        "observed_trigger_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Observed Trigger Ticks",
+          "type": "integer"
+        },
+        "passed_rule_ids": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+            "type": "string"
+          },
+          "title": "Passed Rule Ids",
+          "type": "array"
+        },
+        "payload_sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Payload Sha256",
+          "type": "string"
+        },
+        "proof_plane": {
+          "enum": [
+            "CONFIRMED_5M",
+            "LOWER_TIMEFRAME_REPLAY",
+            "EXTERNAL_ARCHIVED_TICK"
+          ],
+          "title": "Proof Plane",
+          "type": "string"
+        },
+        "proof_resolution_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Proof Resolution Seconds",
+          "type": "integer"
+        },
+        "source_claim_ids": {
+          "items": {
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+            "type": "string"
+          },
+          "title": "Source Claim Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "candidate_id",
+        "observed_trigger_epoch",
+        "observed_trigger_ticks",
+        "htf_context_minutes",
+        "fidelity",
+        "proof_plane",
+        "proof_resolution_seconds",
+        "coverage_start_epoch",
+        "coverage_end_epoch",
+        "ambiguity_codes",
+        "passed_rule_ids",
+        "failed_rule_ids",
+        "source_claim_ids",
+        "payload_sha256",
+        "observed_at_epoch"
+      ],
+      "title": "RDEntryMethodEvidenceVectorV1",
+      "type": "object"
+    },
+    "RDEntryMethodInputVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RDEntryMethodCandidateVectorV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "context": {
+          "$ref": "#/$defs/RDEntryMethodContextVectorV1"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RDEntryMethodEvidenceVectorV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profiles": {
+          "items": {
+            "$ref": "#/$defs/RDEntryFillProfileVectorV1"
+          },
+          "title": "Profiles",
+          "type": "array"
+        },
+        "selection": {
+          "$ref": "#/$defs/RDEntryMethodSelectionVectorV1"
+        },
+        "wick_replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WickReplayEvidenceVectorV1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "selection",
+        "candidate",
+        "evidence",
+        "context",
+        "profiles",
+        "wick_replay"
+      ],
+      "title": "RDEntryMethodInputVectorV1",
+      "type": "object"
+    },
+    "RDEntryMethodSelectionVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PAPER_ELIGIBLE",
+            "SHADOW_ONLY",
+            "NONE"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "candidate_ids_considered": {
+          "items": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "title": "Candidate Ids Considered",
+          "type": "array"
+        },
+        "canonical_candidate_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canonical Candidate Id"
+        },
+        "canonical_evidence_id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canonical Evidence Id"
+        },
+        "canonical_model": {
+          "anyOf": [
+            {
+              "enum": [
+                "DIR_CLOSE",
+                "HTF_FLIP"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Canonical Model"
+        },
+        "evaluated_at_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Evaluated At Epoch",
+          "type": "integer"
+        },
+        "fidelity": {
+          "anyOf": [
+            {
+              "enum": [
+                "EXACT",
+                "CALIBRATED",
+                "DISCRETIONARY",
+                "UNRESOLVED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fidelity"
+        },
+        "policy_version": {
+          "const": "rd-entry-arbitration-v2",
+          "title": "Policy Version",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "ONLY_EXACT_TRIGGER",
+            "EARLIEST_EXACT_TRIGGER",
+            "FALLBACK_TO_CONFIRMED_CLOSE",
+            "NO_EXACT_CANDIDATE",
+            "UNRESOLVED_SOURCE_PRIORITY",
+            "SETUP_INVALIDATED",
+            "NO_CANDIDATE"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "selection_id": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Selection Id",
+          "type": "string"
+        },
+        "setup_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Setup Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "selection_id",
+        "setup_id",
+        "policy_version",
+        "revision",
+        "candidate_ids_considered",
+        "canonical_candidate_id",
+        "canonical_evidence_id",
+        "canonical_model",
+        "reason",
+        "fidelity",
+        "action",
+        "evaluated_at_epoch"
+      ],
+      "title": "RDEntryMethodSelectionVectorV1",
+      "type": "object"
+    },
+    "RDEntryMethodVectorCaseV1": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "maxLength": 160,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "#/$defs/EntryMethodDecisionVectorV1"
+        },
+        "input": {
+          "$ref": "#/$defs/RDEntryMethodInputVectorV1"
+        }
+      },
+      "required": [
+        "case_id",
+        "input",
+        "expected"
+      ],
+      "title": "RDEntryMethodVectorCaseV1",
+      "type": "object"
+    },
+    "WickReplayEvidenceVectorV1": {
+      "additionalProperties": false,
+      "properties": {
+        "coverage_complete": {
+          "title": "Coverage Complete",
+          "type": "boolean"
+        },
+        "coverage_end_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Coverage End Epoch",
+          "type": "integer"
+        },
+        "coverage_start_epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Coverage Start Epoch",
+          "type": "integer"
+        },
+        "observed_high_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Observed High Ticks",
+          "type": "integer"
+        },
+        "observed_low_ticks": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "title": "Observed Low Ticks",
+          "type": "integer"
+        },
+        "proof_plane": {
+          "enum": [
+            "LOWER_TIMEFRAME_REPLAY",
+            "EXTERNAL_ARCHIVED_TICK",
+            "REALTIME_TICK"
+          ],
+          "title": "Proof Plane",
+          "type": "string"
+        },
+        "session_gap": {
+          "title": "Session Gap",
+          "type": "boolean"
+        },
+        "touched_epoch": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Touched Epoch"
+        }
+      },
+      "required": [
+        "proof_plane",
+        "coverage_start_epoch",
+        "coverage_end_epoch",
+        "coverage_complete",
+        "session_gap",
+        "touched_epoch",
+        "observed_low_ticks",
+        "observed_high_ticks"
+      ],
+      "title": "WickReplayEvidenceVectorV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/RDEntryMethodVectorCaseV1"
+      },
+      "maxItems": 14,
+      "minItems": 14,
+      "title": "Cases",
+      "type": "array"
+    },
+    "schema_id": {
+      "const": "phase0.rd-entry-method-vectors.v1",
+      "title": "Schema Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_id",
+    "cases"
+  ],
+  "title": "RDEntryMethodVectorSetV1",
+  "type": "object"
+}

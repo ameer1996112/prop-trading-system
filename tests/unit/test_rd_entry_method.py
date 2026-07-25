@@ -11,7 +11,9 @@ from prop_trading.domain.rd_entry_method import (
     EntryMethodContext,
     EntryMethodReason,
     RDEntryFillProfileV1,
+    WickReplayEvidence,
     resolve_entry_method,
+    resolve_wick_fill,
     utc_minute_in_window,
 )
 from prop_trading.domain.rd_entry_models import (
@@ -189,6 +191,58 @@ def make_profile(**overrides: object) -> RDEntryFillProfileV1:
     return RDEntryFillProfileV1(**values)  # type: ignore[arg-type]
 
 
+def pending_wick(
+    *,
+    limit_ticks: int = 18_497,
+    direction: EntryDirection = EntryDirection.LONG,
+):
+    selected = candidate(model=EntryModelV2.DIR_CLOSE, direction=direction)
+    trigger_ticks = limit_ticks + 3 if direction is EntryDirection.LONG else limit_ticks - 3
+    return resolve_entry_method(
+        selection=paper_selection(model=EntryModelV2.DIR_CLOSE, direction=direction),
+        candidate=selected,
+        evidence=evidence(selected, trigger_ticks=trigger_ticks),
+        context=context(close_ticks=trigger_ticks, direction=direction),
+        profiles=(wick_profile(limit_offset_ticks=3),),
+    )
+
+
+def complete_replay(
+    *,
+    direction: EntryDirection = EntryDirection.LONG,
+    observed_low_ticks: int = 18_496,
+    observed_high_ticks: int = 18_503,
+) -> WickReplayEvidence:
+    pending = pending_wick(direction=direction)
+    touched = (
+        observed_low_ticks <= pending.limit_ticks
+        if direction is EntryDirection.LONG
+        else observed_high_ticks >= pending.limit_ticks
+    )
+    return WickReplayEvidence(
+        proof_plane=ProofPlane.LOWER_TIMEFRAME_REPLAY,
+        coverage_start_epoch=pending.trigger_epoch,
+        coverage_end_epoch=pending.wait_until_epoch,
+        coverage_complete=True,
+        session_gap=False,
+        touched_epoch=pending.trigger_epoch + 60 if touched else None,
+        observed_low_ticks=observed_low_ticks,
+        observed_high_ticks=observed_high_ticks,
+    )
+
+
+def incomplete_replay() -> WickReplayEvidence:
+    return replace(complete_replay(), coverage_complete=False)
+
+
+def replay_with_session_gap() -> WickReplayEvidence:
+    return replace(complete_replay(), session_gap=True)
+
+
+def realtime_touch() -> WickReplayEvidence:
+    return replace(complete_replay(), proof_plane=ProofPlane.REALTIME_TICK)
+
+
 def test_entry_method_taxonomy_is_closed() -> None:
     assert tuple(EntryMethod) == (
         EntryMethod.INTRABAR_FLIP,
@@ -316,6 +370,127 @@ def test_one_wick_profile_creates_one_pending_fill() -> None:
     assert result.action is EntryMethodAction.PENDING_WICK
     assert result.limit_ticks == 18_497
     assert result.wait_until_epoch == result.trigger_epoch + 300
+
+
+def test_complete_lower_timeframe_touch_fills_once_at_frozen_limit() -> None:
+    pending = pending_wick(limit_ticks=18_497)
+    result = resolve_wick_fill(
+        pending,
+        WickReplayEvidence(
+            proof_plane=ProofPlane.LOWER_TIMEFRAME_REPLAY,
+            coverage_start_epoch=pending.trigger_epoch,
+            coverage_end_epoch=pending.wait_until_epoch,
+            coverage_complete=True,
+            session_gap=False,
+            touched_epoch=pending.trigger_epoch + 60,
+            observed_low_ticks=18_496,
+            observed_high_ticks=18_503,
+        ),
+    )
+
+    assert result.action is EntryMethodAction.PAPER_ELIGIBLE
+    assert result.reason is EntryMethodReason.WICK_REPLAY_FILLED
+    assert result.fill_ticks == 18_497
+    assert result.fill_epoch == pending.trigger_epoch + 60
+
+
+def test_complete_archived_tick_touch_fills_short_at_frozen_limit() -> None:
+    pending = pending_wick(limit_ticks=18_503, direction=EntryDirection.SHORT)
+    result = resolve_wick_fill(
+        pending,
+        WickReplayEvidence(
+            proof_plane=ProofPlane.EXTERNAL_ARCHIVED_TICK,
+            coverage_start_epoch=pending.trigger_epoch,
+            coverage_end_epoch=pending.wait_until_epoch,
+            coverage_complete=True,
+            session_gap=False,
+            touched_epoch=pending.trigger_epoch + 120,
+            observed_low_ticks=18_496,
+            observed_high_ticks=18_504,
+        ),
+    )
+
+    assert result.action is EntryMethodAction.PAPER_ELIGIBLE
+    assert result.reason is EntryMethodReason.WICK_REPLAY_FILLED
+    assert result.fill_ticks == 18_503
+    assert result.fill_epoch == pending.trigger_epoch + 120
+
+
+def test_complete_no_touch_misses_without_close_fallback() -> None:
+    result = resolve_wick_fill(
+        pending_wick(limit_ticks=18_497),
+        complete_replay(observed_low_ticks=18_498),
+    )
+
+    assert result.action is EntryMethodAction.MISSED
+    assert result.reason is EntryMethodReason.MISSED_WICK_FILL
+    assert result.method is EntryMethod.NEXT_CANDLE_WICK
+    assert result.fill_ticks is None
+
+
+@pytest.mark.parametrize(
+    "replay_evidence",
+    [
+        incomplete_replay(),
+        replay_with_session_gap(),
+        realtime_touch(),
+    ],
+)
+def test_unreplayable_wick_never_becomes_paper_eligible(
+    replay_evidence: WickReplayEvidence,
+) -> None:
+    result = resolve_wick_fill(pending_wick(), replay_evidence)
+    assert result.action is EntryMethodAction.SHADOW_ONLY
+    assert result.reason is EntryMethodReason.INCOMPLETE_WICK_REPLAY
+    assert result.fill_ticks is None
+
+
+def test_wick_replay_requires_exact_pending_coverage() -> None:
+    pending = pending_wick()
+    replay_evidence = replace(
+        complete_replay(),
+        coverage_start_epoch=pending.trigger_epoch + 1,
+    )
+
+    assert resolve_wick_fill(pending, replay_evidence).action is EntryMethodAction.SHADOW_ONLY
+
+
+def test_wick_replay_rejects_non_pending_or_tampered_decisions() -> None:
+    pending = pending_wick()
+    with pytest.raises(ValueError, match="pending wick"):
+        resolve_wick_fill(replace(pending, action=EntryMethodAction.MISSED), complete_replay())
+
+    with pytest.raises(ValueError, match="decision_id conflicts"):
+        resolve_wick_fill(replace(pending, limit_ticks=18_496), complete_replay())
+
+
+def test_wick_replay_evidence_validates_plane_coverage_touch_and_range() -> None:
+    values = {
+        "proof_plane": ProofPlane.LOWER_TIMEFRAME_REPLAY,
+        "coverage_start_epoch": 100,
+        "coverage_end_epoch": 400,
+        "coverage_complete": True,
+        "session_gap": False,
+        "touched_epoch": 160,
+        "observed_low_ticks": 18_496,
+        "observed_high_ticks": 18_503,
+    }
+    with pytest.raises(ValueError, match="proof_plane"):
+        WickReplayEvidence(**(values | {"proof_plane": ProofPlane.CONFIRMED_5M}))
+    with pytest.raises(ValueError, match="coverage"):
+        WickReplayEvidence(**(values | {"coverage_end_epoch": 100}))
+    with pytest.raises(ValueError, match="touched_epoch"):
+        WickReplayEvidence(**(values | {"touched_epoch": 400}))
+    with pytest.raises(ValueError, match="low"):
+        WickReplayEvidence(
+            **(
+                values
+                | {
+                    "observed_low_ticks": 18_504,
+                    "observed_high_ticks": 18_503,
+                }
+            )
+        )
 
 
 def test_conflicting_profiles_never_guess_or_open() -> None:

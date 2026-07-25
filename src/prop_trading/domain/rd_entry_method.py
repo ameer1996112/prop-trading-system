@@ -203,12 +203,44 @@ class EntryMethodDecision:
         _require_int(self.evaluated_at_epoch, "evaluated_at_epoch", minimum=0)
 
 
+@dataclass(frozen=True, slots=True)
+class WickReplayEvidence:
+    proof_plane: ProofPlane
+    coverage_start_epoch: int
+    coverage_end_epoch: int
+    coverage_complete: bool
+    session_gap: bool
+    touched_epoch: int | None
+    observed_low_ticks: int
+    observed_high_ticks: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.proof_plane, ProofPlane) or self.proof_plane not in {
+            ProofPlane.LOWER_TIMEFRAME_REPLAY,
+            ProofPlane.EXTERNAL_ARCHIVED_TICK,
+            ProofPlane.REALTIME_TICK,
+        }:
+            raise ValueError("proof_plane is not valid wick replay evidence")
+        _require_int(self.coverage_start_epoch, "coverage_start_epoch", minimum=0)
+        _require_int(self.coverage_end_epoch, "coverage_end_epoch", minimum=0)
+        if self.coverage_end_epoch <= self.coverage_start_epoch:
+            raise ValueError("wick replay coverage epochs must increase")
+        if type(self.coverage_complete) is not bool:
+            raise ValueError("coverage_complete must be a boolean")
+        if type(self.session_gap) is not bool:
+            raise ValueError("session_gap must be a boolean")
+        if self.touched_epoch is not None:
+            _require_int(self.touched_epoch, "touched_epoch", minimum=0)
+            if not (self.coverage_start_epoch <= self.touched_epoch < self.coverage_end_epoch):
+                raise ValueError("touched_epoch must lie inside replay coverage")
+        _require_int(self.observed_low_ticks, "observed_low_ticks")
+        _require_int(self.observed_high_ticks, "observed_high_ticks")
+        if self.observed_low_ticks > self.observed_high_ticks:
+            raise ValueError("observed low ticks must not exceed observed high ticks")
+
+
 def _require_sha256(value: object, name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or _SHA256.fullmatch(value) is None
-        or value == "0" * 64
-    ):
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None or value == "0" * 64:
         raise ValueError(f"{name} must be a nonzero lowercase SHA-256 hex digest")
 
 
@@ -297,6 +329,146 @@ def _decision(
         fill_epoch=fill_epoch,
         fill_ticks=fill_ticks,
         evaluated_at_epoch=evaluated_at_epoch,
+    )
+
+
+def _validate_decision_identity(decision: EntryMethodDecision) -> None:
+    authoritative_id = entry_method_decision_id(
+        selection_id=decision.selection_id,
+        setup_id=decision.setup_id,
+        candidate_id=decision.candidate_id,
+        method=decision.method,
+        action=decision.action,
+        reason=decision.reason,
+        profile_id=decision.profile_id,
+        trigger_epoch=decision.trigger_epoch,
+        trigger_ticks=decision.trigger_ticks,
+        limit_ticks=decision.limit_ticks,
+        wait_until_epoch=decision.wait_until_epoch,
+        fill_epoch=decision.fill_epoch,
+        fill_ticks=decision.fill_ticks,
+        evaluated_at_epoch=decision.evaluated_at_epoch,
+    )
+    if decision.decision_id != authoritative_id:
+        raise ValueError("decision_id conflicts with its canonical identity")
+
+
+def _resolved_wick_decision(
+    pending: EntryMethodDecision,
+    *,
+    action: EntryMethodAction,
+    reason: EntryMethodReason,
+    fill_epoch: int | None,
+    fill_ticks: int | None,
+) -> EntryMethodDecision:
+    return EntryMethodDecision(
+        decision_id=entry_method_decision_id(
+            selection_id=pending.selection_id,
+            setup_id=pending.setup_id,
+            candidate_id=pending.candidate_id,
+            method=pending.method,
+            action=action,
+            reason=reason,
+            profile_id=pending.profile_id,
+            trigger_epoch=pending.trigger_epoch,
+            trigger_ticks=pending.trigger_ticks,
+            limit_ticks=pending.limit_ticks,
+            wait_until_epoch=pending.wait_until_epoch,
+            fill_epoch=fill_epoch,
+            fill_ticks=fill_ticks,
+            evaluated_at_epoch=pending.evaluated_at_epoch,
+        ),
+        selection_id=pending.selection_id,
+        setup_id=pending.setup_id,
+        candidate_id=pending.candidate_id,
+        method=pending.method,
+        action=action,
+        reason=reason,
+        profile_id=pending.profile_id,
+        trigger_epoch=pending.trigger_epoch,
+        trigger_ticks=pending.trigger_ticks,
+        limit_ticks=pending.limit_ticks,
+        wait_until_epoch=pending.wait_until_epoch,
+        fill_epoch=fill_epoch,
+        fill_ticks=fill_ticks,
+        evaluated_at_epoch=pending.evaluated_at_epoch,
+    )
+
+
+def resolve_wick_fill(
+    pending: EntryMethodDecision,
+    evidence: WickReplayEvidence,
+) -> EntryMethodDecision:
+    """Resolve one frozen pending wick from immutable five-minute replay coverage."""
+    if not isinstance(pending, EntryMethodDecision):
+        raise ValueError("pending must be an EntryMethodDecision")
+    if not isinstance(evidence, WickReplayEvidence):
+        raise ValueError("evidence must be WickReplayEvidence")
+    if (
+        pending.method is not EntryMethod.NEXT_CANDLE_WICK
+        or pending.action is not EntryMethodAction.PENDING_WICK
+        or pending.reason is not EntryMethodReason.PROFILE_WICK_PENDING
+        or pending.candidate_id is None
+        or pending.profile_id is None
+        or pending.trigger_epoch is None
+        or pending.trigger_ticks is None
+        or pending.limit_ticks is None
+        or pending.wait_until_epoch is None
+        or pending.fill_epoch is not None
+        or pending.fill_ticks is not None
+        or pending.wait_until_epoch - pending.trigger_epoch != 300
+        or pending.limit_ticks == pending.trigger_ticks
+    ):
+        raise ValueError("decision must be one unresolved pending wick")
+    _validate_decision_identity(pending)
+
+    exact_coverage = (
+        evidence.coverage_start_epoch == pending.trigger_epoch
+        and evidence.coverage_end_epoch == pending.wait_until_epoch
+        and evidence.coverage_end_epoch - evidence.coverage_start_epoch == 300
+    )
+    replayable = evidence.proof_plane in {
+        ProofPlane.LOWER_TIMEFRAME_REPLAY,
+        ProofPlane.EXTERNAL_ARCHIVED_TICK,
+    }
+    if (
+        not replayable
+        or not exact_coverage
+        or not evidence.coverage_complete
+        or evidence.session_gap
+    ):
+        return _resolved_wick_decision(
+            pending,
+            action=EntryMethodAction.SHADOW_ONLY,
+            reason=EntryMethodReason.INCOMPLETE_WICK_REPLAY,
+            fill_epoch=None,
+            fill_ticks=None,
+        )
+
+    is_long = pending.limit_ticks < pending.trigger_ticks
+    touched = (
+        evidence.observed_low_ticks <= pending.limit_ticks
+        if is_long
+        else evidence.observed_high_ticks >= pending.limit_ticks
+    )
+    if touched:
+        if evidence.touched_epoch is None:
+            raise ValueError("touched_epoch is required for a replay-confirmed fill")
+        return _resolved_wick_decision(
+            pending,
+            action=EntryMethodAction.PAPER_ELIGIBLE,
+            reason=EntryMethodReason.WICK_REPLAY_FILLED,
+            fill_epoch=evidence.touched_epoch,
+            fill_ticks=pending.limit_ticks,
+        )
+    if evidence.touched_epoch is not None:
+        raise ValueError("touched_epoch cannot claim a limit touch outside observed prices")
+    return _resolved_wick_decision(
+        pending,
+        action=EntryMethodAction.MISSED,
+        reason=EntryMethodReason.MISSED_WICK_FILL,
+        fill_epoch=None,
+        fill_ticks=None,
     )
 
 

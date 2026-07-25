@@ -57,6 +57,9 @@ verify-generated:
 	$(PYTHON) scripts/build_rd_entry_oracle_vectors.py \
 		--fixtures tests/fixtures/rd_entry_arbitration_cases_v2.json \
 		--output contracts/vectors/rd-entry-arbitration-v2.json --check
+	$(PYTHON) scripts/build_rd_entry_method_vectors.py \
+		--fixtures tests/fixtures/rd_entry_method_cases_v1.json \
+		--output contracts/vectors/rd-entry-method-v1.json --check
 	$(PYTHON) scripts/export_schemas.py --output-dir contracts/schema --check
 	$(PYTHON) -m prop_trading.cli gates --evidence evidence/phase0/evidence-registry.json --output reports/phase0-gates.json --check
 	$(PYTHON) scripts/assert_phase0_artifacts.py --registry evidence/phase0/evidence-registry.json --report reports/phase0-gates.json

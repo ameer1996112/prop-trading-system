@@ -1,0 +1,394 @@
+{
+  "schema_id": "phase0.rd-entry-method-fixture.v1",
+  "context": {
+    "feed_id": "OANDA",
+    "symbol": "GBPJPY",
+    "evaluated_at_epoch": 1699948800,
+    "trigger_epoch": 1699948800,
+    "trigger_ticks": 18500
+  },
+  "profiles": [
+    {
+      "profile_id": "gbpjpy-london-wick-v1",
+      "version": 1,
+      "feed_id": "OANDA",
+      "symbol": "GBPJPY",
+      "session_start_minute_utc": 420,
+      "session_end_minute_utc": 660,
+      "dir_close_method": "NEXT_CANDLE_WICK",
+      "limit_offset_ticks": 3,
+      "max_wait_seconds": 300,
+      "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "status": "APPROVED",
+      "approved_by": "operator",
+      "approved_at_epoch": 1699900000
+    },
+    {
+      "profile_id": "gbpjpy-london-close-v1",
+      "version": 1,
+      "feed_id": "OANDA",
+      "symbol": "GBPJPY",
+      "session_start_minute_utc": 420,
+      "session_end_minute_utc": 660,
+      "dir_close_method": "CLOSE_CONFIRMATION",
+      "limit_offset_ticks": null,
+      "max_wait_seconds": 300,
+      "evidence_manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "status": "APPROVED",
+      "approved_by": "operator",
+      "approved_at_epoch": 1699900000
+    },
+    {
+      "profile_id": "gbpjpy-conflict-a-v1",
+      "version": 1,
+      "feed_id": "OANDA",
+      "symbol": "GBPJPY",
+      "session_start_minute_utc": 420,
+      "session_end_minute_utc": 660,
+      "dir_close_method": "NEXT_CANDLE_WICK",
+      "limit_offset_ticks": 2,
+      "max_wait_seconds": 300,
+      "evidence_manifest_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "status": "APPROVED",
+      "approved_by": "operator",
+      "approved_at_epoch": 1699900000
+    },
+    {
+      "profile_id": "gbpjpy-conflict-b-v1",
+      "version": 1,
+      "feed_id": "OANDA",
+      "symbol": "GBPJPY",
+      "session_start_minute_utc": 420,
+      "session_end_minute_utc": 660,
+      "dir_close_method": "NEXT_CANDLE_WICK",
+      "limit_offset_ticks": 4,
+      "max_wait_seconds": 300,
+      "evidence_manifest_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "status": "APPROVED",
+      "approved_by": "operator",
+      "approved_at_epoch": 1699900000
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "htf_ignores_wick_profile",
+      "setup_id": "setup-htf-method",
+      "model": "HTF_FLIP",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": null,
+      "expected": {
+        "method": "INTRABAR_FLIP",
+        "action": "PAPER_ELIGIBLE",
+        "reason": "HTF_FLIP_SELECTED",
+        "profile_id": null,
+        "limit_ticks": null,
+        "wait_until_epoch": null,
+        "fill_epoch": 1699948800,
+        "fill_ticks": 18500
+      }
+    },
+    {
+      "case_id": "dir_close_defaults_prompt",
+      "setup_id": "setup-dir-default",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": [],
+      "wick_replay": null,
+      "expected": {
+        "method": "CLOSE_CONFIRMATION",
+        "action": "PAPER_ELIGIBLE",
+        "reason": "DEFAULT_PROMPT_CLOSE",
+        "profile_id": null,
+        "limit_ticks": null,
+        "wait_until_epoch": null,
+        "fill_epoch": 1699948800,
+        "fill_ticks": 18500
+      }
+    },
+    {
+      "case_id": "dir_close_explicit_prompt",
+      "setup_id": "setup-dir-explicit",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-close-v1"],
+      "wick_replay": null,
+      "expected": {
+        "method": "CLOSE_CONFIRMATION",
+        "action": "PAPER_ELIGIBLE",
+        "reason": "PROFILE_PROMPT_CLOSE",
+        "profile_id": "gbpjpy-london-close-v1",
+        "limit_ticks": null,
+        "wait_until_epoch": null,
+        "fill_epoch": 1699948800,
+        "fill_ticks": 18500
+      }
+    },
+    {
+      "case_id": "dir_close_wick_pending_long",
+      "setup_id": "setup-wick-pending-long",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": null,
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "PENDING_WICK",
+        "reason": "PROFILE_WICK_PENDING",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18497,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "dir_close_wick_pending_short",
+      "setup_id": "setup-wick-pending-short",
+      "model": "DIR_CLOSE",
+      "direction": "SHORT",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": null,
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "PENDING_WICK",
+        "reason": "PROFILE_WICK_PENDING",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18503,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "conflicting_profiles_shadow",
+      "setup_id": "setup-profile-conflict",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-conflict-a-v1", "gbpjpy-conflict-b-v1"],
+      "wick_replay": null,
+      "expected": {
+        "method": null,
+        "action": "SHADOW_ONLY",
+        "reason": "CONFLICTING_FILL_PROFILES",
+        "profile_id": null,
+        "limit_ticks": null,
+        "wait_until_epoch": null,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "wick_long_filled_exact",
+      "setup_id": "setup-wick-filled-long",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": {
+        "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+        "coverage_start_epoch": 1699948800,
+        "coverage_end_epoch": 1699949100,
+        "coverage_complete": true,
+        "session_gap": false,
+        "touched_epoch": 1699948860,
+        "observed_low_ticks": 18496,
+        "observed_high_ticks": 18503
+      },
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "PAPER_ELIGIBLE",
+        "reason": "WICK_REPLAY_FILLED",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18497,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": 1699948860,
+        "fill_ticks": 18497
+      }
+    },
+    {
+      "case_id": "wick_short_filled_exact",
+      "setup_id": "setup-wick-filled-short",
+      "model": "DIR_CLOSE",
+      "direction": "SHORT",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": {
+        "proof_plane": "EXTERNAL_ARCHIVED_TICK",
+        "coverage_start_epoch": 1699948800,
+        "coverage_end_epoch": 1699949100,
+        "coverage_complete": true,
+        "session_gap": false,
+        "touched_epoch": 1699948920,
+        "observed_low_ticks": 18496,
+        "observed_high_ticks": 18504
+      },
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "PAPER_ELIGIBLE",
+        "reason": "WICK_REPLAY_FILLED",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18503,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": 1699948920,
+        "fill_ticks": 18503
+      }
+    },
+    {
+      "case_id": "wick_complete_missed",
+      "setup_id": "setup-wick-missed",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": {
+        "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+        "coverage_start_epoch": 1699948800,
+        "coverage_end_epoch": 1699949100,
+        "coverage_complete": true,
+        "session_gap": false,
+        "touched_epoch": null,
+        "observed_low_ticks": 18498,
+        "observed_high_ticks": 18503
+      },
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "MISSED",
+        "reason": "MISSED_WICK_FILL",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18497,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "wick_incomplete_shadow",
+      "setup_id": "setup-wick-incomplete",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": {
+        "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+        "coverage_start_epoch": 1699948800,
+        "coverage_end_epoch": 1699949100,
+        "coverage_complete": false,
+        "session_gap": false,
+        "touched_epoch": 1699948860,
+        "observed_low_ticks": 18496,
+        "observed_high_ticks": 18503
+      },
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "SHADOW_ONLY",
+        "reason": "INCOMPLETE_WICK_REPLAY",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18497,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "wick_gap_shadow",
+      "setup_id": "setup-wick-gap",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": {
+        "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+        "coverage_start_epoch": 1699948800,
+        "coverage_end_epoch": 1699949100,
+        "coverage_complete": true,
+        "session_gap": true,
+        "touched_epoch": 1699948860,
+        "observed_low_ticks": 18496,
+        "observed_high_ticks": 18503
+      },
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "SHADOW_ONLY",
+        "reason": "INCOMPLETE_WICK_REPLAY",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18497,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "wick_realtime_shadow",
+      "setup_id": "setup-wick-realtime",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "PAPER_ELIGIBLE",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": {
+        "proof_plane": "REALTIME_TICK",
+        "coverage_start_epoch": 1699948800,
+        "coverage_end_epoch": 1699949100,
+        "coverage_complete": true,
+        "session_gap": false,
+        "touched_epoch": 1699948860,
+        "observed_low_ticks": 18496,
+        "observed_high_ticks": 18503
+      },
+      "expected": {
+        "method": "NEXT_CANDLE_WICK",
+        "action": "SHADOW_ONLY",
+        "reason": "INCOMPLETE_WICK_REPLAY",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "limit_ticks": 18497,
+        "wait_until_epoch": 1699949100,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "noneligible_candidate_shadow",
+      "setup_id": "setup-noneligible",
+      "model": "DIR_CLOSE",
+      "direction": "LONG",
+      "selection_action": "SHADOW_ONLY",
+      "profile_ids": ["gbpjpy-london-wick-v1"],
+      "wick_replay": null,
+      "expected": {
+        "method": null,
+        "action": "SHADOW_ONLY",
+        "reason": "CANDIDATE_NOT_PAPER_ELIGIBLE",
+        "profile_id": null,
+        "limit_ticks": null,
+        "wait_until_epoch": null,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    },
+    {
+      "case_id": "no_candidate_none",
+      "setup_id": "setup-no-candidate",
+      "model": null,
+      "direction": "LONG",
+      "selection_action": "NONE",
+      "profile_ids": [],
+      "wick_replay": null,
+      "expected": {
+        "method": null,
+        "action": "NONE",
+        "reason": "NO_CANONICAL_CANDIDATE",
+        "profile_id": null,
+        "limit_ticks": null,
+        "wait_until_epoch": null,
+        "fill_epoch": null,
+        "fill_ticks": null
+      }
+    }
+  ]
+}

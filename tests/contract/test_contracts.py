@@ -21,6 +21,7 @@ from prop_trading.contracts.models import (
     SourceProvenance,
     StrategyManifest,
 )
+from prop_trading.contracts.rd_entry_method_vectors_v1 import RDEntryMethodVectorSetV1
 from prop_trading.domain.canonical import canonical_json_bytes
 
 
@@ -564,3 +565,36 @@ def test_contracts_forbid_unknown_fields() -> None:
     payload["silent_queue_overflow"] = True
     with pytest.raises(ValidationError, match="Extra inputs"):
         CapacityEnvelope.model_validate(payload)
+
+
+def test_rd_entry_method_vectors_are_strict_and_domain_replayable() -> None:
+    payload = _json("contracts/vectors/rd-entry-method-v1.json")
+    parsed = RDEntryMethodVectorSetV1.model_validate_json(json.dumps(payload))
+
+    assert len(parsed.cases) == 14
+    assert {item.case_id for item in parsed.cases} == {
+        "htf_ignores_wick_profile",
+        "dir_close_defaults_prompt",
+        "dir_close_explicit_prompt",
+        "dir_close_wick_pending_long",
+        "dir_close_wick_pending_short",
+        "conflicting_profiles_shadow",
+        "wick_long_filled_exact",
+        "wick_short_filled_exact",
+        "wick_complete_missed",
+        "wick_incomplete_shadow",
+        "wick_gap_shadow",
+        "wick_realtime_shadow",
+        "noneligible_candidate_shadow",
+        "no_candidate_none",
+    }
+
+    changed = deepcopy(payload)
+    changed["cases"][0]["expected"]["action"] = "NONE"
+    with pytest.raises(ValidationError, match="canonical domain"):
+        RDEntryMethodVectorSetV1.model_validate_json(json.dumps(changed))
+
+    unknown = deepcopy(payload)
+    unknown["cases"][0]["input"]["unknown"] = True
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        RDEntryMethodVectorSetV1.model_validate_json(json.dumps(unknown))

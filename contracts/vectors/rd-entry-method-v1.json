@@ -1,0 +1,1432 @@
+{
+  "cases": [
+    {
+      "case_id": "htf_ignores_wick_profile",
+      "expected": {
+        "action": "PAPER_ELIGIBLE",
+        "candidate_id": "9fade6eaa02e2dbee4c0b0c5f16b889cafbc5770f171648aa013087e9163403b",
+        "decision_id": "01c4c7977184fbe39d68e6d4f359bcc60e858d5f347b6c610aa2798c939ef51e",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": 1699948800,
+        "fill_ticks": 18500,
+        "limit_ticks": null,
+        "method": "INTRABAR_FLIP",
+        "profile_id": null,
+        "reason": "HTF_FLIP_SELECTED",
+        "selection_id": "af2fcee30ed3299d32ffae5e4d539f592a1ea80303238dcacad2d64193a54d15",
+        "setup_id": "setup-htf-method",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": null
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "9fade6eaa02e2dbee4c0b0c5f16b889cafbc5770f171648aa013087e9163403b",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "HTF_FLIP",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-htf-method",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "9fade6eaa02e2dbee4c0b0c5f16b889cafbc5770f171648aa013087e9163403b",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "40bc54ec05d2eb5687e31b4601584b0842fa627c3cdb5e9b1186f02ef9bfe4c3",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "5b8cba738b007e26b2e52001ade411f1547c7eb18fc8142fc683de9344b7d3e4",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "9fade6eaa02e2dbee4c0b0c5f16b889cafbc5770f171648aa013087e9163403b"
+          ],
+          "canonical_candidate_id": "9fade6eaa02e2dbee4c0b0c5f16b889cafbc5770f171648aa013087e9163403b",
+          "canonical_evidence_id": "40bc54ec05d2eb5687e31b4601584b0842fa627c3cdb5e9b1186f02ef9bfe4c3",
+          "canonical_model": "HTF_FLIP",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "af2fcee30ed3299d32ffae5e4d539f592a1ea80303238dcacad2d64193a54d15",
+          "setup_id": "setup-htf-method"
+        },
+        "wick_replay": null
+      }
+    },
+    {
+      "case_id": "dir_close_defaults_prompt",
+      "expected": {
+        "action": "PAPER_ELIGIBLE",
+        "candidate_id": "67ec8ccd0d8615fd4de5e1bd00b8bdc2d628619775daa548f4a180c96f60bb57",
+        "decision_id": "882650caca95b8ffa9a7a7776aa7fbf1fef7351cfeb1ff19d5d56670b2f02890",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": 1699948800,
+        "fill_ticks": 18500,
+        "limit_ticks": null,
+        "method": "CLOSE_CONFIRMATION",
+        "profile_id": null,
+        "reason": "DEFAULT_PROMPT_CLOSE",
+        "selection_id": "24fcf475a2b57ebfb41079405dc234bbd1260bd693b4647f6c56685b908aab52",
+        "setup_id": "setup-dir-default",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": null
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "67ec8ccd0d8615fd4de5e1bd00b8bdc2d628619775daa548f4a180c96f60bb57",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-dir-default",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "67ec8ccd0d8615fd4de5e1bd00b8bdc2d628619775daa548f4a180c96f60bb57",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "5bac56c664898ec4b116ca2ec6e56ba0a8ba4bba451d8afc06d6c955412eaeb6",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "9b202d34906bedde7081b27d17d03d5b1047a28f6490a6d2e263a0d838ae4e2e",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "67ec8ccd0d8615fd4de5e1bd00b8bdc2d628619775daa548f4a180c96f60bb57"
+          ],
+          "canonical_candidate_id": "67ec8ccd0d8615fd4de5e1bd00b8bdc2d628619775daa548f4a180c96f60bb57",
+          "canonical_evidence_id": "5bac56c664898ec4b116ca2ec6e56ba0a8ba4bba451d8afc06d6c955412eaeb6",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "24fcf475a2b57ebfb41079405dc234bbd1260bd693b4647f6c56685b908aab52",
+          "setup_id": "setup-dir-default"
+        },
+        "wick_replay": null
+      }
+    },
+    {
+      "case_id": "dir_close_explicit_prompt",
+      "expected": {
+        "action": "PAPER_ELIGIBLE",
+        "candidate_id": "7b2cfb1626f0594e13fd3770591ba3214831619c0438a99773469ffae76554fe",
+        "decision_id": "574805a851ecd008626d7eff0730961afafa1e1f84eb9d89dd9e5ffba711acb8",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": 1699948800,
+        "fill_ticks": 18500,
+        "limit_ticks": null,
+        "method": "CLOSE_CONFIRMATION",
+        "profile_id": "gbpjpy-london-close-v1",
+        "reason": "PROFILE_PROMPT_CLOSE",
+        "selection_id": "b32a1aca741462efa37f5ba81bf1d8379b4786ee898794d39c421fa247e7f049",
+        "setup_id": "setup-dir-explicit",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": null
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "7b2cfb1626f0594e13fd3770591ba3214831619c0438a99773469ffae76554fe",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-dir-explicit",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "7b2cfb1626f0594e13fd3770591ba3214831619c0438a99773469ffae76554fe",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "6158beab15821d19d19a584855fd0e8cabfb51d02f6c114452fa4d5883e03dee",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "9e0c69c0d6a79282a926429e042c28caec58efa9d702147379c3d74a3c1602c7",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "CLOSE_CONFIRMATION",
+            "evidence_manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": null,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-close-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "7b2cfb1626f0594e13fd3770591ba3214831619c0438a99773469ffae76554fe"
+          ],
+          "canonical_candidate_id": "7b2cfb1626f0594e13fd3770591ba3214831619c0438a99773469ffae76554fe",
+          "canonical_evidence_id": "6158beab15821d19d19a584855fd0e8cabfb51d02f6c114452fa4d5883e03dee",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "b32a1aca741462efa37f5ba81bf1d8379b4786ee898794d39c421fa247e7f049",
+          "setup_id": "setup-dir-explicit"
+        },
+        "wick_replay": null
+      }
+    },
+    {
+      "case_id": "dir_close_wick_pending_long",
+      "expected": {
+        "action": "PENDING_WICK",
+        "candidate_id": "6e1bbd2b8123a1f9c599bb0033390692778e1af4c6f62fa68d137804477ff4d6",
+        "decision_id": "decfd887c5390472557de3e0811d95413cdfe11383876b7a38021d572163bef8",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": 18497,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "PROFILE_WICK_PENDING",
+        "selection_id": "52cfcffef69efa52b1b64295beac331ea814f5e72a11b3b42de7d6c8a260c072",
+        "setup_id": "setup-wick-pending-long",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "6e1bbd2b8123a1f9c599bb0033390692778e1af4c6f62fa68d137804477ff4d6",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-pending-long",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "6e1bbd2b8123a1f9c599bb0033390692778e1af4c6f62fa68d137804477ff4d6",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "229abbe868e8e68aead65a5e21ae46e3850f0bf7d6767a564aaed97dc100d8a1",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "d32022263863ab4e680795249d2391428d410684a7bc54a057aaf7d8f81f8e53",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "6e1bbd2b8123a1f9c599bb0033390692778e1af4c6f62fa68d137804477ff4d6"
+          ],
+          "canonical_candidate_id": "6e1bbd2b8123a1f9c599bb0033390692778e1af4c6f62fa68d137804477ff4d6",
+          "canonical_evidence_id": "229abbe868e8e68aead65a5e21ae46e3850f0bf7d6767a564aaed97dc100d8a1",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "52cfcffef69efa52b1b64295beac331ea814f5e72a11b3b42de7d6c8a260c072",
+          "setup_id": "setup-wick-pending-long"
+        },
+        "wick_replay": null
+      }
+    },
+    {
+      "case_id": "dir_close_wick_pending_short",
+      "expected": {
+        "action": "PENDING_WICK",
+        "candidate_id": "3b68c076ad31ec5430815764ada06f11e25adb0d83dcc39753f3a6a04e525f6a",
+        "decision_id": "2e5b0edbc4328550bf5130797029d03a734499ce4fe56cdfa361f76f7a207e27",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": 18503,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "PROFILE_WICK_PENDING",
+        "selection_id": "c88d35627256032845cc2197f415c57844b944419c1a716c4bec34ed80a9b6a5",
+        "setup_id": "setup-wick-pending-short",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "3b68c076ad31ec5430815764ada06f11e25adb0d83dcc39753f3a6a04e525f6a",
+          "direction": "SHORT",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-pending-short",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "SHORT",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "3b68c076ad31ec5430815764ada06f11e25adb0d83dcc39753f3a6a04e525f6a",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "048ac379f28a6d2e9a831d81ab322ace10e945d5b1bc4026a302d4bc31504a88",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "a90cfd952ecd95c2827f17e1940f286213f12d15f0b81d87a5aa756f1ab118e8",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "3b68c076ad31ec5430815764ada06f11e25adb0d83dcc39753f3a6a04e525f6a"
+          ],
+          "canonical_candidate_id": "3b68c076ad31ec5430815764ada06f11e25adb0d83dcc39753f3a6a04e525f6a",
+          "canonical_evidence_id": "048ac379f28a6d2e9a831d81ab322ace10e945d5b1bc4026a302d4bc31504a88",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "c88d35627256032845cc2197f415c57844b944419c1a716c4bec34ed80a9b6a5",
+          "setup_id": "setup-wick-pending-short"
+        },
+        "wick_replay": null
+      }
+    },
+    {
+      "case_id": "conflicting_profiles_shadow",
+      "expected": {
+        "action": "SHADOW_ONLY",
+        "candidate_id": "f33c9498b25b83aeb475cc5af0f51d75f16c6ef9fabe1cfe307715b08007793a",
+        "decision_id": "cb088ec83fd7cb9507685179c4f89fbe2419bc74841bf9991c73adbddaeee3d7",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": null,
+        "method": null,
+        "profile_id": null,
+        "reason": "CONFLICTING_FILL_PROFILES",
+        "selection_id": "916317302325b2aff7b5a351f60addf91b7b81cd072d4a45312fa6262ceb1e77",
+        "setup_id": "setup-profile-conflict",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": null
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "f33c9498b25b83aeb475cc5af0f51d75f16c6ef9fabe1cfe307715b08007793a",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-profile-conflict",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "f33c9498b25b83aeb475cc5af0f51d75f16c6ef9fabe1cfe307715b08007793a",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "693d4f63e10d5a4b6d014148f6e9425ec4fbdab20eb5e32cea96b9c2e46c47bb",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "27d117c9a91b87517159d702b6ceebf37ae981987224c141df2a18474761f936",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 2,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-conflict-a-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          },
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 4,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-conflict-b-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "f33c9498b25b83aeb475cc5af0f51d75f16c6ef9fabe1cfe307715b08007793a"
+          ],
+          "canonical_candidate_id": "f33c9498b25b83aeb475cc5af0f51d75f16c6ef9fabe1cfe307715b08007793a",
+          "canonical_evidence_id": "693d4f63e10d5a4b6d014148f6e9425ec4fbdab20eb5e32cea96b9c2e46c47bb",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "916317302325b2aff7b5a351f60addf91b7b81cd072d4a45312fa6262ceb1e77",
+          "setup_id": "setup-profile-conflict"
+        },
+        "wick_replay": null
+      }
+    },
+    {
+      "case_id": "wick_long_filled_exact",
+      "expected": {
+        "action": "PAPER_ELIGIBLE",
+        "candidate_id": "46d143bd2b6e952fd968652b7c2a344ba5a85116205a1b7633cd361701e6d5e8",
+        "decision_id": "a4a4a0b9abb76468e210a02d334c115c584dc8e1d86898ef373b21b06c449e57",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": 1699948860,
+        "fill_ticks": 18497,
+        "limit_ticks": 18497,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "WICK_REPLAY_FILLED",
+        "selection_id": "716b23b7a149e33371cead646f20dd4ac627c26f7022f6e1d74bf91d00398ce5",
+        "setup_id": "setup-wick-filled-long",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "46d143bd2b6e952fd968652b7c2a344ba5a85116205a1b7633cd361701e6d5e8",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-filled-long",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "46d143bd2b6e952fd968652b7c2a344ba5a85116205a1b7633cd361701e6d5e8",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "3c05dca64016957df64bd43efb6319edf5b3517f0b64dcdf31299652aa773868",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "a6cbf4b86ac87ff6a798178fb7e5ce6ddca0bb3d13112725b6c87990fbdabc45",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "46d143bd2b6e952fd968652b7c2a344ba5a85116205a1b7633cd361701e6d5e8"
+          ],
+          "canonical_candidate_id": "46d143bd2b6e952fd968652b7c2a344ba5a85116205a1b7633cd361701e6d5e8",
+          "canonical_evidence_id": "3c05dca64016957df64bd43efb6319edf5b3517f0b64dcdf31299652aa773868",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "716b23b7a149e33371cead646f20dd4ac627c26f7022f6e1d74bf91d00398ce5",
+          "setup_id": "setup-wick-filled-long"
+        },
+        "wick_replay": {
+          "coverage_complete": true,
+          "coverage_end_epoch": 1699949100,
+          "coverage_start_epoch": 1699948800,
+          "observed_high_ticks": 18503,
+          "observed_low_ticks": 18496,
+          "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+          "session_gap": false,
+          "touched_epoch": 1699948860
+        }
+      }
+    },
+    {
+      "case_id": "wick_short_filled_exact",
+      "expected": {
+        "action": "PAPER_ELIGIBLE",
+        "candidate_id": "a3a08221ae5b125f2b57a2e596a6a6ddd9cd6929a8b8877edeb63c8722eb5d53",
+        "decision_id": "c4ebc617bb4e4dd9230394caec31cb4bc89fb71e09887fa95a1bb772e9c9a4b7",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": 1699948920,
+        "fill_ticks": 18503,
+        "limit_ticks": 18503,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "WICK_REPLAY_FILLED",
+        "selection_id": "91bfbb0631123b18b0523baeed85fcdda7f2195874da7b2d05c3234d6e1cb0db",
+        "setup_id": "setup-wick-filled-short",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "a3a08221ae5b125f2b57a2e596a6a6ddd9cd6929a8b8877edeb63c8722eb5d53",
+          "direction": "SHORT",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-filled-short",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "SHORT",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "a3a08221ae5b125f2b57a2e596a6a6ddd9cd6929a8b8877edeb63c8722eb5d53",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "41ec1fb01f3de2bdc595fa19c3cccda9deae221fb354dc53aba5d2c980825dd1",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "91142fad63c24353ce8cbd347420ed7beffe45743d5869714bbb5f771b35b44d",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "a3a08221ae5b125f2b57a2e596a6a6ddd9cd6929a8b8877edeb63c8722eb5d53"
+          ],
+          "canonical_candidate_id": "a3a08221ae5b125f2b57a2e596a6a6ddd9cd6929a8b8877edeb63c8722eb5d53",
+          "canonical_evidence_id": "41ec1fb01f3de2bdc595fa19c3cccda9deae221fb354dc53aba5d2c980825dd1",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "91bfbb0631123b18b0523baeed85fcdda7f2195874da7b2d05c3234d6e1cb0db",
+          "setup_id": "setup-wick-filled-short"
+        },
+        "wick_replay": {
+          "coverage_complete": true,
+          "coverage_end_epoch": 1699949100,
+          "coverage_start_epoch": 1699948800,
+          "observed_high_ticks": 18504,
+          "observed_low_ticks": 18496,
+          "proof_plane": "EXTERNAL_ARCHIVED_TICK",
+          "session_gap": false,
+          "touched_epoch": 1699948920
+        }
+      }
+    },
+    {
+      "case_id": "wick_complete_missed",
+      "expected": {
+        "action": "MISSED",
+        "candidate_id": "4ee065487993fe1b5fb2d8687a9fdc0ac2741141846db88192cb833b695788e2",
+        "decision_id": "377734a9b4e8dafa31403445234997c385f753bcde6b76ed77b1e6040d613de9",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": 18497,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "MISSED_WICK_FILL",
+        "selection_id": "897ec41f6a8c3b1f85471a84367cdb468dbd8425821bb372ef258144f76331c7",
+        "setup_id": "setup-wick-missed",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "4ee065487993fe1b5fb2d8687a9fdc0ac2741141846db88192cb833b695788e2",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-missed",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "4ee065487993fe1b5fb2d8687a9fdc0ac2741141846db88192cb833b695788e2",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "c1e93f3ba24fceec6c0805e3473909f25803c690135141fe986b1e56bc0b7d1d",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "272da526c47df15a322176ec0101f334adbcd6b28f055ac08d10139c94a79c53",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "4ee065487993fe1b5fb2d8687a9fdc0ac2741141846db88192cb833b695788e2"
+          ],
+          "canonical_candidate_id": "4ee065487993fe1b5fb2d8687a9fdc0ac2741141846db88192cb833b695788e2",
+          "canonical_evidence_id": "c1e93f3ba24fceec6c0805e3473909f25803c690135141fe986b1e56bc0b7d1d",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "897ec41f6a8c3b1f85471a84367cdb468dbd8425821bb372ef258144f76331c7",
+          "setup_id": "setup-wick-missed"
+        },
+        "wick_replay": {
+          "coverage_complete": true,
+          "coverage_end_epoch": 1699949100,
+          "coverage_start_epoch": 1699948800,
+          "observed_high_ticks": 18503,
+          "observed_low_ticks": 18498,
+          "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+          "session_gap": false,
+          "touched_epoch": null
+        }
+      }
+    },
+    {
+      "case_id": "wick_incomplete_shadow",
+      "expected": {
+        "action": "SHADOW_ONLY",
+        "candidate_id": "c74de55f6a534e3fc72d4ac87ba26258a8b7ca9402a62e01251ea564d7a6b89d",
+        "decision_id": "85694c1d0380cfcc0142e538b961d3bed6b612d85bc131cb297054abd8e5eab3",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": 18497,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "INCOMPLETE_WICK_REPLAY",
+        "selection_id": "d80d33f367621327bb0bd084ca66ee8835cbe39cf31b4f64f5a4f3136ac11f41",
+        "setup_id": "setup-wick-incomplete",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "c74de55f6a534e3fc72d4ac87ba26258a8b7ca9402a62e01251ea564d7a6b89d",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-incomplete",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "c74de55f6a534e3fc72d4ac87ba26258a8b7ca9402a62e01251ea564d7a6b89d",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "b034f003747990b523d3eac7da7a12c86312ae302d3ef0e723a839b1b8df6965",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "b66771513b4729084b67ea4296cd46c590b19f585c57898feb31cf6514e8f02a",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "c74de55f6a534e3fc72d4ac87ba26258a8b7ca9402a62e01251ea564d7a6b89d"
+          ],
+          "canonical_candidate_id": "c74de55f6a534e3fc72d4ac87ba26258a8b7ca9402a62e01251ea564d7a6b89d",
+          "canonical_evidence_id": "b034f003747990b523d3eac7da7a12c86312ae302d3ef0e723a839b1b8df6965",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "d80d33f367621327bb0bd084ca66ee8835cbe39cf31b4f64f5a4f3136ac11f41",
+          "setup_id": "setup-wick-incomplete"
+        },
+        "wick_replay": {
+          "coverage_complete": false,
+          "coverage_end_epoch": 1699949100,
+          "coverage_start_epoch": 1699948800,
+          "observed_high_ticks": 18503,
+          "observed_low_ticks": 18496,
+          "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+          "session_gap": false,
+          "touched_epoch": 1699948860
+        }
+      }
+    },
+    {
+      "case_id": "wick_gap_shadow",
+      "expected": {
+        "action": "SHADOW_ONLY",
+        "candidate_id": "643c3af784b5113a0d91c4129e5c1b62536ffd275ab08ccd1d8dbd36eae2a8b8",
+        "decision_id": "a30f382a85cb641b510698e7fb1885062f8a73b82f0a3f68f3c414cae93fd5ee",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": 18497,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "INCOMPLETE_WICK_REPLAY",
+        "selection_id": "24f160db0ecb73d0f4f7845b68af89dfe36766d6de2ae5ee61264c0b57c36f4c",
+        "setup_id": "setup-wick-gap",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "643c3af784b5113a0d91c4129e5c1b62536ffd275ab08ccd1d8dbd36eae2a8b8",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-gap",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "643c3af784b5113a0d91c4129e5c1b62536ffd275ab08ccd1d8dbd36eae2a8b8",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "2d01fd36709d10c0ab2c2a47e71f66202be42cdf3408d0db9889253162d700ab",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "6127658baebc13977e2937513098740058052256247f67a3273b33616ebf2dff",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "643c3af784b5113a0d91c4129e5c1b62536ffd275ab08ccd1d8dbd36eae2a8b8"
+          ],
+          "canonical_candidate_id": "643c3af784b5113a0d91c4129e5c1b62536ffd275ab08ccd1d8dbd36eae2a8b8",
+          "canonical_evidence_id": "2d01fd36709d10c0ab2c2a47e71f66202be42cdf3408d0db9889253162d700ab",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "24f160db0ecb73d0f4f7845b68af89dfe36766d6de2ae5ee61264c0b57c36f4c",
+          "setup_id": "setup-wick-gap"
+        },
+        "wick_replay": {
+          "coverage_complete": true,
+          "coverage_end_epoch": 1699949100,
+          "coverage_start_epoch": 1699948800,
+          "observed_high_ticks": 18503,
+          "observed_low_ticks": 18496,
+          "proof_plane": "LOWER_TIMEFRAME_REPLAY",
+          "session_gap": true,
+          "touched_epoch": 1699948860
+        }
+      }
+    },
+    {
+      "case_id": "wick_realtime_shadow",
+      "expected": {
+        "action": "SHADOW_ONLY",
+        "candidate_id": "017d574077097c740b19115f4a5fe9b34b5f086170c4d3df0b7c997c16a03a47",
+        "decision_id": "8eb2773b6eb0ac8985df95323d1dcf5fbabecd1b6004545770b65b93aa05590f",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": 18497,
+        "method": "NEXT_CANDLE_WICK",
+        "profile_id": "gbpjpy-london-wick-v1",
+        "reason": "INCOMPLETE_WICK_REPLAY",
+        "selection_id": "63269d23d61bf20d728e8367044a57b8a1a7f7fe931c718c43f41ac096193010",
+        "setup_id": "setup-wick-realtime",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": 1699949100
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "017d574077097c740b19115f4a5fe9b34b5f086170c4d3df0b7c997c16a03a47",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-wick-realtime",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "017d574077097c740b19115f4a5fe9b34b5f086170c4d3df0b7c997c16a03a47",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "7f6a0d35b0e8887e06c458f14de77fbcd0d3256963a1f59697cb22307947bc6c",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "7a2dba31334e791322b553a941168a61182cb27df8983853ade20a63ce15aeeb",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "017d574077097c740b19115f4a5fe9b34b5f086170c4d3df0b7c997c16a03a47"
+          ],
+          "canonical_candidate_id": "017d574077097c740b19115f4a5fe9b34b5f086170c4d3df0b7c997c16a03a47",
+          "canonical_evidence_id": "7f6a0d35b0e8887e06c458f14de77fbcd0d3256963a1f59697cb22307947bc6c",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "63269d23d61bf20d728e8367044a57b8a1a7f7fe931c718c43f41ac096193010",
+          "setup_id": "setup-wick-realtime"
+        },
+        "wick_replay": {
+          "coverage_complete": true,
+          "coverage_end_epoch": 1699949100,
+          "coverage_start_epoch": 1699948800,
+          "observed_high_ticks": 18503,
+          "observed_low_ticks": 18496,
+          "proof_plane": "REALTIME_TICK",
+          "session_gap": false,
+          "touched_epoch": 1699948860
+        }
+      }
+    },
+    {
+      "case_id": "noneligible_candidate_shadow",
+      "expected": {
+        "action": "SHADOW_ONLY",
+        "candidate_id": "c1cef6e4b7e85343b8130e0b1197caafb24ebf18dbdbb15dd43eb08b7edd6ad1",
+        "decision_id": "456e7a767d021fa6234abe997cc236cbbe97cf50ebdd8497db17e9356842e5a3",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": null,
+        "method": null,
+        "profile_id": null,
+        "reason": "CANDIDATE_NOT_PAPER_ELIGIBLE",
+        "selection_id": "ce0b6bf6e6a66a691ada1ff329159b5aca4b2f0843728f930aa8650b19f39d96",
+        "setup_id": "setup-noneligible",
+        "trigger_epoch": 1699948800,
+        "trigger_ticks": 18500,
+        "wait_until_epoch": null
+      },
+      "input": {
+        "candidate": {
+          "candidate_id": "c1cef6e4b7e85343b8130e0b1197caafb24ebf18dbdbb15dd43eb08b7edd6ad1",
+          "direction": "LONG",
+          "event_anchor_epoch": 1699948800,
+          "model": "DIR_CLOSE",
+          "normalized_from": null,
+          "observed_at_epoch": 1699948800,
+          "setup_id": "setup-noneligible",
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ],
+          "state": "MATCHED",
+          "trigger_ordinal": 1
+        },
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": {
+          "ambiguity_codes": [],
+          "candidate_id": "c1cef6e4b7e85343b8130e0b1197caafb24ebf18dbdbb15dd43eb08b7edd6ad1",
+          "coverage_end_epoch": 1699948800,
+          "coverage_start_epoch": 1699948500,
+          "evidence_id": "17a8514ddbd846273ba86ed5f0ca76956cfbf139247f3a03ac290ccee47d330c",
+          "failed_rule_ids": [],
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15
+          ],
+          "observed_at_epoch": 1699948800,
+          "observed_trigger_epoch": 1699948800,
+          "observed_trigger_ticks": 18500,
+          "passed_rule_ids": [
+            "ENTRY_METHOD_VECTOR"
+          ],
+          "payload_sha256": "0989f10ed2a4ac949148084720047aae15b0cf521b5981bd4c7a84dbddffc88b",
+          "proof_plane": "CONFIRMED_5M",
+          "proof_resolution_seconds": 300,
+          "source_claim_ids": [
+            "rd-entry-method-vector-v1"
+          ]
+        },
+        "profiles": [
+          {
+            "approved_at_epoch": 1699900000,
+            "approved_by": "operator",
+            "dir_close_method": "NEXT_CANDLE_WICK",
+            "evidence_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "feed_id": "OANDA",
+            "limit_offset_ticks": 3,
+            "max_wait_seconds": 300,
+            "profile_id": "gbpjpy-london-wick-v1",
+            "session_end_minute_utc": 660,
+            "session_start_minute_utc": 420,
+            "status": "APPROVED",
+            "symbol": "GBPJPY",
+            "version": 1
+          }
+        ],
+        "selection": {
+          "action": "SHADOW_ONLY",
+          "candidate_ids_considered": [
+            "c1cef6e4b7e85343b8130e0b1197caafb24ebf18dbdbb15dd43eb08b7edd6ad1"
+          ],
+          "canonical_candidate_id": "c1cef6e4b7e85343b8130e0b1197caafb24ebf18dbdbb15dd43eb08b7edd6ad1",
+          "canonical_evidence_id": "17a8514ddbd846273ba86ed5f0ca76956cfbf139247f3a03ac290ccee47d330c",
+          "canonical_model": "DIR_CLOSE",
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "ce0b6bf6e6a66a691ada1ff329159b5aca4b2f0843728f930aa8650b19f39d96",
+          "setup_id": "setup-noneligible"
+        },
+        "wick_replay": null
+      }
+    },
+    {
+      "case_id": "no_candidate_none",
+      "expected": {
+        "action": "NONE",
+        "candidate_id": null,
+        "decision_id": "5bb05774c1cb95efd2741a74aa15fea4119914814b4966e17ffeb5404e8f3713",
+        "evaluated_at_epoch": 1699948800,
+        "fill_epoch": null,
+        "fill_ticks": null,
+        "limit_ticks": null,
+        "method": null,
+        "profile_id": null,
+        "reason": "NO_CANONICAL_CANDIDATE",
+        "selection_id": "e367e1d64c0033e4ceadac29e95bb966cead07d36a34dba21891409e9183be2e",
+        "setup_id": "setup-no-candidate",
+        "trigger_epoch": null,
+        "trigger_ticks": null,
+        "wait_until_epoch": null
+      },
+      "input": {
+        "candidate": null,
+        "context": {
+          "direction": "LONG",
+          "evaluated_at_epoch": 1699948800,
+          "feed_id": "OANDA",
+          "symbol": "GBPJPY",
+          "trigger_epoch": 1699948800,
+          "trigger_ticks": 18500
+        },
+        "evidence": null,
+        "profiles": [],
+        "selection": {
+          "action": "NONE",
+          "candidate_ids_considered": [],
+          "canonical_candidate_id": null,
+          "canonical_evidence_id": null,
+          "canonical_model": null,
+          "evaluated_at_epoch": 1699948800,
+          "fidelity": null,
+          "policy_version": "rd-entry-arbitration-v2",
+          "reason": "NO_CANDIDATE",
+          "revision": 1,
+          "selection_id": "e367e1d64c0033e4ceadac29e95bb966cead07d36a34dba21891409e9183be2e",
+          "setup_id": "setup-no-candidate"
+        },
+        "wick_replay": null
+      }
+    }
+  ],
+  "schema_id": "phase0.rd-entry-method-vectors.v1"
+}

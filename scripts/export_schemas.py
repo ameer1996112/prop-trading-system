@@ -7,7 +7,13 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from prop_trading.contracts.schema_registry import SCHEMA_MODELS
+from prop_trading.contracts.rd_entry_method_vectors_v1 import RDEntryMethodVectorSetV1
+from prop_trading.contracts.schema_registry import SCHEMA_MODELS as REGISTERED_SCHEMA_MODELS
+
+SCHEMA_MODELS = {
+    **REGISTERED_SCHEMA_MODELS,
+    "rd-entry-method-vectors-v1": RDEntryMethodVectorSetV1,
+}
 
 
 def _render(model: type) -> bytes:
