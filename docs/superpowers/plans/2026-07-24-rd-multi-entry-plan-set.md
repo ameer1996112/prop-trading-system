@@ -13,6 +13,9 @@
 - Strategy scope is RD Forex/RD Concepts 5-minute behavior only.
 - Official source channel is exactly `@RD_Forex`, channel ID `UC54xbL96tU58iez3YbTVTAg`.
 - Active entry models are exactly `DIR_CLOSE` and `HTF_FLIP`.
+- Post-arbitration entry methods are exactly `INTRABAR_FLIP`,
+  `CLOSE_CONFIRMATION`, and profile-gated `NEXT_CANDLE_WICK`.
+- One setup may produce at most one paper trade across all entry methods.
 - Generic 5m break-candle and rejection/respect-only patterns are rejected legacy observations.
 - An HTF-timed break normalizes to `HTF_FLIP`.
 - First touch emits `ZONE_ENGAGED`, never an entry.
@@ -71,12 +74,16 @@
 ## Plan order
 
 1. [Contract, domain matcher, arbitration, and oracle](./2026-07-24-rd-entry-contract-domain.md)
-2. [Observation edge, D1 storage, API, and operations console](./2026-07-24-rd-entry-edge-console.md)
-3. [Pine V3 multi-entry detector and parity capture](./2026-07-24-rd-entry-pine-parity.md)
-4. [Shadow canary and guarded paper rollout](./2026-07-24-rd-entry-shadow-rollout.md)
+2. [Three entry-method companion plan](./2026-07-26-rd-three-entry-methods.md)
+3. [Observation edge, D1 storage, API, and operations console](./2026-07-24-rd-entry-edge-console.md)
+4. [Pine V3 multi-entry detector and parity capture](./2026-07-24-rd-entry-pine-parity.md)
+5. [Shadow canary and guarded paper rollout](./2026-07-24-rd-entry-shadow-rollout.md)
 
-The plans are ordered. A later plan may start only after the earlier plan's targeted
-tests and commit gates pass.
+The three-method plan is a companion with explicit checkpoints: its domain/vector
+Tasks 1–3 run before the edge plan, its edge Tasks 4–5 interleave after the named
+edge checkpoints, its Pine Task 6 runs after the named Pine checkpoint, and its
+rollout Task 7 completes before the shadow rollout. All other dependencies remain
+ordered by their targeted tests and commit gates.
 
 ## Cross-plan interfaces
 
@@ -92,6 +99,15 @@ Plan 1 produces:
 
 That vector file includes both reviewed views above; neither consumer may
 silently substitute one for the other.
+
+The three-method companion produces:
+
+- immutable `RDEntryFillProfileV1` values;
+- post-arbitration `EntryMethodDecision` values;
+- `resolve_entry_method()` and `resolve_wick_fill()`;
+- `contracts/vectors/rd-entry-method-v1.json`;
+- edge parity, D1 method decisions, and console method state;
+- immediate shadow wick diagnostics plus replay-only wick resolution.
 
 Plan 2 consumes the generated arbitration vectors and produces:
 
