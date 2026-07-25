@@ -282,6 +282,48 @@ def test_new_post_gap_contact_and_recross_is_shadow_only() -> None:
     assert result.ambiguity_codes == (AmbiguityCode.MISSING_INTRABAR_COVERAGE,)
 
 
+def test_gap_replaces_completed_pair_with_fresh_post_gap_pair() -> None:
+    result = scan_htf_flip(
+        _request(
+            (
+                _candle(0, low_ticks=96, close_ticks=97),
+                _candle(1, high_ticks=101, close_ticks=100),
+                _candle(3, low_ticks=96, close_ticks=97),
+                _candle(4, high_ticks=101, close_ticks=100),
+                *tuple(_candle(index) for index in range(5, 10)),
+            ),
+            cutoff_seconds=600,
+        )
+    )
+
+    assert result.matched is True
+    assert result.contact_child == _candle(3, low_ticks=96, close_ticks=97)
+    assert result.recross_child == _candle(4, high_ticks=101, close_ticks=100)
+    assert result.trigger_epoch == OPEN_EPOCH + 300
+    assert result.fidelity is CandidateFidelity.UNRESOLVED
+    assert result.ambiguity_codes == (AmbiguityCode.MISSING_INTRABAR_COVERAGE,)
+
+
+def test_gap_erases_completed_pair_when_no_fresh_pair_follows() -> None:
+    result = scan_htf_flip(
+        _request(
+            (
+                _candle(0, low_ticks=96, close_ticks=97),
+                _candle(1, high_ticks=101, close_ticks=100),
+                *tuple(_candle(index) for index in range(3, 10)),
+            ),
+            cutoff_seconds=600,
+        )
+    )
+
+    assert result.matched is False
+    assert result.contact_child is None
+    assert result.recross_child is None
+    assert result.trigger_epoch is None
+    assert result.fidelity is CandidateFidelity.UNRESOLVED
+    assert result.ambiguity_codes == (AmbiguityCode.MISSING_INTRABAR_COVERAGE,)
+
+
 def test_compact_transcript_replays_to_the_same_proof() -> None:
     request = _exact_demand_request()
     scanned = scan_htf_flip(request)
@@ -330,6 +372,76 @@ def test_semantically_tampered_contact_or_recross_is_rejected() -> None:
                 recross_candle=_candle(2),
             ),
         )
+
+
+def test_same_child_contact_cannot_nominate_a_later_distinct_recross() -> None:
+    request = _same_child_demand_request()
+    transcript = scan_htf_flip(request).transcript
+    later_recross = _candle(2, high_ticks=101, close_ticks=100)
+
+    with pytest.raises(ValueError, match="contact candle already crosses"):
+        validate_htf_flip_transcript(
+            request.setup,
+            replace(
+                transcript,
+                recross_candle=later_recross,
+                same_child=False,
+            ),
+        )
+
+
+@pytest.mark.parametrize("observed_child_count", [0, 1])
+def test_distinct_retained_intervals_require_two_observed_children(
+    observed_child_count: int,
+) -> None:
+    request = _exact_demand_request()
+    transcript = scan_htf_flip(request).transcript
+
+    with pytest.raises(ValueError, match="retained candle intervals"):
+        validate_htf_flip_transcript(
+            request.setup,
+            replace(
+                transcript,
+                observed_child_count=observed_child_count,
+                gap_present=True,
+            ),
+        )
+
+
+def test_observed_count_boundary_accepts_one_same_child_interval() -> None:
+    request = _same_child_demand_request()
+    transcript = scan_htf_flip(request).transcript
+
+    proof = validate_htf_flip_transcript(
+        request.setup,
+        replace(
+            transcript,
+            observed_child_count=1,
+            gap_present=True,
+        ),
+    )
+
+    assert proof.matched is True
+    assert proof.coverage_observed_child_count == 1
+    assert proof.fidelity is CandidateFidelity.UNRESOLVED
+
+
+def test_observed_count_boundary_accepts_two_distinct_intervals() -> None:
+    request = _exact_demand_request()
+    transcript = scan_htf_flip(request).transcript
+
+    proof = validate_htf_flip_transcript(
+        request.setup,
+        replace(
+            transcript,
+            observed_child_count=2,
+            gap_present=True,
+        ),
+    )
+
+    assert proof.matched is True
+    assert proof.coverage_observed_child_count == 2
+    assert proof.fidelity is CandidateFidelity.UNRESOLVED
 
 
 @pytest.mark.parametrize(

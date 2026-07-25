@@ -133,6 +133,17 @@ def _validate_transcript_shape(transcript: HTFFlipProofTranscript) -> None:
         if (candle.open_epoch - transcript.coverage_start_epoch) % resolution != 0:
             raise ValueError(f"{name} must be proof-resolution aligned")
 
+    retained_intervals = {
+        (candle.open_epoch, candle.close_epoch)
+        for candle in (
+            transcript.contact_candle,
+            transcript.recross_candle,
+        )
+        if candle is not None
+    }
+    if transcript.observed_child_count < len(retained_intervals):
+        raise ValueError("observed child count cannot be below retained candle intervals")
+
 
 def validate_htf_flip_transcript(
     setup: SetupEntryFacts,
@@ -161,6 +172,18 @@ def validate_htf_flip_transcript(
                 raise ValueError("same-child transcript candles differ")
         elif contact.close_epoch > recross.open_epoch:
             raise ValueError("distinct contact and recross are not chronological")
+    if (
+        contact is not None
+        and _recrosses_htf_open(
+            setup.direction,
+            transcript.htf_open_ticks,
+            contact,
+        )
+        and (not transcript.same_child or recross != contact)
+    ):
+        raise ValueError(
+            "contact candle already crosses the HTF open and must be the same-child recross"
+        )
 
     matched = contact is not None and recross is not None
     contact_at_open = (
@@ -253,8 +276,8 @@ def scan_htf_flip(request: HTFFlipScanRequest) -> HTFFlipProof:
     for index in range(expected_count):
         candle = children_by_open.get(request.htf_open_epoch + index * resolution)
         if candle is None:
-            if recross is None:
-                contact = None
+            contact = None
+            recross = None
             continue
         if recross is not None:
             continue
