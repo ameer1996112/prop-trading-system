@@ -437,6 +437,70 @@ def test_matching_htf_break_normalizes_without_rejected_legacy_duplicate() -> No
     )
 
 
+def test_same_trigger_close_outside_htf_boundary_does_not_normalize_break() -> None:
+    proof = _flip_proof(
+        event_anchor_epoch=1_100,
+        trigger_epoch=1_300,
+        scan_cutoff_epoch=1_400,
+    )
+
+    result = match_entry_candidates(
+        _request(
+            open_ticks=101,
+            close_ticks=100,
+            htf_proofs=(proof,),
+            generic_break=True,
+        )
+    )
+
+    assert [candidate.model for candidate in result.candidates] == [
+        EntryModelV2.HTF_FLIP,
+        EntryModelV2.LEGACY_BREAK_CANDLE,
+    ]
+    assert result.candidates[0].state is CandidateState.MATCHED
+    assert result.candidates[0].normalized_from is None
+    assert result.candidates[1].state is CandidateState.REJECTED
+
+
+def test_multiple_out_of_boundary_proofs_are_input_order_stable() -> None:
+    proofs = (
+        _flip_proof(
+            context_minutes=15,
+            event_anchor_epoch=1_100,
+            trigger_epoch=1_300,
+            scan_cutoff_epoch=1_400,
+        ),
+        _flip_proof(
+            context_minutes=30,
+            event_anchor_epoch=1_150,
+            trigger_epoch=1_300,
+            scan_cutoff_epoch=1_450,
+        ),
+    )
+    forward = match_entry_candidates(
+        _request(
+            open_ticks=101,
+            close_ticks=100,
+            htf_proofs=proofs,
+            generic_break=True,
+        )
+    )
+    reverse = match_entry_candidates(
+        _request(
+            open_ticks=101,
+            close_ticks=100,
+            htf_proofs=tuple(reversed(proofs)),
+            generic_break=True,
+        )
+    )
+
+    assert forward == reverse
+    assert all(candidate.normalized_from is None for candidate in forward.candidates)
+    assert [candidate.model for candidate in forward.candidates].count(
+        EntryModelV2.LEGACY_BREAK_CANDLE
+    ) == 1
+
+
 def test_non_matching_generic_break_remains_independent_legacy_observation() -> None:
     proof = _flip_proof(trigger_epoch=1_120)
     result = match_entry_candidates(
@@ -452,6 +516,19 @@ def test_non_matching_generic_break_remains_independent_legacy_observation() -> 
         EntryModelV2.HTF_FLIP,
         EntryModelV2.LEGACY_BREAK_CANDLE,
     }
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_same_anchor_with_distinct_recrosses_fails_closed(reverse: bool) -> None:
+    proofs = (
+        _flip_proof(event_anchor_epoch=1_000, trigger_epoch=1_120),
+        _flip_proof(event_anchor_epoch=1_000, trigger_epoch=1_300),
+    )
+    if reverse:
+        proofs = tuple(reversed(proofs))
+
+    with pytest.raises(ValueError, match="candidate identity collision"):
+        match_entry_candidates(_request(open_ticks=101, close_ticks=100, htf_proofs=proofs))
 
 
 def test_candidate_evidence_and_handling_ids_use_frozen_identities() -> None:

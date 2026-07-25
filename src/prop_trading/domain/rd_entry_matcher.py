@@ -400,6 +400,35 @@ def _proof_is_order_proven(proof: HTFFlipProof) -> bool:
     )
 
 
+def _proof_boundary_contains_confirmed_bar(request: EntryMatchRequest, proof: HTFFlipProof) -> bool:
+    bar = request.confirmed_bar
+    return any(
+        proof.event_anchor_epoch <= bar.open_epoch
+        and bar.close_epoch <= proof.event_anchor_epoch + context_minutes * 60
+        for context_minutes in proof.htf_context_minutes
+    )
+
+
+def _validate_unique_htf_candidate_identities(
+    request: EntryMatchRequest,
+    proof_groups: dict[tuple[int, int], list[HTFFlipProof]],
+) -> None:
+    groups_by_candidate_id: dict[str, tuple[int, int]] = {}
+    for group_key in sorted(proof_groups):
+        identity = EntryCandidateIdentity(
+            setup_id=request.setup.setup_id,
+            model=EntryModelV2.HTF_FLIP,
+            direction=request.setup.direction,
+            event_anchor_epoch=group_key[0],
+            trigger_ordinal=request.trigger_ordinal,
+        )
+        semantic_id = candidate_id(identity)
+        prior_group = groups_by_candidate_id.get(semantic_id)
+        if prior_group is not None and prior_group != group_key:
+            raise ValueError("HTF proof groups cause a candidate identity collision")
+        groups_by_candidate_id[semantic_id] = group_key
+
+
 def _htf_evidence_key(
     proof: HTFFlipProof,
     *,
@@ -543,6 +572,7 @@ def match_entry_candidates(request: EntryMatchRequest) -> EntryMatchResult:
         if proof.trigger_epoch is None:
             raise ValueError("matched HTF proof must carry a trigger epoch")
         proof_groups.setdefault((proof.event_anchor_epoch, proof.trigger_epoch), []).append(proof)
+    _validate_unique_htf_candidate_identities(request, proof_groups)
 
     break_normalized = False
     for group_key in sorted(proof_groups):
@@ -557,7 +587,9 @@ def match_entry_candidates(request: EntryMatchRequest) -> EntryMatchResult:
             )
         )
         normalized = (
-            request.generic_break_detected and group_key[1] == request.confirmed_bar.close_epoch
+            request.generic_break_detected
+            and group_key[1] == request.confirmed_bar.close_epoch
+            and any(_proof_boundary_contains_confirmed_bar(request, proof) for proof in proofs)
         )
         break_normalized = break_normalized or normalized
         _append_htf_group(
