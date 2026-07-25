@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-24
 
-**Status:** Approved; implementation plan set prepared
+**Status:** Approved; revised 2026-07-26 for three entry methods
 
 **Scope:** RD 5-minute strategy observation and paper-selection path
 
@@ -23,8 +23,9 @@ This design replaces the single-choice entry representation with:
 2. source-backed normalization of obsolete patterns;
 3. explicit proof fidelity for each candidate;
 4. deterministic selection of one canonical candidate when the evidence allows it;
-5. separate representation of entry handling, including delayed fills and an
-   attempt-kind taxonomy for future re-entry;
+5. separate representation of three entry methods—intrabar flip, close
+   confirmation, and next-candle wick—while opening at most one paper trade per
+   setup;
 6. a versioned payload and additive storage model that preserve existing history.
 
 The system continues observing a setup after its first candidate. It does not place
@@ -41,6 +42,10 @@ use,” not authorization to execute.
   supersedes an earlier rule.
 - Distinguish setup qualification, entry triggers, fill handling, and
   attempt-scoped re-entry.
+- Support all three source-backed entry methods without treating fill handling as
+  a third setup trigger or opening duplicate trades.
+- Default directional-close fills to prompt close and permit next-candle-wick
+  fills only through an immutable approved pair/session profile.
 - Detect replayable higher-timeframe flips when ordered lower-timeframe evidence is
   sufficient.
 - Fail closed to shadow whenever event ordering or source fidelity is incomplete.
@@ -54,6 +59,8 @@ use,” not authorization to execute.
 - Reconstructing candidates that were not present in historical version 1 payloads.
 - Treating live Pine tick state as reproducible historical proof.
 - Inventing a priority among 15m, 30m, and 1h contexts when RD does not provide one.
+- Inventing a universal rule for waiting on a next-candle wick when the source
+  describes that handling as optional.
 
 ## Approved design choices
 
@@ -64,6 +71,14 @@ The following choices were approved during design review:
 - Keep entry triggers separate from fill and attempt-scoped re-entry handling.
 - Prefer an earlier `HTF_FLIP` only when ordered evidence is exact.
 - Fall back to an exact confirmed `DIR_CLOSE` when flip evidence is not exact.
+- Expose exactly three paper entry methods: `INTRABAR_FLIP`,
+  `CLOSE_CONFIRMATION`, and `NEXT_CANDLE_WICK`.
+- Open at most one paper trade per setup. A handling method cannot create a second
+  candidate or a second trade.
+- Use `CLOSE_CONFIRMATION` as the source-faithful default for `DIR_CLOSE`.
+- Permit `NEXT_CANDLE_WICK` only when one immutable approved fill profile matches
+  the feed, symbol, and UTC session. No matching profile defaults to
+  `CLOSE_CONFIRMATION`; conflicting profiles fail closed to `SHADOW_ONLY`.
 - Normalize an eligible higher-timeframe break-candle pattern to `HTF_FLIP`.
 - Reject generic 5-minute break-candle and rejection-only patterns as superseded.
 - Keep the entire phase observation/paper-only.
@@ -98,6 +113,13 @@ are retained even when blocked, shadow-only, normalized, rejected, or not select
 
 The single candidate chosen by the versioned arbitration policy for paper
 evaluation. A selection may be `NONE`.
+
+### Entry method
+
+The fill path applied to the canonical candidate. `HTF_FLIP` maps only to
+`INTRABAR_FLIP`. `DIR_CLOSE` maps to `CLOSE_CONFIRMATION` unless one exact
+approved fill profile selects `NEXT_CANDLE_WICK`. The entry method is chosen
+after candidate arbitration and cannot change which trigger model won.
 
 ### Entry handling
 
@@ -261,11 +283,45 @@ Entry handling is stored separately from the trigger model.
 - `INTRABAR_FLIP`: use the proven `HTF_FLIP` trigger price.
 - `NEXT_CANDLE_WICK`: after a valid `DIR_CLOSE`, optionally wait for the next
   candle's small counter-wick to mitigate spread. This can miss the trade and does
-  not create a new entry trigger. Because the choice to use it is not fully
-  deterministic in the source material, it remains observation-only until a
-  separate fill policy is frozen.
+  not create a new entry trigger. The source does not define a universal choice
+  between prompt close and wick waiting, so this method is selectable only by the
+  frozen profile contract below.
 - `AGGRESSIVE`: retained for research as `DISCRETIONARY` or `UNRESOLVED`; never
   eligible for canonical paper selection in this phase.
+
+### Directional-close fill profile
+
+`RDEntryFillProfileV1` is an immutable, separately approved policy artifact. It
+contains:
+
+- `profile_id` and `version`;
+- exact `feed_id`, `symbol`, and half-open UTC session window;
+- `dir_close_method`, exactly `CLOSE_CONFIRMATION` or `NEXT_CANDLE_WICK`;
+- for a wick profile, a positive integer `limit_offset_ticks` measured from the
+  confirmed close toward the counter-wick;
+- `max_wait_seconds`, exactly `300`;
+- a lowercase SHA-256 digest of the reviewed backtest evidence manifest;
+- `status`, exactly `APPROVED` for runtime use;
+- approval actor and approval epoch.
+
+Profile resolution is deterministic. Exactly one matching `APPROVED` profile may
+select `NEXT_CANDLE_WICK`. Zero matches use `CLOSE_CONFIRMATION`. More than one
+match is a configuration conflict and returns `SHADOW_ONLY` with
+`CONFLICTING_FILL_PROFILES`; it never guesses.
+
+For a long `DIR_CLOSE`, the wick limit is the confirmed close minus
+`limit_offset_ticks * tick_size`; for a short it is the confirmed close plus that
+amount. The system waits only through the contiguous next five-minute candle. A
+replayable price event touching the limit records one fill at the frozen limit
+price. No touch, missing coverage, or a session gap produces `MISSED_WICK_FILL`
+and no trade. It never falls back to a later candle or opens at that candle's
+close.
+
+Live TradingView ticks may report that the wick limit was touched immediately, but
+they remain `SHADOW_ONLY`. Paper eligibility requires the same touch to be
+confirmed by lower-timeframe replay or an archived tick plane. The profile
+controls fill handling only; it cannot upgrade incomplete common setup or trigger
+evidence.
 
 ### Attempt kind
 
@@ -545,6 +601,14 @@ Arbitration runs per setup and policy version:
 9. If distinct candidates have the same trigger epoch and source evidence provides
    no winner, use a stable technical ordering only for serialization and return
    `SHADOW_ONLY` with `UNRESOLVED_SOURCE_PRIORITY`.
+10. Map a selected `HTF_FLIP` to `INTRABAR_FLIP`.
+11. Map a selected `DIR_CLOSE` to `CLOSE_CONFIRMATION` unless exactly one matching
+    approved fill profile selects `NEXT_CANDLE_WICK`.
+12. A wick selection creates one pending fill for the existing `DIR_CLOSE`
+    candidate. An exact touch produces that setup's sole paper fill; a miss
+    produces no trade.
+13. Handling resolution never revises candidate priority and never opens a second
+    trade.
 
 Choosing the earlier exact flip is an approved product arbitration policy inferred
 from flip-as-entry and close-as-fallback teaching. It is not represented as an
@@ -839,6 +903,16 @@ verified separately. Bar Replay is not treated as a webhook-delivery test.
   observations and never selected.
 - Multiple HTF contexts are preserved without arbitrary timeframe priority.
 - Canonical selection follows the approved exact-flip/confirmed-close policy.
+- The selected candidate resolves to exactly one of `INTRABAR_FLIP`,
+  `CLOSE_CONFIRMATION`, or `NEXT_CANDLE_WICK`.
+- A setup creates at most one paper trade across all entry methods.
+- `NEXT_CANDLE_WICK` requires exactly one matching approved pair/session profile,
+  waits only through the contiguous next 5m candle, and produces either one exact
+  frozen-limit fill or `MISSED_WICK_FILL`.
+- Live-only wick observations remain shadow; replayable evidence is required for
+  paper eligibility.
+- Missing fill profiles default to prompt close; conflicting fill profiles fail
+  closed to shadow.
 - Every non-selection and fallback has a stable reason code.
 - Ambiguous, missing, realtime-only, calibrated, discretionary, and unresolved
   evidence fails closed.
