@@ -53,10 +53,28 @@ class RDEntryRuleV2(ContractModel):
     category: Literal["ZONE", "LIQUIDITY", "ENTRY", "TIMEFRAME"]
     fidelity: RuleFidelity
     automation: Literal["PAPER_EVALUATE", "SHADOW_ONLY", "DISABLED"]
+    proof_eligibility: Literal["COMPLETE_REPLAYABLE_EXACT", "NOT_ELIGIBLE"]
     open_requirement: bool
     summary: str = Field(min_length=1, max_length=1_000)
     source_claim_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=16)
     unresolved_terms: tuple[str, ...] = Field(default=(), max_length=24)
+
+    @model_validator(mode="after")
+    def _paper_eligibility_is_proven(self) -> RDEntryRuleV2:
+        if self.automation == "PAPER_EVALUATE" and (
+            self.fidelity is not RuleFidelity.EXACT
+            or self.proof_eligibility != "COMPLETE_REPLAYABLE_EXACT"
+        ):
+            raise ValueError(
+                "paper evaluation requires complete replayable exact evidence"
+            )
+        if self.automation in {"SHADOW_ONLY", "DISABLED"} and (
+            self.proof_eligibility != "NOT_ELIGIBLE"
+        ):
+            raise ValueError(
+                "shadow-only and disabled rules must be marked not eligible"
+            )
+        return self
 
 
 class RDStrategyAutomationPolicyV2(ContractModel):
@@ -65,6 +83,10 @@ class RDStrategyAutomationPolicyV2(ContractModel):
     first_touch_action: Literal["ZONE_ENGAGED"]
     required_selection_fidelity: Literal["EXACT"]
     arbitration_policy_version: Literal["rd-entry-arbitration-v2"]
+    current_producer_common_setup_fidelity: Literal["UNRESOLVED"]
+    current_producer_promotion_eligible: Literal[False]
+    realtime_evidence_action: Literal["SHADOW_ONLY"]
+    paper_eligibility_requirement: Literal["COMPLETE_REPLAYABLE_EXACT"]
     active_entry_models: tuple[Literal["DIR_CLOSE"], Literal["HTF_FLIP"]]
     legacy_entry_models: tuple[
         Literal["LEGACY_BREAK_CANDLE"],
