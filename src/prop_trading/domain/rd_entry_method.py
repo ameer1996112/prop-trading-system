@@ -8,11 +8,22 @@ from enum import StrEnum
 
 from prop_trading.domain.canonical import canonical_sha256
 from prop_trading.domain.rd_entry_models import (
+    CandidateFidelity,
+    CandidateState,
     EntryCandidate,
+    EntryCandidateEvidence,
+    EntryCandidateIdentity,
     EntryDirection,
+    EntryEvidenceIdentity,
     EntryModelV2,
     EntrySelection,
+    EntrySelectionIdentity,
+    ProofPlane,
     SelectionAction,
+    candidate_id,
+    evidence_id,
+    evidence_payload_sha256,
+    selection_id,
 )
 
 
@@ -49,6 +60,13 @@ class EntryMethodReason(StrEnum):
 
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_PAPER_PROOF_PLANES = frozenset(
+    (
+        ProofPlane.CONFIRMED_5M,
+        ProofPlane.LOWER_TIMEFRAME_REPLAY,
+        ProofPlane.EXTERNAL_ARCHIVED_TICK,
+    )
+)
 
 
 def _require_nonempty_text(value: object, name: str) -> None:
@@ -301,10 +319,127 @@ def _matching_profiles(
     )
 
 
+def _validate_selection_identity(selection: EntrySelection) -> None:
+    authoritative_id = selection_id(
+        EntrySelectionIdentity(
+            setup_id=selection.setup_id,
+            policy_version=selection.policy_version,
+            revision=selection.revision,
+            candidate_ids_considered=selection.candidate_ids_considered,
+            canonical_candidate_id=selection.canonical_candidate_id,
+            canonical_evidence_id=selection.canonical_evidence_id,
+            reason=selection.reason,
+            fidelity=selection.fidelity,
+            action=selection.action,
+        )
+    )
+    if selection.selection_id != authoritative_id:
+        raise ValueError("selection_id conflicts with its canonical identity")
+
+
+def _validate_authoritative_candidate(
+    *,
+    selection: EntrySelection,
+    candidate: EntryCandidate,
+) -> None:
+    authoritative_id = candidate_id(
+        EntryCandidateIdentity(
+            setup_id=candidate.setup_id,
+            model=candidate.model,
+            direction=candidate.direction,
+            event_anchor_epoch=candidate.event_anchor_epoch,
+            trigger_ordinal=candidate.trigger_ordinal,
+        )
+    )
+    if candidate.candidate_id != authoritative_id:
+        raise ValueError("candidate_id conflicts with its canonical identity")
+    if candidate.state is not CandidateState.MATCHED:
+        raise ValueError("canonical candidate must remain matched")
+    if candidate.observed_at_epoch > selection.evaluated_at_epoch:
+        raise ValueError("canonical candidate observation exceeds selection evaluation")
+    if (
+        candidate.candidate_id != selection.canonical_candidate_id
+        or candidate.candidate_id not in selection.candidate_ids_considered
+        or candidate.setup_id != selection.setup_id
+        or candidate.model is not selection.canonical_model
+    ):
+        raise ValueError("candidate must agree with the canonical selection")
+
+
+def _validate_authoritative_evidence(
+    *,
+    selection: EntrySelection,
+    candidate: EntryCandidate,
+    evidence: EntryCandidateEvidence | None,
+    context: EntryMethodContext,
+) -> None:
+    if evidence is None:
+        raise ValueError("canonical evidence is required for a canonical candidate")
+    if evidence.candidate_id != candidate.candidate_id:
+        raise ValueError("canonical evidence must belong to the canonical candidate")
+    if evidence.evidence_id != selection.canonical_evidence_id:
+        raise ValueError("canonical evidence must match the selection")
+    payload_sha256 = evidence_payload_sha256(
+        candidate_id=evidence.candidate_id,
+        observed_trigger_epoch=evidence.observed_trigger_epoch,
+        observed_trigger_ticks=evidence.observed_trigger_ticks,
+        htf_context_minutes=evidence.htf_context_minutes,
+        fidelity=evidence.fidelity,
+        proof_plane=evidence.proof_plane,
+        proof_resolution_seconds=evidence.proof_resolution_seconds,
+        coverage_start_epoch=evidence.coverage_start_epoch,
+        coverage_end_epoch=evidence.coverage_end_epoch,
+        ambiguity_codes=evidence.ambiguity_codes,
+        passed_rule_ids=evidence.passed_rule_ids,
+        failed_rule_ids=evidence.failed_rule_ids,
+        source_claim_ids=evidence.source_claim_ids,
+    )
+    if evidence.payload_sha256 != payload_sha256:
+        raise ValueError("canonical evidence payload conflicts with its identity")
+    authoritative_id = evidence_id(
+        EntryEvidenceIdentity(
+            candidate_id=evidence.candidate_id,
+            proof_plane=evidence.proof_plane,
+            proof_resolution_seconds=evidence.proof_resolution_seconds,
+            coverage_start_epoch=evidence.coverage_start_epoch,
+            coverage_end_epoch=evidence.coverage_end_epoch,
+            observed_trigger_epoch=evidence.observed_trigger_epoch,
+            payload_sha256=evidence.payload_sha256,
+        )
+    )
+    if evidence.evidence_id != authoritative_id:
+        raise ValueError("canonical evidence ID conflicts with its identity")
+    if (
+        selection.fidelity is not evidence.fidelity
+        or evidence.fidelity is not CandidateFidelity.EXACT
+        or evidence.proof_plane not in _PAPER_PROOF_PLANES
+        or evidence.observed_trigger_epoch is None
+        or evidence.observed_trigger_ticks is None
+        or evidence.ambiguity_codes
+    ):
+        raise ValueError("canonical evidence is not paper eligible")
+    if not (
+        evidence.coverage_start_epoch
+        <= evidence.observed_trigger_epoch
+        <= evidence.coverage_end_epoch
+        <= evidence.observed_at_epoch
+        <= selection.evaluated_at_epoch
+    ):
+        raise ValueError("canonical evidence timing exceeds selection evaluation")
+    if (
+        context.evaluated_at_epoch != selection.evaluated_at_epoch
+        or context.trigger_epoch != evidence.observed_trigger_epoch
+        or context.trigger_ticks != evidence.observed_trigger_ticks
+        or context.trigger_epoch > context.evaluated_at_epoch
+    ):
+        raise ValueError("context trigger and evaluation must match canonical evidence")
+
+
 def resolve_entry_method(
     *,
     selection: EntrySelection,
     candidate: EntryCandidate | None,
+    evidence: EntryCandidateEvidence | None,
     context: EntryMethodContext,
     profiles: tuple[RDEntryFillProfileV1, ...],
 ) -> EntryMethodDecision:
@@ -313,12 +448,17 @@ def resolve_entry_method(
         raise ValueError("selection must be an EntrySelection")
     if not isinstance(context, EntryMethodContext):
         raise ValueError("context must be an EntryMethodContext")
+    if evidence is not None and not isinstance(evidence, EntryCandidateEvidence):
+        raise ValueError("evidence must be an EntryCandidateEvidence or None")
     if not isinstance(profiles, tuple) or not all(
         isinstance(profile, RDEntryFillProfileV1) for profile in profiles
     ):
         raise ValueError("profiles must be a tuple of RDEntryFillProfileV1 values")
 
+    _validate_selection_identity(selection)
     if selection.canonical_candidate_id is None:
+        if selection.canonical_model is not None:
+            raise ValueError("selection canonical model requires a canonical candidate")
         return _decision(
             selection=selection,
             candidate_id=None,
@@ -337,8 +477,13 @@ def resolve_entry_method(
 
     if candidate is None or candidate.candidate_id != selection.canonical_candidate_id:
         raise ValueError("candidate must be the selection's canonical candidate")
-    if candidate.setup_id != selection.setup_id or candidate.model is not selection.canonical_model:
-        raise ValueError("candidate must agree with the canonical selection")
+    _validate_authoritative_candidate(selection=selection, candidate=candidate)
+    _validate_authoritative_evidence(
+        selection=selection,
+        candidate=candidate,
+        evidence=evidence,
+        context=context,
+    )
     if candidate.direction is not context.direction:
         raise ValueError("context direction must match the canonical candidate")
 
