@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-24
 
-**Status:** Approved in conversation; awaiting review of this written specification
+**Status:** Approved; implementation plan set prepared
 
 **Scope:** RD 5-minute strategy observation and paper-selection path
 
@@ -23,7 +23,8 @@ This design replaces the single-choice entry representation with:
 2. source-backed normalization of obsolete patterns;
 3. explicit proof fidelity for each candidate;
 4. deterministic selection of one canonical candidate when the evidence allows it;
-5. separate representation of entry handling, including delayed fills and re-entry;
+5. separate representation of entry handling, including delayed fills and an
+   attempt-kind taxonomy for future re-entry;
 6. a versioned payload and additive storage model that preserve existing history.
 
 The system continues observing a setup after its first candidate. It does not place
@@ -38,7 +39,8 @@ use,” not authorization to execute.
 - Use only official RD Forex / RD Concepts evidence from March 2024 onward.
 - Apply later source material only when it explicitly narrows, corrects, or
   supersedes an earlier rule.
-- Distinguish setup qualification, entry triggers, fill handling, and re-entry.
+- Distinguish setup qualification, entry triggers, fill handling, and
+  attempt-scoped re-entry.
 - Detect replayable higher-timeframe flips when ordered lower-timeframe evidence is
   sufficient.
 - Fail closed to shadow whenever event ordering or source fidelity is incomplete.
@@ -59,7 +61,7 @@ The following choices were approved during design review:
 
 - Limit this phase to entry behavior applicable to the 5-minute strategy.
 - Store all candidates plus one canonical selection.
-- Keep entry triggers separate from fill and re-entry handling.
+- Keep entry triggers separate from fill and attempt-scoped re-entry handling.
 - Prefer an earlier `HTF_FLIP` only when ordered evidence is exact.
 - Fall back to an exact confirmed `DIR_CLOSE` when flip evidence is not exact.
 - Normalize an eligible higher-timeframe break-candle pattern to `HTF_FLIP`.
@@ -99,8 +101,9 @@ evaluation. A selection may be `NONE`.
 
 ### Entry handling
 
-How an already valid entry candidate is filled or retried. Handling does not create
-setup qualification or replace the entry trigger model.
+How an already valid entry candidate's fill timing is observed. Attempt kind is
+independent metadata. Handling does not create setup qualification or replace
+the entry trigger model.
 
 ### Proof plane
 
@@ -223,6 +226,13 @@ A single market event may satisfy several HTF contexts. One `HTF_FLIP` candidate
 stores `htf_contexts`, for example `["15m", "30m", "1h"]`. The design does not
 invent a priority between those contexts.
 
+Contexts are grouped by the same HTF anchor and recross-child close before the
+candidate is materialized. Context minutes merge into one evidence row only when
+all non-context proof fields are equivalent. Different coverage, fidelity,
+ambiguity, or rule outcomes remain separate evidence rows on the same candidate.
+Candidate state is derived from the strongest complete replayable evidence after
+grouping, never from 15m/30m/1h scan order.
+
 ### `LEGACY_BREAK_CANDLE`
 
 A generic 5m break-candle occurrence may be recorded as a rejected legacy pattern,
@@ -264,10 +274,33 @@ Re-entry is orthogonal to handling mode:
 - `INITIAL`;
 - `RE_ENTRY`.
 
-This avoids losing information such as a re-entry that itself uses `DIR_CLOSE` and
-`NEXT_CANDLE_WICK`. Re-entry eligibility, risk reduction, and session limits remain
-paper-only until their own source rules are frozen. The observation layer records
-them without assuming execution authority.
+Every `setup_id` identifies one setup attempt. `INITIAL` uses
+`trigger_ordinal=1`; a future `RE_ENTRY` uses a distinct attempt-scoped
+`setup_id` and ordinal `>=2` after an explicit re-arm. Re-entry eligibility,
+risk reduction, session limits, and Pine detection remain out of scope until
+their source rules are frozen. This increment freezes the domain taxonomy and
+one isolated re-entry oracle vector only; V3 Pine emits `INITIAL`/ordinal `1`
+and does not claim to detect re-entry.
+
+For this observation layer, “next candle” is exactly the contiguous confirmed
+5m candle whose open equals the event close that produced `DIR_CLOSE` and whose
+close is 300 seconds later. A long counter-wick
+is observed only when that candle's low is strictly below both its open and
+close; a short counter-wick only when its high is strictly above both. Equality
+or a body-only counter move is no wick.
+The adverse extreme and next-candle close time are stored as a
+`DISCRETIONARY/SHADOW_ONLY` handling observation referencing the original close
+candidate/evidence. This is an availability observation, not a claim that the
+wick is sufficiently “small,” a fill instruction, or a new candidate. If the
+immediate next candle has no counter-wick, later candles are not searched.
+A missing contiguous candle or market-session gap also produces no observation.
+Terminality normally stops further setup events. One narrow exception preserves
+this handling case: if the event that first completes both active models also
+introduces `DIR_CLOSE`, the immediately following confirmed-bar event may be
+consumed once for `NEXT_CANDLE_WICK` handling only. It repeats the immutable
+terminal fact and cannot add trigger proof, candidates, lifecycle state, or a
+selection revision. Whether a wick exists or the next available bar is separated
+by a session gap, that one grace is consumed; every later event is rejected.
 
 ## Candidate contract
 
@@ -289,6 +322,12 @@ EntryCandidate
 
 `candidate_id` is a deterministic hash over immutable candidate identity fields,
 including setup, normalized model, direction, event anchor, and trigger ordinal.
+The setup ID is attempt-scoped, so INITIAL and future RE_ENTRY attempts never
+coexist in one candidate stream.
+Within an attempt, the first semantic candidate for each active model is retained.
+An identical replay may add independently valid evidence; a later distinct
+occurrence of an already-retained model is suppressed rather than silently
+changing the attempt's entry identity.
 For `DIR_CLOSE`, the event anchor is the confirmed 5m candle. For `HTF_FLIP`, it is
 the relevant higher-timeframe opening boundary. Resending the same market event
 cannot create a second candidate.
@@ -300,29 +339,44 @@ EntryCandidateEvidence
   evidence_id
   candidate_id
   observed_trigger_epoch
-  observed_trigger_price
-  htf_contexts[]
-  handling_mode
-  attempt_kind
+  observed_trigger_ticks
+  htf_context_minutes[]
   fidelity
   proof_plane
-  proof_resolution
-  coverage_start
-  coverage_end
+  proof_resolution_seconds
+  coverage_start_epoch
+  coverage_end_epoch
   ambiguity_codes[]
   passed_rule_ids[]
   failed_rule_ids[]
   source_claim_ids[]
-  payload_hash
-  observed_at
+  payload_sha256
+  observed_at_epoch
+```
+
+Entry handling is an independent observation over candidate evidence:
+
+```text
+EntryHandlingObservation
+  handling_id
+  candidate_id
+  evidence_id
+  handling_mode
+  attempt_kind
+  observed_epoch
+  observed_ticks
+  fidelity
+  source_claim_ids[]
 ```
 
 `evidence_id` includes candidate ID, proof plane, proof resolution, coverage window,
-and immutable payload hash. This lets replay, realtime, and a future archived feed
-describe the same candidate without fabricating multiple entries. Candidate
-fidelity is derived from the strongest complete replayable evidence; realtime-only
-evidence cannot upgrade it. The displayed HTF contexts are the validated union of
-the canonical evidence set.
+observed trigger epoch, and the immutable `payload_sha256` of the expanded
+credential-free evidence mapping. `handling_id` hashes the evidence reference and
+its independent handling fields. This lets replay, realtime, and a future archived
+feed describe the same candidate without fabricating multiple entries or blending
+trigger proof with fill handling. Candidate fidelity is derived from the strongest
+complete replayable evidence; realtime-only evidence cannot upgrade it. The
+displayed HTF contexts are the validated union of the canonical evidence set.
 
 Candidate `state` is one of:
 
@@ -386,7 +440,40 @@ For each event:
 
 A disabled or rejected legacy pattern never vetoes a valid active candidate.
 
+### Setup-attempt terminality
+
+Terminality is explicit and monotonic. A setup attempt stores a terminal epoch
+together with exactly one of:
+
+- `INVALIDATED`;
+- `BOTH_ACTIVE_MODELS_OBSERVED`;
+- `RETENTION_EVICTED`.
+
+Both terminal fields are absent while the attempt remains open. Bounded-retention
+eviction is the only expiry representation in this increment; no service infers
+expiry from wall-clock time. The edge verifies that
+`BOTH_ACTIVE_MODELS_OBSERVED` is supported by one persisted candidate for each
+active model and that `INVALIDATED` agrees with lifecycle facts. A conflicting
+terminal rewrite is quarantined.
+Terminality ends trigger matching. The only post-terminal input accepted is the
+single handling-only grace defined above; it must repeat the same terminal reason
+and epoch and can produce at most one `NEXT_CANDLE_WICK` handling observation.
+
+`invalidated_before_entry` means invalidated before the first active-model
+candidate. It is true only when an `INVALIDATED` terminal fact arrives with no
+previous `DIR_CLOSE` or `HTF_FLIP` candidate. Invalidation after one model has
+already been observed closes further matching but does not erase that earlier
+candidate or its canonical selection.
+
 ## Proof and fidelity rules
+
+Effective evidence fidelity is the least-trusted of common setup provenance and
+trigger proof. The existing V2 producer exposes calibrated liquidity-distance
+guidance but no complete `EXACT` provenance for every inherited setup rule, so
+its `CALIBRATED`, `DISCRETIONARY`, unknown, and unresolved common values map to
+effective `UNRESOLVED` in V3. A precise trigger cannot upgrade that setup to
+exact. This keeps all current V3 observations shadow-only until a separate
+reviewed exact-setup contract exists.
 
 ### Confirmed 5m
 
@@ -411,6 +498,10 @@ same child candle, their order is unknown. The candidate receives
 
 Missing arrays, partial coverage, gaps, or unavailable child history receive
 `SHADOW_MISSING_INTRABAR_COVERAGE`.
+Any coverage gap clears retained contact state. A later recross cannot reuse a
+pre-gap contact; it must observe a new contact first, and even a subsequently
+complete contact/recross remains non-exact because the boundary lifecycle
+contains the permanent gap.
 
 ### Realtime ticks
 
@@ -419,7 +510,13 @@ reload and cannot be reproduced on historical charts. Such candidates use
 `REALTIME_TICK` proof and remain `SHADOW_ONLY` with
 `SHADOW_REALTIME_ONLY_NOT_REPLAYABLE`.
 
-Realtime tick evidence cannot silently upgrade a replay candidate.
+Realtime tick evidence cannot silently upgrade a replay candidate. Schema 2
+transports a realtime diagnostic only after replayable facts independently
+produce the same semantic candidate anchor. An unmatched realtime observation
+remains local to the chart and is never sent. The edge stores a correlated
+diagnostic separately, excludes it from replay parity and authoritative identity
+reconstruction, and never lets it enter matcher facts, setup terminality,
+canonical arbitration, or delivery deduplication.
 
 ### External archived ticks
 
@@ -431,7 +528,8 @@ separate approved design.
 
 Arbitration runs per setup and policy version:
 
-1. If common setup qualification fails or the setup is invalidated, select `NONE`.
+1. If common setup qualification fails, or invalidation occurred before the
+   first active-model candidate, select `NONE`.
 2. Ignore first touch as an entry candidate.
 3. Retain every candidate, including blocked and rejected candidates.
 4. Only candidates with complete exact setup and trigger evidence can become
@@ -455,6 +553,8 @@ explicit universal RD ranking rule.
 Each selection is revisioned. A later exact close may replace `NONE`, but a later
 arrival cannot rewrite the identity or evidence of an earlier candidate. Selection
 history remains auditable.
+Invalidation after an active candidate ends further matching but preserves the
+last valid selection revision.
 
 ## System architecture
 
@@ -475,7 +575,8 @@ Pine gains:
 - HTF boundary detection for 15m, 30m, and 1h;
 - one bounded lower-timeframe tuple request;
 - a pure chronological child-bar scanner;
-- deterministic candidate IDs and evidence provenance;
+- deterministic semantic candidate references and evidence provenance; the edge
+  derives authoritative SHA-256 IDs;
 - continued setup observation after the first candidate;
 - compact, versioned evidence export;
 - explicit ambiguity and coverage codes.
@@ -485,6 +586,9 @@ historical/replay proof.
 
 Only active or armed zones are scanned. `calc_bars_count` and candidate retention
 are bounded and profiled before rollout.
+Schema-2 transport is limited to setup attempts born in realtime after the V3
+producer instance starts. Older chart-history zones remain useful for local
+parity diagnostics but cannot bootstrap a partial rolling stream at the edge.
 
 ### Observation edge
 
@@ -500,6 +604,13 @@ The edge:
 Pine-provided canonical choices are treated as diagnostic comparisons, not backend
 authority.
 
+Paper eligibility is additionally fail-closed behind a generated, reviewed
+runtime binding. Environment variables cannot invent an approval: the active
+receipt's contract/producer version, detector hash, settings hash, and deployed
+Edge build identity must equal the embedded successor evidence binding. The
+current `2.0.0-contract2` binding is null, so its selections remain shadow-only
+even if an upstream diagnostic falsely claims exact fidelity.
+
 ### Storage
 
 Existing version 1 observation tables remain unchanged.
@@ -509,7 +620,8 @@ Additive version 2 storage includes:
 - `observation_entry_candidates`: one immutable row per candidate;
 - `observation_entry_candidate_evidence`: append-only proof records;
 - `observation_entry_selections`: revisioned canonical decisions;
-- `observation_entry_handling`: fill and re-entry observations;
+- `observation_entry_handling`: fill observations plus the attempt-kind
+  taxonomy; current Pine transport is INITIAL-only;
 - versioned source claims and claim relationships.
 
 Arrays such as HTF contexts and rule IDs may be stored as validated canonical JSON
@@ -523,11 +635,38 @@ Candidate export therefore:
 
 - uses compact field names on the wire with typed expansion at the edge;
 - batches candidates by setup;
+- aggregates every changed, terminal, and retention-evicted setup into at most
+  one semantic batch per confirmed 5m close;
 - keeps a conservative payload ceiling below the platform maximum;
-- uses deterministic `batch_id`, `chunk_index`, and `chunk_count` if a batch must
-  be split;
+- repeats deterministic producer instance, sequence, kind, and bar-close metadata
+  on every chunk; the edge derives `batch_id`, while `chunk_index` and
+  `chunk_count` describe a split batch;
 - assembles chunks idempotently and rejects inconsistent duplicate chunks;
 - limits alert frequency so candidate detail cannot disable the TradingView alert.
+
+Schema-2 batches use only lowercase `snapshot` and `incremental` kinds. Their
+semantic batch identity is the producer instance, sequence, kind, and confirmed
+bar-close epoch; chunk index is appended only for per-chunk idempotency. Forward
+canary capture closes its `[since, until)` window only after a fixed 900-second
+chunk-completion grace. Any in-window batch still incomplete after that grace
+fails the canary.
+
+Within one producer instance, sequence is positive, strictly increasing, and
+uniquely identifies one semantic batch; one confirmed close can own only one
+sequence/kind. Bar-close epochs increase with sequence even though receipts may
+arrive out of order. The edge reports missing sequence intervals, reused closes,
+chronology conflicts, and conflicting sequence reuse at the closed deadline. A
+new producer instance creates a new continuity scope; a sequence never resets
+inside an existing instance. Because a missing final heartbeat has no later
+sequence to expose the gap, rollout also compares each V3 active interval with
+an independently retained, market-compatible V2/V3 bar-reference schedule while
+accounting for legitimate market closures. The comparison must contain at least
+one reference bar and extend through the final compatible reference bar before
+the exclusive canary end, so an absent V3 tail cannot pass. Pine has no
+application acknowledgement channel: it never retries a terminal fact under a
+new bar identity. Duplicate delivery of the original immutable chunk remains
+idempotent; a local serialization failure stops the producer run and fails the
+continuity canary.
 
 ### App
 
@@ -537,12 +676,15 @@ The app shows:
 - all active and legacy candidates;
 - trigger time and price;
 - proof plane and resolution;
+- correlated realtime observations under a separate “not archived proof” label;
 - HTF contexts;
 - fidelity and ambiguity codes;
 - handling mode and attempt kind;
 - canonical candidate or `NONE`;
 - selection reason and policy version;
 - source citations.
+- a fail-closed delivery-integrity banner for incomplete batches, sequence or
+  close chronology conflicts, and heartbeat schedule mismatches.
 
 The UI must not label `REALTIME_TICK` or resolution-limited proof as archived
 tick-exact evidence.
@@ -617,7 +759,7 @@ Required cases:
 - HTF break normalization to flip;
 - rejection/respect-only rejection;
 - next-candle wick handling;
-- initial entry and re-entry observations;
+- initial-entry detection plus an isolated domain-only re-entry taxonomy vector;
 - replay and realtime evidence correlated to one semantic candidate;
 - duplicate and out-of-order events.
 
@@ -633,6 +775,14 @@ logs are compared against oracle:
 - ambiguity codes;
 - model normalization;
 - canonical diagnostic output.
+
+The golden document keeps two reviewed expectations for those same market
+events. `edge_input`/`expected` exercises the declared domain fidelity, including
+future exact common provenance; `pine_edge_input`/`pine_expected` changes only
+common setup fidelity to `UNRESOLVED` for the current V2-derived V3 producer.
+The edge authority suite consumes the first view and Pine historical parity
+consumes the second. This prevents a successful trigger-parity run from
+silently upgrading calibrated common setup facts to exact.
 
 Pine compilation, bounded performance, payload size, and alert frequency are
 verified separately. Bar Replay is not treated as a webhook-delivery test.
@@ -665,16 +815,23 @@ verified separately. Bar Replay is not treated as a webhook-delivery test.
 4. Publish the new Pine detector with all new candidate paths shadow-only.
 5. Run historical lower-timeframe parity against the Python oracle.
 6. Run forward shadow observation and reconcile Pine, edge, and oracle output.
-7. Enable canonical paper selection only after the agreed parity and coverage gates
-   pass.
+7. Keep canonical paper selection disabled for current producer
+   `2.0.0-contract2`, whose inherited common setup provenance is mapped to
+   `UNRESOLVED`. The current producer is structurally non-promotable. Only a
+   separately reviewed successor contract/producer that proves complete
+   `EXACT` setup provenance may enter the promotion gates; existing evidence is
+   never relabeled to pass.
 8. Keep real execution disabled. Any future execution proposal requires a new
    contract, threat review, and explicit approval.
 
 ## Acceptance criteria
 
 - The system stores more than one entry candidate for a setup.
-- The same market trigger observed on more than one proof plane remains one
-  candidate with multiple evidence records.
+- The same replayable market trigger observed on more than one authoritative
+  proof plane remains one candidate with multiple evidence records. Ephemeral
+  correlated realtime-only observations are transported and displayed as
+  isolated diagnostics only after replay proof identifies the semantic
+  candidate; unmatched realtime state stays local to Pine.
 - A first candidate does not stop later candidate observation.
 - `DIR_CLOSE` and `HTF_FLIP` are independently detected and source-cited.
 - Eligible HTF break behavior is normalized to `HTF_FLIP`.
