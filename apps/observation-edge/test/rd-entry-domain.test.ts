@@ -4,8 +4,17 @@ import type { RdEntryPromotionBinding } from "../src/generated/rd-entry-promotio
 import {
   ACTIVE_ENTRY_MODELS,
   ALL_ENTRY_MODELS,
+  canonicalStringifyRdEntry,
   HTF_CONTEXT_MINUTES,
+  RdEntryCanonicalizationError,
+  rdEntryCanonicalValue,
   SELECTION_ACTIONS,
+} from "../src/rd-entry-domain";
+import type {
+  EntryCandidate,
+  EntryMatchRequest,
+  OrderedCandle,
+  SetupEntryFacts,
 } from "../src/rd-entry-domain";
 import {
   canonicalPaperSelectionConfigured,
@@ -79,6 +88,62 @@ afterEach(() => {
   vi.resetModules();
 });
 
+const ORDERED_CANDLE: OrderedCandle = {
+  open_epoch: 100,
+  close_epoch: 400,
+  open_ticks: 10,
+  high_ticks: 15,
+  low_ticks: 8,
+  close_ticks: 12,
+};
+
+const SETUP_FACTS: SetupEntryFacts = {
+  setup_id: "setup-1",
+  direction: "LONG",
+  zone_top_ticks: 15,
+  zone_bottom_ticks: 8,
+  zone_engaged_epoch: 200,
+  invalidated_before_entry: false,
+  common_fidelity: "EXACT",
+  terminal_reason: null,
+  terminal_epoch: null,
+};
+
+const ENTRY_CANDIDATE: EntryCandidate = {
+  candidate_id: "candidate-1",
+  setup_id: "setup-1",
+  model: "DIR_CLOSE",
+  state: "MATCHED",
+  event_anchor_epoch: 400,
+  trigger_ordinal: 1,
+  direction: "LONG",
+  source_claim_ids: ["claim-2", "claim-1"],
+  normalized_from: null,
+  observed_at_epoch: 401,
+};
+
+const MATCH_REQUEST: EntryMatchRequest = {
+  setup: SETUP_FACTS,
+  confirmed_bar: ORDERED_CANDLE,
+  htf_proofs: [],
+  generic_break_detected: false,
+  rejection_respect_detected: false,
+  attempt_kind: "INITIAL",
+  trigger_ordinal: 1,
+};
+
+function compileTimeCanonicalSourceCoverage(): void {
+  rdEntryCanonicalValue(ORDERED_CANDLE);
+  rdEntryCanonicalValue(SETUP_FACTS);
+  rdEntryCanonicalValue(ENTRY_CANDIDATE);
+  rdEntryCanonicalValue(MATCH_REQUEST);
+
+  // @ts-expect-error Unsupported objects are not part of the RD entry domain.
+  rdEntryCanonicalValue({ unsupported: undefined });
+  // @ts-expect-error Runtime-only values cannot enter the typed canonical boundary.
+  rdEntryCanonicalValue(new Date());
+}
+
 describe("RD entry v2 closed domain", () => {
   it("freezes models, HTF contexts, and non-executable actions", () => {
     expect(ACTIVE_ENTRY_MODELS).toEqual(["DIR_CLOSE", "HTF_FLIP"]);
@@ -145,6 +210,53 @@ describe("RD entry v2 closed domain", () => {
         settings_hash: "e".repeat(64),
       }),
     ).toBe(false);
+  });
+});
+
+describe("RD entry canonical JSON boundary", () => {
+  it("projects representative domain values without index-signature casts", () => {
+    expect(canonicalStringifyRdEntry(ORDERED_CANDLE)).toBe(
+      '{"close_epoch":400,"close_ticks":12,"high_ticks":15,"low_ticks":8,"open_epoch":100,"open_ticks":10}',
+    );
+    expect(canonicalStringifyRdEntry(SETUP_FACTS)).toBe(
+      '{"common_fidelity":"EXACT","direction":"LONG","invalidated_before_entry":false,"setup_id":"setup-1","terminal_epoch":null,"terminal_reason":null,"zone_bottom_ticks":8,"zone_engaged_epoch":200,"zone_top_ticks":15}',
+    );
+    expect(canonicalStringifyRdEntry(ENTRY_CANDIDATE)).toBe(
+      '{"candidate_id":"candidate-1","direction":"LONG","event_anchor_epoch":400,"model":"DIR_CLOSE","normalized_from":null,"observed_at_epoch":401,"setup_id":"setup-1","source_claim_ids":["claim-2","claim-1"],"state":"MATCHED","trigger_ordinal":1}',
+    );
+  });
+
+  it("canonicalizes a nested match request deterministically", () => {
+    const reorderedRequest: EntryMatchRequest = {
+      trigger_ordinal: 1,
+      attempt_kind: "INITIAL",
+      rejection_respect_detected: false,
+      generic_break_detected: false,
+      htf_proofs: [],
+      confirmed_bar: ORDERED_CANDLE,
+      setup: SETUP_FACTS,
+    };
+    const expected =
+      '{"attempt_kind":"INITIAL","confirmed_bar":{"close_epoch":400,"close_ticks":12,"high_ticks":15,"low_ticks":8,"open_epoch":100,"open_ticks":10},"generic_break_detected":false,"htf_proofs":[],"rejection_respect_detected":false,"setup":{"common_fidelity":"EXACT","direction":"LONG","invalidated_before_entry":false,"setup_id":"setup-1","terminal_epoch":null,"terminal_reason":null,"zone_bottom_ticks":8,"zone_engaged_epoch":200,"zone_top_ticks":15},"trigger_ordinal":1}';
+
+    expect(canonicalStringifyRdEntry(MATCH_REQUEST)).toBe(expected);
+    expect(canonicalStringifyRdEntry(reorderedRequest)).toBe(expected);
+  });
+
+  it.each([
+    ["undefined", { ...SETUP_FACTS, terminal_epoch: undefined }],
+    ["non-finite number", { ...ORDERED_CANDLE, high_ticks: Number.NaN }],
+    ["bigint", { ...ORDERED_CANDLE, low_ticks: 8n }],
+    ["non-plain object", new Date("2026-07-26T00:00:00.000Z")],
+    ["function", { ...ENTRY_CANDIDATE, model: () => "DIR_CLOSE" }],
+  ])("rejects unsupported nested %s values", (_, unsupported) => {
+    expect(() =>
+      rdEntryCanonicalValue(
+        unsupported as unknown as Parameters<
+          typeof rdEntryCanonicalValue
+        >[0],
+      ),
+    ).toThrow(RdEntryCanonicalizationError);
   });
 });
 

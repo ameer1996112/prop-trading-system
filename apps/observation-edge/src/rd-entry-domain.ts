@@ -1,3 +1,6 @@
+import type { CanonicalValue } from "./types";
+import { canonicalStringify } from "./validation";
+
 export const ACTIVE_ENTRY_MODELS = ["DIR_CLOSE", "HTF_FLIP"] as const;
 export const ALL_ENTRY_MODELS = [
   ...ACTIVE_ENTRY_MODELS,
@@ -185,4 +188,120 @@ export interface EntryEvaluation {
   readonly evidence: readonly EntryCandidateEvidence[];
   readonly handling: readonly EntryHandlingObservation[];
   readonly selection: EntrySelection;
+}
+
+export type RdEntryCanonicalObject =
+  | OrderedCandle
+  | SetupEntryFacts
+  | HTFFlipProofTranscript
+  | HTFFlipProof
+  | EntryMatchRequest
+  | EntryCandidate
+  | EntryCandidateEvidence
+  | EntryHandlingObservation
+  | EntrySelection
+  | EntryEvaluation;
+
+export type RdEntryCanonicalSource =
+  | RdEntryCanonicalObject
+  | readonly RdEntryCanonicalSource[];
+
+export class RdEntryCanonicalizationError extends TypeError {
+  constructor() {
+    super("RD entry value is not canonical JSON");
+    this.name = "RdEntryCanonicalizationError";
+  }
+}
+
+function canonicalizationError(): never {
+  throw new RdEntryCanonicalizationError();
+}
+
+function projectCanonicalValue(
+  value: unknown,
+  ancestors: Set<object>,
+): CanonicalValue {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : canonicalizationError();
+  }
+  if (typeof value !== "object") {
+    return canonicalizationError();
+  }
+  if (ancestors.has(value)) {
+    return canonicalizationError();
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const propertyNames = Object.getOwnPropertyNames(value);
+      if (
+        Object.getOwnPropertySymbols(value).length !== 0 ||
+        propertyNames.some((key) => {
+          if (key === "length") {
+            return false;
+          }
+          const index = Number(key);
+          return (
+            !Number.isSafeInteger(index) ||
+            index < 0 ||
+            String(index) !== key ||
+            index >= value.length
+          );
+        })
+      ) {
+        return canonicalizationError();
+      }
+
+      const projected: CanonicalValue[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.hasOwn(value, index)) {
+          return canonicalizationError();
+        }
+        projected.push(projectCanonicalValue(value[index], ancestors));
+      }
+      return projected;
+    }
+
+    const prototype = Object.getPrototypeOf(value) as object | null;
+    if (
+      (prototype !== Object.prototype && prototype !== null) ||
+      Object.getOwnPropertySymbols(value).length !== 0
+    ) {
+      return canonicalizationError();
+    }
+
+    const projected: Record<string, CanonicalValue> = Object.create(null) as
+      Record<string, CanonicalValue>;
+    for (const [key, descriptor] of Object.entries(
+      Object.getOwnPropertyDescriptors(value),
+    )) {
+      if (!descriptor.enumerable || !("value" in descriptor)) {
+        return canonicalizationError();
+      }
+      projected[key] = projectCanonicalValue(descriptor.value, ancestors);
+    }
+    return projected;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+export function rdEntryCanonicalValue(
+  value: RdEntryCanonicalSource,
+): CanonicalValue {
+  return projectCanonicalValue(value, new Set<object>());
+}
+
+export function canonicalStringifyRdEntry(
+  value: RdEntryCanonicalSource,
+): string {
+  return canonicalStringify(rdEntryCanonicalValue(value));
 }
