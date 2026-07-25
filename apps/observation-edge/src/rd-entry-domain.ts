@@ -190,21 +190,19 @@ export interface EntryEvaluation {
   readonly selection: EntrySelection;
 }
 
-export type RdEntryCanonicalObject =
-  | OrderedCandle
-  | SetupEntryFacts
-  | HTFFlipProofTranscript
-  | HTFFlipProof
-  | EntryMatchRequest
-  | EntryCandidate
-  | EntryCandidateEvidence
-  | EntryHandlingObservation
-  | EntrySelection
-  | EntryEvaluation;
+type CanonicalJsonScalar = null | boolean | number | string;
 
-export type RdEntryCanonicalSource =
-  | RdEntryCanonicalObject
-  | readonly RdEntryCanonicalSource[];
+export type CanonicalJsonShape<T> = T extends CanonicalJsonScalar
+  ? T
+  : T extends (...args: never[]) => unknown
+    ? never
+    : T extends readonly (infer Item)[]
+      ? readonly CanonicalJsonShape<Item>[]
+      : T extends object
+        ? { readonly [Key in keyof T]: CanonicalJsonShape<T[Key]> }
+        : never;
+
+export type CanonicalJsonInput<T> = T extends CanonicalJsonShape<T> ? T : never;
 
 export class RdEntryCanonicalizationError extends TypeError {
   constructor() {
@@ -241,31 +239,41 @@ function projectCanonicalValue(
   ancestors.add(value);
   try {
     if (Array.isArray(value)) {
-      const propertyNames = Object.getOwnPropertyNames(value);
       if (
-        Object.getOwnPropertySymbols(value).length !== 0 ||
-        propertyNames.some((key) => {
-          if (key === "length") {
-            return false;
-          }
-          const index = Number(key);
-          return (
-            !Number.isSafeInteger(index) ||
-            index < 0 ||
-            String(index) !== key ||
-            index >= value.length
-          );
-        })
+        Object.getPrototypeOf(value) !== Array.prototype ||
+        Object.getOwnPropertySymbols(value).length !== 0
       ) {
         return canonicalizationError();
       }
 
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (
+        lengthDescriptor === undefined ||
+        !("value" in lengthDescriptor) ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0
+      ) {
+        return canonicalizationError();
+      }
+      const length = lengthDescriptor.value as number;
+      if (Object.getOwnPropertyNames(value).length !== length + 1) {
+        return canonicalizationError();
+      }
+
       const projected: CanonicalValue[] = [];
-      for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index)) {
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        if (
+          descriptor === undefined ||
+          !descriptor.enumerable ||
+          !("value" in descriptor)
+        ) {
           return canonicalizationError();
         }
-        projected.push(projectCanonicalValue(value[index], ancestors));
+        projected.push(projectCanonicalValue(descriptor.value, ancestors));
       }
       return projected;
     }
@@ -294,14 +302,14 @@ function projectCanonicalValue(
   }
 }
 
-export function rdEntryCanonicalValue(
-  value: RdEntryCanonicalSource,
+export function rdEntryCanonicalValue<const T>(
+  value: CanonicalJsonInput<T>,
 ): CanonicalValue {
   return projectCanonicalValue(value, new Set<object>());
 }
 
-export function canonicalStringifyRdEntry(
-  value: RdEntryCanonicalSource,
+export function canonicalStringifyRdEntry<const T>(
+  value: CanonicalJsonInput<T>,
 ): string {
-  return canonicalStringify(rdEntryCanonicalValue(value));
+  return canonicalStringify(projectCanonicalValue(value, new Set<object>()));
 }

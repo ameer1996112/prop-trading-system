@@ -132,16 +132,53 @@ const MATCH_REQUEST: EntryMatchRequest = {
   trigger_ordinal: 1,
 };
 
+interface EntryBatchImmutableMetadata {
+  readonly schema_version: "2.0";
+  readonly batch_id: string;
+  readonly detector: {
+    readonly code_hash: string;
+    readonly settings_hash: string;
+  };
+  readonly models: readonly ("DIR_CLOSE" | "HTF_FLIP")[];
+  readonly retention: {
+    readonly observed_epochs: readonly number[];
+    readonly expires_epoch: number | null;
+  };
+}
+
+const FUTURE_BATCH_METADATA: EntryBatchImmutableMetadata = {
+  schema_version: "2.0",
+  batch_id: "batch-1",
+  detector: {
+    code_hash: "d".repeat(64),
+    settings_hash: "e".repeat(64),
+  },
+  models: ["DIR_CLOSE", "HTF_FLIP"],
+  retention: {
+    observed_epochs: [100, 400],
+    expires_epoch: 900,
+  },
+};
+
 function compileTimeCanonicalSourceCoverage(): void {
   rdEntryCanonicalValue(ORDERED_CANDLE);
   rdEntryCanonicalValue(SETUP_FACTS);
   rdEntryCanonicalValue(ENTRY_CANDIDATE);
   rdEntryCanonicalValue(MATCH_REQUEST);
+  rdEntryCanonicalValue(FUTURE_BATCH_METADATA);
+  rdEntryCanonicalValue([1, 2, 3] as const);
 
   // @ts-expect-error Unsupported objects are not part of the RD entry domain.
   rdEntryCanonicalValue({ unsupported: undefined });
   // @ts-expect-error Runtime-only values cannot enter the typed canonical boundary.
   rdEntryCanonicalValue(new Date());
+  // @ts-expect-error Bigints are not JSON-safe values.
+  rdEntryCanonicalValue({ unsupported: 1n });
+  // @ts-expect-error Functions are not JSON-safe values.
+  rdEntryCanonicalValue({ unsupported: () => true });
+  const unknownValue: unknown = FUTURE_BATCH_METADATA;
+  // @ts-expect-error Unknown input must be validated before canonical projection.
+  rdEntryCanonicalValue(unknownValue);
 }
 
 describe("RD entry v2 closed domain", () => {
@@ -241,6 +278,65 @@ describe("RD entry canonical JSON boundary", () => {
 
     expect(canonicalStringifyRdEntry(MATCH_REQUEST)).toBe(expected);
     expect(canonicalStringifyRdEntry(reorderedRequest)).toBe(expected);
+  });
+
+  it("accepts future structurally JSON-safe readonly metadata without casts", () => {
+    expect(canonicalStringifyRdEntry(FUTURE_BATCH_METADATA)).toBe(
+      `{"batch_id":"batch-1","detector":{"code_hash":"${"d".repeat(64)}","settings_hash":"${"e".repeat(64)}"},"models":["DIR_CLOSE","HTF_FLIP"],"retention":{"expires_epoch":900,"observed_epochs":[100,400]},"schema_version":"2.0"}`,
+    );
+  });
+
+  it("canonicalizes ordinary arrays deterministically", () => {
+    expect(canonicalStringifyRdEntry([3, 1, 2] as const)).toBe("[3,1,2]");
+  });
+
+  it("rejects accessor-backed arrays without invoking the getter", () => {
+    let getterCalls = 0;
+    const accessorArray = [1];
+    Object.defineProperty(accessorArray, "0", {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        getterCalls += 1;
+        return getterCalls;
+      },
+    });
+
+    expect(() => rdEntryCanonicalValue(accessorArray)).toThrow(
+      RdEntryCanonicalizationError,
+    );
+    expect(getterCalls).toBe(0);
+  });
+
+  it("rejects Array subclasses", () => {
+    class NumericArray extends Array<number> {}
+
+    expect(() => rdEntryCanonicalValue(new NumericArray(1, 2))).toThrow(
+      RdEntryCanonicalizationError,
+    );
+  });
+
+  it("rejects cyclic, symbol, sparse, and custom-property arrays", () => {
+    const cyclic: unknown[] = [];
+    cyclic.push(cyclic);
+    const symbolProperty = [1] as number[] & { [key: symbol]: number };
+    symbolProperty[Symbol("extra")] = 2;
+    const sparse = new Array<number>(1);
+    const customProperty = [1] as number[] & { extra?: number };
+    customProperty.extra = 2;
+
+    for (const unsupported of [
+      cyclic,
+      symbolProperty,
+      sparse,
+      customProperty,
+    ]) {
+      expect(() =>
+        rdEntryCanonicalValue(
+          unsupported as Parameters<typeof rdEntryCanonicalValue>[0],
+        ),
+      ).toThrow(RdEntryCanonicalizationError);
+    }
   });
 
   it.each([
