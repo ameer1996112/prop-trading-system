@@ -130,6 +130,39 @@ REQUIRED_V2_RULE_IDS = frozenset(
         "ENTRY_NEXT_CANDLE_WICK_HANDLING",
     }
 )
+REQUIRED_V2_RULE_EVIDENCE_POLICIES = {
+    "ZONE_FIRST_ENGAGEMENT": (RuleFidelity.EXACT, "SHADOW_ONLY", "NOT_ELIGIBLE"),
+    "ENTRY_DIR_CLOSE": (
+        RuleFidelity.EXACT,
+        "PAPER_EVALUATE",
+        "COMPLETE_REPLAYABLE_EXACT",
+    ),
+    "ENTRY_HTF_FLIP": (
+        RuleFidelity.EXACT,
+        "PAPER_EVALUATE",
+        "COMPLETE_REPLAYABLE_EXACT",
+    ),
+    "ENTRY_HTF_BOUNDARY_CAUTION": (
+        RuleFidelity.DISCRETIONARY,
+        "SHADOW_ONLY",
+        "NOT_ELIGIBLE",
+    ),
+    "ENTRY_BREAK_CANDLE_NORMALIZATION": (
+        RuleFidelity.EXACT,
+        "DISABLED",
+        "NOT_ELIGIBLE",
+    ),
+    "ENTRY_REJECTION_RESPECT_DISABLED": (
+        RuleFidelity.EXACT,
+        "DISABLED",
+        "NOT_ELIGIBLE",
+    ),
+    "ENTRY_NEXT_CANDLE_WICK_HANDLING": (
+        RuleFidelity.DISCRETIONARY,
+        "SHADOW_ONLY",
+        "NOT_ELIGIBLE",
+    ),
+}
 
 
 class RDStrategyRuleContractV2(ContractModel):
@@ -155,6 +188,11 @@ class RDStrategyRuleContractV2(ContractModel):
             raise ValueError("inherited qualification rule set is not exact")
         if set(self.rules_by_id) != REQUIRED_V2_RULE_IDS:
             raise ValueError("v2 entry rule set is not exact")
+        if {
+            rule_id: (rule.fidelity, rule.automation, rule.proof_eligibility)
+            for rule_id, rule in self.rules_by_id.items()
+        } != REQUIRED_V2_RULE_EVIDENCE_POLICIES:
+            raise ValueError("paper-eligible rule set is not exact")
         if REQUIRED_INHERITED_RULE_IDS & REQUIRED_V2_RULE_IDS:
             raise ValueError("inherited and v2 rule sets overlap")
         video_ids = [

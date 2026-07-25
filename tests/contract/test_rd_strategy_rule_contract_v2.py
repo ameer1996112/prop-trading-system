@@ -63,6 +63,105 @@ EXPECTED_CLAIMS = {
     "model-continuation-2026-07",
 }
 
+EXPECTED_CLAIM_FACTS = {
+    "zone-untapped-2024-03": ("rd-course-2024-03", 223, 298, "SUPPORTS", None),
+    "standard-close-2024-03": ("rd-course-2024-03", 794, 876, "SUPPORTS", None),
+    "htf-flip-2024-03": ("rd-course-2024-03", 892, 1005, "SUPPORTS", None),
+    "gold-break-exception-2025-03": (
+        "rd-5m-optimized-2025-03",
+        193,
+        223,
+        "SUPPORTS",
+        None,
+    ),
+    "closure-or-flip-2025-03": (
+        "rd-first-5m-live-2025-03",
+        3106,
+        3149,
+        "NARROWS",
+        "standard-close-2024-03",
+    ),
+    "next-candle-wick-2025-05": ("rd-5m-howto-2025-05", 40, 97, "SUPPORTS", None),
+    "prompt-close-2025-05": ("rd-5m-howto-2025-05", 211, 223, "SUPPORTS", None),
+    "directional-close-2025-08": (
+        "rd-full-guide-2025-08",
+        999,
+        1094,
+        "NARROWS",
+        "closure-or-flip-2025-03",
+    ),
+    "htf-context-set-2025-08": (
+        "rd-full-guide-2025-08",
+        1189,
+        1198,
+        "NARROWS",
+        "htf-flip-2024-03",
+    ),
+    "htf-flip-definition-2025-08": (
+        "rd-full-guide-2025-08",
+        1270,
+        1345,
+        "NARROWS",
+        "htf-flip-2024-03",
+    ),
+    "htf-boundary-caution-2025-08": (
+        "rd-full-guide-2025-08",
+        1906,
+        2088,
+        "SUPPORTS",
+        None,
+    ),
+    "discretionary-break-2025-11": (
+        "rd-strategy-week-2025-11",
+        144,
+        229,
+        "SUPPORTS",
+        None,
+    ),
+    "close-fallback-2025-11": (
+        "rd-strategy-week-2025-11",
+        362,
+        430,
+        "SUPPORTS",
+        None,
+    ),
+    "pure-flip-narrowing-2026-05": (
+        "rd-live-nc-2026-05",
+        3647,
+        3984,
+        "NARROWS",
+        "htf-flip-definition-2025-08",
+    ),
+    "reject-non-htf-break-2026-05": (
+        "rd-live-nc-2026-05",
+        4388,
+        4395,
+        "SUPERSEDES",
+        "gold-break-exception-2025-03",
+    ),
+    "directional-close-required-2026-06": (
+        "rd-live-5m-2026-06",
+        655,
+        665,
+        "NARROWS",
+        "directional-close-2025-08",
+    ),
+    "break-normalized-to-flip-2026-06": (
+        "rd-live-5m-2026-06",
+        679,
+        694,
+        "SUPERSEDES",
+        "discretionary-break-2025-11",
+    ),
+    "model-continuation-2026-07": (
+        "rd-futures-backtest-2026-07",
+        247,
+        2550,
+        "SUPPORTS",
+        None,
+    ),
+}
+
 EXPECTED_INHERITED_RULE_IDS = {
     "TIMEFRAME_FIVE_MINUTE_ONLY",
     "ZONE_ORIGIN_OPPOSITE_CANDLE",
@@ -132,6 +231,16 @@ def test_official_inventory_and_claim_ids_are_frozen() -> None:
         source_id: source.title_snapshot for source_id, source in contract.sources_by_id.items()
     } == EXPECTED_TITLES
     assert set(contract.claims_by_id) == EXPECTED_CLAIMS
+    assert {
+        claim_id: (
+            claim.source_id,
+            claim.timestamp_start_seconds,
+            claim.timestamp_end_seconds,
+            claim.relationship.value,
+            claim.target_claim_id,
+        )
+        for claim_id, claim in contract.claims_by_id.items()
+    } == EXPECTED_CLAIM_FACTS
     assert set(contract.inherited_rule_ids) == EXPECTED_INHERITED_RULE_IDS
     assert {
         rule_id: rule.source_claim_ids for rule_id, rule in contract.rules_by_id.items()
@@ -182,6 +291,23 @@ def test_narrowing_must_target_an_older_known_claim() -> None:
         RDStrategyRuleContractV2.model_validate(value)
 
 
+def test_non_active_rule_cannot_be_relabelled_paper_eligible() -> None:
+    value = payload()
+    rules = value["rules_by_id"]
+    assert isinstance(rules, dict)
+    zone_first_engagement = rules["ZONE_FIRST_ENGAGEMENT"]
+    assert isinstance(zone_first_engagement, dict)
+    zone_first_engagement.update(
+        {
+            "fidelity": RuleFidelity.EXACT,
+            "automation": "PAPER_EVALUATE",
+            "proof_eligibility": "COMPLETE_REPLAYABLE_EXACT",
+        }
+    )
+    with pytest.raises(ValidationError, match="paper-eligible rule set is not exact"):
+        RDStrategyRuleContractV2.model_validate(value)
+
+
 def valid_contract_payload() -> dict[str, object]:
     inherited_rule_ids = (
         "TIMEFRAME_FIVE_MINUTE_ONLY",
@@ -209,6 +335,39 @@ def valid_contract_payload() -> dict[str, object]:
         "ENTRY_NEXT_CANDLE_WICK_HANDLING",
     )
     claim_ids = tuple(f"claim-{index}" for index in range(len(rule_ids)))
+    rule_policies = {
+        "ZONE_FIRST_ENGAGEMENT": (RuleFidelity.EXACT, "SHADOW_ONLY", "NOT_ELIGIBLE"),
+        "ENTRY_DIR_CLOSE": (
+            RuleFidelity.EXACT,
+            "PAPER_EVALUATE",
+            "COMPLETE_REPLAYABLE_EXACT",
+        ),
+        "ENTRY_HTF_FLIP": (
+            RuleFidelity.EXACT,
+            "PAPER_EVALUATE",
+            "COMPLETE_REPLAYABLE_EXACT",
+        ),
+        "ENTRY_HTF_BOUNDARY_CAUTION": (
+            RuleFidelity.DISCRETIONARY,
+            "SHADOW_ONLY",
+            "NOT_ELIGIBLE",
+        ),
+        "ENTRY_BREAK_CANDLE_NORMALIZATION": (
+            RuleFidelity.EXACT,
+            "DISABLED",
+            "NOT_ELIGIBLE",
+        ),
+        "ENTRY_REJECTION_RESPECT_DISABLED": (
+            RuleFidelity.EXACT,
+            "DISABLED",
+            "NOT_ELIGIBLE",
+        ),
+        "ENTRY_NEXT_CANDLE_WICK_HANDLING": (
+            RuleFidelity.DISCRETIONARY,
+            "SHADOW_ONLY",
+            "NOT_ELIGIBLE",
+        ),
+    }
     claims: dict[str, object] = {
         claim_ids[0]: {
             "source_id": "official-old",
@@ -243,9 +402,9 @@ def valid_contract_payload() -> dict[str, object]:
     rules = {
         rule_id: {
             "category": "ENTRY",
-            "fidelity": RuleFidelity.EXACT,
-            "automation": "PAPER_EVALUATE",
-            "proof_eligibility": "COMPLETE_REPLAYABLE_EXACT",
+            "fidelity": rule_policies[rule_id][0],
+            "automation": rule_policies[rule_id][1],
+            "proof_eligibility": rule_policies[rule_id][2],
             "open_requirement": True,
             "summary": f"rule {index}",
             "source_claim_ids": (claim_ids[index],),
