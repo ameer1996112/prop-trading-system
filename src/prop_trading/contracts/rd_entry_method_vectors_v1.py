@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import json
+from typing import Annotated, Literal, NoReturn
 
 from pydantic import Field, model_validator
 
@@ -21,6 +22,7 @@ from prop_trading.domain.rd_entry_method import (
     resolve_wick_fill,
 )
 from prop_trading.domain.rd_entry_models import (
+    AmbiguityCode,
     CandidateFidelity,
     CandidateState,
     EntryCandidate,
@@ -136,7 +138,7 @@ class RDEntryMethodEvidenceVectorV1(ContractModel):
             proof_resolution_seconds=self.proof_resolution_seconds,
             coverage_start_epoch=self.coverage_start_epoch,
             coverage_end_epoch=self.coverage_end_epoch,
-            ambiguity_codes=(),
+            ambiguity_codes=tuple(AmbiguityCode(item) for item in self.ambiguity_codes),
             passed_rule_ids=self.passed_rule_ids,
             failed_rule_ids=self.failed_rule_ids,
             source_claim_ids=self.source_claim_ids,
@@ -390,3 +392,28 @@ class RDEntryMethodVectorSetV1(ContractModel):
         if frozenset(case_ids) != _REQUIRED_CASE_IDS:
             raise ValueError("entry-method vector case set is not frozen")
         return self
+
+
+def _reject_constant(value: str) -> NoReturn:
+    raise ValueError(f"non-finite JSON number is not allowed: {value}")
+
+
+def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def load_rd_entry_method_vector_set_v1_json(
+    raw: str | bytes | bytearray,
+) -> RDEntryMethodVectorSetV1:
+    """Load vectors only after rejecting ambiguous or non-standard raw JSON."""
+    loaded: object = json.loads(
+        raw,
+        object_pairs_hook=_strict_object,
+        parse_constant=_reject_constant,
+    )
+    return RDEntryMethodVectorSetV1.model_validate_json(json.dumps(loaded, ensure_ascii=False))

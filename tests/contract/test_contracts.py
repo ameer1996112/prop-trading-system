@@ -21,8 +21,22 @@ from prop_trading.contracts.models import (
     SourceProvenance,
     StrategyManifest,
 )
-from prop_trading.contracts.rd_entry_method_vectors_v1 import RDEntryMethodVectorSetV1
+from prop_trading.contracts.rd_entry_method_vectors_v1 import (
+    load_rd_entry_method_vector_set_v1_json,
+)
 from prop_trading.domain.canonical import canonical_json_bytes
+from prop_trading.domain.rd_entry_models import (
+    AmbiguityCode,
+    CandidateFidelity,
+    EntryEvidenceIdentity,
+    EntrySelectionIdentity,
+    ProofPlane,
+    SelectionAction,
+    SelectionReason,
+    evidence_id,
+    evidence_payload_sha256,
+    selection_id,
+)
 
 
 def _load(model: type[BaseModel], path: str) -> BaseModel:
@@ -568,8 +582,9 @@ def test_contracts_forbid_unknown_fields() -> None:
 
 
 def test_rd_entry_method_vectors_are_strict_and_domain_replayable() -> None:
+    raw = Path("contracts/vectors/rd-entry-method-v1.json").read_bytes()
     payload = _json("contracts/vectors/rd-entry-method-v1.json")
-    parsed = RDEntryMethodVectorSetV1.model_validate_json(json.dumps(payload))
+    parsed = load_rd_entry_method_vector_set_v1_json(raw)
 
     assert len(parsed.cases) == 14
     assert {item.case_id for item in parsed.cases} == {
@@ -592,9 +607,90 @@ def test_rd_entry_method_vectors_are_strict_and_domain_replayable() -> None:
     changed = deepcopy(payload)
     changed["cases"][0]["expected"]["action"] = "NONE"
     with pytest.raises(ValidationError, match="canonical domain"):
-        RDEntryMethodVectorSetV1.model_validate_json(json.dumps(changed))
+        load_rd_entry_method_vector_set_v1_json(json.dumps(changed))
 
     unknown = deepcopy(payload)
     unknown["cases"][0]["input"]["unknown"] = True
     with pytest.raises(ValidationError, match="Extra inputs"):
-        RDEntryMethodVectorSetV1.model_validate_json(json.dumps(unknown))
+        load_rd_entry_method_vector_set_v1_json(json.dumps(unknown))
+
+
+def test_rd_entry_method_vector_cannot_erase_ambiguity_evidence() -> None:
+    payload = _json("contracts/vectors/rd-entry-method-v1.json")
+    paper_case = next(
+        item for item in payload["cases"] if item["case_id"] == "dir_close_defaults_prompt"
+    )
+    paper_case["input"]["evidence"]["ambiguity_codes"] = ["SHADOW_MISSING_INTRABAR_COVERAGE"]
+
+    with pytest.raises(ValidationError, match="canonical domain|paper eligible"):
+        load_rd_entry_method_vector_set_v1_json(json.dumps(payload))
+
+    coordinated = _json("contracts/vectors/rd-entry-method-v1.json")
+    coordinated_case = next(
+        item for item in coordinated["cases"] if item["case_id"] == "dir_close_defaults_prompt"
+    )
+    evidence = coordinated_case["input"]["evidence"]
+    ambiguity = (AmbiguityCode.MISSING_INTRABAR_COVERAGE,)
+    evidence["ambiguity_codes"] = [item.value for item in ambiguity]
+    evidence["payload_sha256"] = evidence_payload_sha256(
+        candidate_id=evidence["candidate_id"],
+        observed_trigger_epoch=evidence["observed_trigger_epoch"],
+        observed_trigger_ticks=evidence["observed_trigger_ticks"],
+        htf_context_minutes=tuple(evidence["htf_context_minutes"]),
+        fidelity=CandidateFidelity(evidence["fidelity"]),
+        proof_plane=ProofPlane(evidence["proof_plane"]),
+        proof_resolution_seconds=evidence["proof_resolution_seconds"],
+        coverage_start_epoch=evidence["coverage_start_epoch"],
+        coverage_end_epoch=evidence["coverage_end_epoch"],
+        ambiguity_codes=ambiguity,
+        passed_rule_ids=tuple(evidence["passed_rule_ids"]),
+        failed_rule_ids=tuple(evidence["failed_rule_ids"]),
+        source_claim_ids=tuple(evidence["source_claim_ids"]),
+    )
+    evidence["evidence_id"] = evidence_id(
+        EntryEvidenceIdentity(
+            candidate_id=evidence["candidate_id"],
+            proof_plane=ProofPlane(evidence["proof_plane"]),
+            proof_resolution_seconds=evidence["proof_resolution_seconds"],
+            coverage_start_epoch=evidence["coverage_start_epoch"],
+            coverage_end_epoch=evidence["coverage_end_epoch"],
+            observed_trigger_epoch=evidence["observed_trigger_epoch"],
+            payload_sha256=evidence["payload_sha256"],
+        )
+    )
+    selection = coordinated_case["input"]["selection"]
+    selection["canonical_evidence_id"] = evidence["evidence_id"]
+    selection["selection_id"] = selection_id(
+        EntrySelectionIdentity(
+            setup_id=selection["setup_id"],
+            policy_version=selection["policy_version"],
+            revision=selection["revision"],
+            candidate_ids_considered=tuple(selection["candidate_ids_considered"]),
+            canonical_candidate_id=selection["canonical_candidate_id"],
+            canonical_evidence_id=selection["canonical_evidence_id"],
+            reason=SelectionReason(selection["reason"]),
+            fidelity=CandidateFidelity(selection["fidelity"]),
+            action=SelectionAction(selection["action"]),
+        )
+    )
+
+    with pytest.raises(ValidationError, match="paper eligible"):
+        load_rd_entry_method_vector_set_v1_json(json.dumps(coordinated))
+
+
+def test_rd_entry_method_vector_loader_rejects_duplicate_keys_and_non_finite_values() -> None:
+    raw = Path("contracts/vectors/rd-entry-method-v1.json").read_text(encoding="utf-8")
+    duplicate = raw.replace(
+        '"schema_id": "phase0.rd-entry-method-vectors.v1"',
+        (
+            '"schema_id": "phase0.rd-entry-method-vectors.v1", '
+            '"schema_id": "phase0.rd-entry-method-vectors.v1"'
+        ),
+        1,
+    )
+    with pytest.raises(ValueError, match="duplicate JSON object key: schema_id"):
+        load_rd_entry_method_vector_set_v1_json(duplicate)
+
+    non_finite = raw.replace('"trigger_ticks": 18500', '"trigger_ticks": NaN', 1)
+    with pytest.raises(ValueError, match="non-finite JSON number.*NaN"):
+        load_rd_entry_method_vector_set_v1_json(non_finite)
