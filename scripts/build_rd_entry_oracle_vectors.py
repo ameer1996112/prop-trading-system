@@ -21,10 +21,9 @@ from prop_trading.domain.rd_entry_models import (
 from prop_trading.domain.rd_entry_oracle import (
     EntryOracleCase,
     EntryOracleEvent,
-    entry_match_request_to_mapping,
+    entry_oracle_case_to_edge_mapping,
     evaluate_entry_stream,
 )
-from prop_trading.domain.rd_intrabar_oracle import scan_htf_flip
 
 _FIXTURE_SCHEMA_ID = "phase0.rd-entry-arbitration-fixture.v2"
 _VECTOR_SCHEMA_ID = "phase0.rd-entry-arbitration-vectors.v2"
@@ -102,34 +101,6 @@ def _pine_case(case: EntryOracleCase) -> EntryOracleCase:
             )
         )
     return replace(case, events=tuple(events))
-
-
-def _edge_input(case: EntryOracleCase) -> dict[str, object]:
-    events: list[dict[str, object]] = []
-    for event in case.events:
-        if event.base_match_request.htf_proofs and event.htf_scan_requests:
-            raise ValueError("event mixes raw scans with expanded HTF proofs")
-        proofs = (
-            event.base_match_request.htf_proofs
-            if event.base_match_request.htf_proofs
-            else tuple(scan_htf_flip(request) for request in event.htf_scan_requests)
-        )
-        events.append(
-            {
-                "event_id": event.event_id,
-                "match_request": entry_match_request_to_mapping(
-                    replace(event.base_match_request, htf_proofs=proofs)
-                ),
-            }
-        )
-    return {
-        "setup_id": case.setup_id,
-        "events": events,
-        "setup_invalidated": case.setup_invalidated,
-        "policy_version": case.policy_version,
-        "revision": case.revision,
-        "evaluated_at_epoch": case.evaluated_at_epoch,
-    }
 
 
 def _pine_edge_input(edge_input: dict[str, object]) -> dict[str, object]:
@@ -248,7 +219,7 @@ def build_vectors(document: dict[str, object]) -> dict[str, object]:
         if pine_selection.get("action") == SelectionAction.PAPER_ELIGIBLE.value:
             raise ValueError(f"{case.case_id} current Pine view must be non-promotable")
 
-        edge_input = _edge_input(case)
+        edge_input = entry_oracle_case_to_edge_mapping(case)
         pine_edge_input = _pine_edge_input(edge_input)
         changed = _differing_paths(edge_input, pine_edge_input)
         expected_changes = _expected_pine_paths(edge_input)

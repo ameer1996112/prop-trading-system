@@ -52,6 +52,7 @@ from prop_trading.domain.rd_intrabar_oracle import (
 
 OPEN = 1_721_808_000
 FIXTURES = Path("tests/fixtures/rd_entry_arbitration_cases_v2.json")
+VECTORS = Path("contracts/vectors/rd-entry-arbitration-v2.json")
 FROZEN_CASE_IDS = (
     "dir-close-engagement",
     "dir-close-later",
@@ -99,6 +100,12 @@ def parsed_case(case_id: str) -> EntryOracleCase:
 def generated_case(case_id: str) -> dict[str, object]:
     document = build_vectors(load_fixture_document(FIXTURES))
     return deepcopy(next(item for item in document["cases"] if item["case_id"] == case_id))
+
+
+def vector_document() -> dict[str, object]:
+    loaded: object = json.loads(VECTORS.read_text(encoding="utf-8"))
+    assert isinstance(loaded, dict)
+    return loaded
 
 
 def pine_case(case: EntryOracleCase) -> EntryOracleCase:
@@ -988,6 +995,90 @@ def test_strict_vector_document_rejects_coordinated_temporal_result_graph() -> N
     _rehash_evidence_mapping(expected, evidence)
 
     with pytest.raises(ValueError, match="coverage|trigger|temporal"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+@pytest.mark.parametrize("surface", ["expected", "pine_expected"])
+def test_strict_vector_document_replays_each_reviewed_expected_surface(
+    surface: str,
+) -> None:
+    forged = vector_document()
+    case = next(item for item in forged["cases"] if item["case_id"] == "dir-close-engagement")
+    expected = case[surface]
+    expected["candidates"] = []
+    expected["evidence"] = []
+    expected["handling"] = []
+    selection = expected["selection"]
+    selection.update(
+        {
+            "candidate_ids_considered": [],
+            "canonical_candidate_id": None,
+            "canonical_evidence_id": None,
+            "canonical_model": None,
+            "reason": "NO_CANDIDATE",
+            "fidelity": None,
+            "action": "NONE",
+        }
+    )
+    _rehash_selection_mapping(selection)
+
+    with pytest.raises(ValueError, match="reviewed|expected|oracle|replay"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+@pytest.mark.parametrize("input_key", ["input", "edge_input", "pine_edge_input"])
+def test_strict_vector_document_replays_every_input_view(input_key: str) -> None:
+    forged = vector_document()
+    case = next(item for item in forged["cases"] if item["case_id"] == "dir-close-engagement")
+    bar = case[input_key]["events"][0]["match_request"]["confirmed_bar"]
+    bar["close_ticks"] = bar["open_ticks"]
+
+    if input_key == "edge_input":
+        pine_bar = case["pine_edge_input"]["events"][0]["match_request"]["confirmed_bar"]
+        pine_bar["close_ticks"] = pine_bar["open_ticks"]
+    elif input_key == "pine_edge_input":
+        edge_bar = case["edge_input"]["events"][0]["match_request"]["confirmed_bar"]
+        edge_bar["close_ticks"] = edge_bar["open_ticks"]
+
+    with pytest.raises(ValueError, match="reviewed|expected|canonical|oracle|replay"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+@pytest.mark.parametrize("field", ["revision", "evaluated_at_epoch"])
+def test_strict_vector_document_binds_selection_metadata_to_input(field: str) -> None:
+    forged = vector_document()
+    case = next(item for item in forged["cases"] if item["case_id"] == "dir-close-engagement")
+    selection = case["expected"]["selection"]
+    selection[field] += 1
+    _rehash_selection_mapping(selection)
+
+    with pytest.raises(ValueError, match="reviewed|expected|revision|evaluated"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_rejects_unearned_setup_invalidation() -> None:
+    forged = vector_document()
+    case = next(item for item in forged["cases"] if item["case_id"] == "dir-close-engagement")
+    for input_key in ("input", "edge_input", "pine_edge_input"):
+        case[input_key]["setup_invalidated"] = True
+
+    with pytest.raises(ValueError, match="invalidated|terminal|reviewed|oracle"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_replays_same_anchor_transcript_history() -> None:
+    forged = vector_document()
+    case = next(item for item in forged["cases"] if item["case_id"] == "htf-flip-partial-coverage")
+    for input_key in ("edge_input", "pine_edge_input"):
+        later = case[input_key]["events"][1]["match_request"]["htf_proofs"][0]
+        later["observed_child_count"] = later["expected_child_count"]
+        later["gap_present"] = False
+        later["destination_seen_before_contact"] = False
+
+    with pytest.raises(
+        ValueError,
+        match="gap|destination|history|reviewed|oracle|canonical",
+    ):
         RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
 
 

@@ -1364,6 +1364,37 @@ def entry_match_request_to_mapping(request: EntryMatchRequest) -> dict[str, obje
     }
 
 
+def entry_oracle_case_to_edge_mapping(case: EntryOracleCase) -> dict[str, object]:
+    """Expand one raw oracle case into its canonical scanner-free Edge input."""
+    if not isinstance(case, EntryOracleCase):
+        raise ValueError("case must be an EntryOracleCase")
+    events: list[dict[str, object]] = []
+    for event in case.events:
+        if event.base_match_request.htf_proofs and event.htf_scan_requests:
+            raise ValueError("event mixes raw scans with expanded HTF proofs")
+        proofs = (
+            event.base_match_request.htf_proofs
+            if event.base_match_request.htf_proofs
+            else tuple(scan_htf_flip(request) for request in event.htf_scan_requests)
+        )
+        events.append(
+            {
+                "event_id": event.event_id,
+                "match_request": entry_match_request_to_mapping(
+                    replace(event.base_match_request, htf_proofs=proofs)
+                ),
+            }
+        )
+    return {
+        "setup_id": case.setup_id,
+        "events": events,
+        "setup_invalidated": case.setup_invalidated,
+        "policy_version": case.policy_version,
+        "revision": case.revision,
+        "evaluated_at_epoch": case.evaluated_at_epoch,
+    }
+
+
 def _candidate_to_mapping(candidate: EntryCandidate) -> dict[str, object]:
     return {
         "candidate_id": candidate.candidate_id,

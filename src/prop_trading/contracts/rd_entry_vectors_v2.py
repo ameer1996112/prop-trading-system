@@ -2,11 +2,13 @@
 
 Exported JSON Schema describes structural constraints only. Semantic trust requires
 loading through :class:`RDEntryArbitrationVectorsV2`, whose Pydantic validators
-reuse the canonical domain parsers, identity constructors, and result-graph checks.
+reuse canonical parsing, raw-to-Edge expansion, result-graph checks, and full
+oracle evaluation of every reviewed view.
 """
 
 from __future__ import annotations
 
+from copy import deepcopy
 from itertools import pairwise
 from typing import Annotated, Literal
 
@@ -28,7 +30,11 @@ from prop_trading.domain.rd_entry_models import (
 from prop_trading.domain.rd_entry_models import (
     ProofPlane as DomainProofPlane,
 )
-from prop_trading.domain.rd_entry_oracle import EntryOracleCase
+from prop_trading.domain.rd_entry_oracle import (
+    EntryOracleCase,
+    entry_oracle_case_to_edge_mapping,
+    evaluate_entry_stream,
+)
 
 NonNegativeInteger = Annotated[SafeInteger, Field(ge=0)]
 PositiveInteger = Annotated[SafeInteger, Field(gt=0)]
@@ -505,21 +511,32 @@ class RDEntryArbitrationVectorCaseV2(ContractModel):
             "expected": self.expected.model_dump(mode="json"),
             "pine_expected": self.pine_expected.model_dump(mode="json"),
         }
+        edge_mapping = self.edge_input.model_dump(mode="json")
+        pine_edge_mapping = self.pine_edge_input.model_dump(mode="json")
+        expected_mapping = self.expected.model_dump(mode="json")
+        pine_expected_mapping = self.pine_expected.model_dump(mode="json")
         try:
-            EntryOracleCase.from_mapping(raw_fixture)
-            EntryOracleCase.from_edge_mapping(
-                self.edge_input.model_dump(mode="json"),
+            raw_case = EntryOracleCase.from_mapping(raw_fixture)
+            edge_case = EntryOracleCase.from_edge_mapping(
+                edge_mapping,
                 replay_metadata=replay_metadata,
             )
-            EntryOracleCase.from_edge_mapping(
-                self.pine_edge_input.model_dump(mode="json"),
+            pine_case = EntryOracleCase.from_edge_mapping(
+                pine_edge_mapping,
                 replay_metadata=replay_metadata,
             )
+            if entry_oracle_case_to_edge_mapping(raw_case) != edge_mapping:
+                raise ValueError("Edge input is not the canonical expansion of raw input")
+            if evaluate_entry_stream(raw_case).to_mapping() != expected_mapping:
+                raise ValueError("raw input does not match reviewed expected output")
+            if evaluate_entry_stream(edge_case).to_mapping() != expected_mapping:
+                raise ValueError("Edge input does not match reviewed expected output")
+            if evaluate_entry_stream(pine_case).to_mapping() != pine_expected_mapping:
+                raise ValueError("Pine input does not match reviewed pine_expected output")
         except ValueError as exc:
             raise ValueError(f"vector case violates canonical domain semantics: {exc}") from exc
 
-        edge_mapping = self.edge_input.model_dump(mode="json")
-        normalized_pine = self.pine_edge_input.model_dump(mode="json")
+        normalized_pine = deepcopy(pine_edge_mapping)
         edge_events = edge_mapping["events"]
         pine_events = normalized_pine["events"]
         assert isinstance(edge_events, list)
