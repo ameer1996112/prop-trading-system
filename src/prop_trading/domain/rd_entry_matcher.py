@@ -157,6 +157,26 @@ class EntryMatchRequest:
             raise ValueError("htf_proofs must be a tuple")
         if not all(isinstance(proof, HTFFlipProof) for proof in self.htf_proofs):
             raise ValueError("htf_proofs must contain only HTFFlipProof values")
+        confirmed_close = self.confirmed_bar.close_epoch
+        engagement = self.setup.zone_engaged_epoch
+        if engagement is not None and engagement > confirmed_close:
+            raise ValueError("zone engagement cannot follow the confirmed event close")
+        for proof in self.htf_proofs:
+            if (
+                proof.transcript.scan_cutoff_epoch != proof.coverage_end_epoch
+                or proof.coverage_end_epoch > confirmed_close
+            ):
+                raise ValueError(
+                    "HTF proof coverage cutoff cannot follow the confirmed event close"
+                )
+            if proof.matched:
+                trigger = proof.trigger_epoch
+                if trigger is None:
+                    raise ValueError("matched HTF proof must carry a trigger epoch")
+                if not proof.coverage_start_epoch <= trigger <= proof.coverage_end_epoch:
+                    raise ValueError("HTF proof trigger must lie inside its coverage")
+                if engagement is not None and engagement > trigger:
+                    raise ValueError("zone engagement cannot follow an accepted HTF trigger")
         _require_bool(self.generic_break_detected, "generic_break_detected")
         _require_bool(self.rejection_respect_detected, "rejection_respect_detected")
         if not isinstance(self.attempt_kind, AttemptKind):
@@ -541,8 +561,17 @@ def match_entry_candidates(request: EntryMatchRequest) -> EntryMatchResult:
     """Match one confirmed event without deriving chronology or attempt order."""
     if not isinstance(request, EntryMatchRequest):
         raise ValueError("request must be EntryMatchRequest")
+    if (
+        request.setup.terminal_epoch is not None
+        and request.setup.terminal_epoch != request.confirmed_bar.close_epoch
+    ):
+        raise ValueError("terminal fact must be contemporaneous with the confirmed event")
     if request.setup.zone_engaged_epoch is None or (
-        request.setup.terminal_reason is SetupAttemptTerminalReason.INVALIDATED
+        request.setup.terminal_reason
+        in {
+            SetupAttemptTerminalReason.INVALIDATED,
+            SetupAttemptTerminalReason.RETENTION_EVICTED,
+        }
     ):
         return EntryMatchResult(candidates=(), evidence=(), handling=())
 

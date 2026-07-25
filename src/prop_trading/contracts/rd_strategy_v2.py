@@ -157,6 +157,7 @@ REQUIRED_V2_RULE_EVIDENCE_POLICIES = {
         "NOT_ELIGIBLE",
     ),
 }
+BASE_CONTRACT_SHA256 = "289cbf0bd1a59f3e3ca3ec12450f27bb326d210ec1e2444e17e7f90d10f17e28"
 
 
 class RDStrategyRuleContractV2(ContractModel):
@@ -178,6 +179,10 @@ class RDStrategyRuleContractV2(ContractModel):
 
     @model_validator(mode="after")
     def _references_are_closed_and_chronological(self) -> RDStrategyRuleContractV2:
+        if self.base_contract_sha256 != BASE_CONTRACT_SHA256:
+            raise ValueError("base contract sha256 digest is not the frozen contract")
+        if len(self.inherited_rule_ids) != len(set(self.inherited_rule_ids)):
+            raise ValueError("inherited qualification rule IDs contain duplicates")
         if set(self.inherited_rule_ids) != REQUIRED_INHERITED_RULE_IDS:
             raise ValueError("inherited qualification rule set is not exact")
         if set(self.rules_by_id) != REQUIRED_V2_RULE_IDS:

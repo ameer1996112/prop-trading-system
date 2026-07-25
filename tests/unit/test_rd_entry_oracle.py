@@ -21,6 +21,7 @@ from prop_trading.domain.rd_entry_matcher import (
     match_entry_candidates,
 )
 from prop_trading.domain.rd_entry_models import (
+    AmbiguityCode,
     AttemptKind,
     CandidateFidelity,
     EntryDirection,
@@ -35,6 +36,7 @@ from prop_trading.domain.rd_entry_models import (
     SelectionReason,
     SetupAttemptTerminalReason,
     evidence_id,
+    evidence_payload_sha256,
     handling_id,
     selection_id,
 )
@@ -92,6 +94,11 @@ def parsed_case(case_id: str) -> EntryOracleCase:
     return EntryOracleCase.from_mapping(
         next(item for item in cases() if item["case_id"] == case_id)
     )
+
+
+def generated_case(case_id: str) -> dict[str, object]:
+    document = build_vectors(load_fixture_document(FIXTURES))
+    return deepcopy(next(item for item in document["cases"] if item["case_id"] == case_id))
 
 
 def pine_case(case: EntryOracleCase) -> EntryOracleCase:
@@ -219,11 +226,201 @@ def _coordinate_forged_evidence_payload(expected: dict[str, object]) -> None:
     )
 
 
+def _rehash_handling_mapping(handling: dict[str, object]) -> None:
+    handling["handling_id"] = handling_id(
+        EntryHandlingIdentity(
+            candidate_id=handling["candidate_id"],  # type: ignore[arg-type]
+            evidence_id=handling["evidence_id"],  # type: ignore[arg-type]
+            handling_mode=HandlingMode(handling["handling_mode"]),  # type: ignore[arg-type]
+            attempt_kind=AttemptKind(handling["attempt_kind"]),  # type: ignore[arg-type]
+            observed_epoch=handling["observed_epoch"],  # type: ignore[arg-type]
+            observed_ticks=handling["observed_ticks"],  # type: ignore[arg-type]
+            fidelity=CandidateFidelity(handling["fidelity"]),  # type: ignore[arg-type]
+            source_claim_ids=tuple(handling["source_claim_ids"]),  # type: ignore[arg-type]
+        )
+    )
+
+
+def _rehash_selection_mapping(selection: dict[str, object]) -> None:
+    selection["selection_id"] = selection_id(
+        EntrySelectionIdentity(
+            setup_id=selection["setup_id"],  # type: ignore[arg-type]
+            policy_version=selection["policy_version"],  # type: ignore[arg-type]
+            revision=selection["revision"],  # type: ignore[arg-type]
+            candidate_ids_considered=tuple(
+                selection["candidate_ids_considered"]  # type: ignore[arg-type]
+            ),
+            canonical_candidate_id=selection["canonical_candidate_id"],  # type: ignore[arg-type]
+            canonical_evidence_id=selection["canonical_evidence_id"],  # type: ignore[arg-type]
+            reason=SelectionReason(selection["reason"]),  # type: ignore[arg-type]
+            fidelity=(
+                None if selection["fidelity"] is None else CandidateFidelity(selection["fidelity"])  # type: ignore[arg-type]
+            ),
+            action=SelectionAction(selection["action"]),  # type: ignore[arg-type]
+        )
+    )
+
+
+def _rehash_evidence_mapping(
+    expected: dict[str, object],
+    evidence: dict[str, object],
+) -> None:
+    old_evidence_id = evidence["evidence_id"]
+    evidence["payload_sha256"] = evidence_payload_sha256(
+        candidate_id=evidence["candidate_id"],  # type: ignore[arg-type]
+        observed_trigger_epoch=evidence["observed_trigger_epoch"],  # type: ignore[arg-type]
+        observed_trigger_ticks=evidence["observed_trigger_ticks"],  # type: ignore[arg-type]
+        htf_context_minutes=tuple(evidence["htf_context_minutes"]),  # type: ignore[arg-type]
+        fidelity=CandidateFidelity(evidence["fidelity"]),  # type: ignore[arg-type]
+        proof_plane=ProofPlane(evidence["proof_plane"]),  # type: ignore[arg-type]
+        proof_resolution_seconds=evidence["proof_resolution_seconds"],  # type: ignore[arg-type]
+        coverage_start_epoch=evidence["coverage_start_epoch"],  # type: ignore[arg-type]
+        coverage_end_epoch=evidence["coverage_end_epoch"],  # type: ignore[arg-type]
+        ambiguity_codes=tuple(
+            AmbiguityCode(item)
+            for item in evidence["ambiguity_codes"]  # type: ignore[union-attr]
+        ),
+        passed_rule_ids=tuple(evidence["passed_rule_ids"]),  # type: ignore[arg-type]
+        failed_rule_ids=tuple(evidence["failed_rule_ids"]),  # type: ignore[arg-type]
+        source_claim_ids=tuple(evidence["source_claim_ids"]),  # type: ignore[arg-type]
+    )
+    evidence["evidence_id"] = evidence_id(
+        EntryEvidenceIdentity(
+            candidate_id=evidence["candidate_id"],  # type: ignore[arg-type]
+            proof_plane=ProofPlane(evidence["proof_plane"]),  # type: ignore[arg-type]
+            proof_resolution_seconds=evidence["proof_resolution_seconds"],  # type: ignore[arg-type]
+            coverage_start_epoch=evidence["coverage_start_epoch"],  # type: ignore[arg-type]
+            coverage_end_epoch=evidence["coverage_end_epoch"],  # type: ignore[arg-type]
+            observed_trigger_epoch=evidence["observed_trigger_epoch"],  # type: ignore[arg-type]
+            payload_sha256=evidence["payload_sha256"],  # type: ignore[arg-type]
+        )
+    )
+
+    handling_values = expected["handling"]
+    assert isinstance(handling_values, list)
+    for handling in handling_values:
+        assert isinstance(handling, dict)
+        if handling["evidence_id"] == old_evidence_id:
+            handling["evidence_id"] = evidence["evidence_id"]
+            _rehash_handling_mapping(handling)
+
+    selection = expected["selection"]
+    assert isinstance(selection, dict)
+    if selection["canonical_evidence_id"] == old_evidence_id:
+        selection["canonical_evidence_id"] = evidence["evidence_id"]
+        _rehash_selection_mapping(selection)
+
+
 def test_fixture_parser_rejects_coordinated_forged_evidence_payload() -> None:
     forged = deepcopy(cases()[0])
     _coordinate_forged_evidence_payload(forged["expected"])
 
     with pytest.raises(ValueError, match="payload_sha256|payload digest"):
+        EntryOracleCase.from_mapping(forged)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda evidence: evidence.update(
+                {
+                    "observed_trigger_epoch": evidence["coverage_start_epoch"] - 1,
+                }
+            ),
+            "coverage|trigger|temporal",
+        ),
+        (
+            lambda evidence: evidence.update(
+                {
+                    "observed_trigger_epoch": evidence["coverage_end_epoch"] + 1,
+                }
+            ),
+            "coverage|trigger|temporal",
+        ),
+        (
+            lambda evidence: evidence.update(
+                {
+                    "coverage_end_epoch": evidence["observed_at_epoch"] + 1,
+                }
+            ),
+            "coverage|observed|temporal",
+        ),
+    ],
+)
+def test_fixture_parser_rejects_temporally_impossible_evidence_graphs(
+    mutate: object,
+    message: str,
+) -> None:
+    forged = deepcopy(next(item for item in cases() if item["case_id"] == "htf-flip-15m"))
+    expected = forged["expected"]
+    assert isinstance(expected, dict)
+    evidence = expected["evidence"][0]
+    assert isinstance(evidence, dict)
+    assert callable(mutate)
+    mutate(evidence)
+    _rehash_evidence_mapping(expected, evidence)
+
+    with pytest.raises(ValueError, match=message):
+        EntryOracleCase.from_mapping(forged)
+
+
+@pytest.mark.parametrize(
+    "record_kind",
+    ["candidate", "evidence", "handling"],
+)
+def test_fixture_parser_rejects_records_observed_after_selection_evaluation(
+    record_kind: str,
+) -> None:
+    forged = deepcopy(cases()[0])
+    expected = forged["expected"]
+    assert isinstance(expected, dict)
+    selection = expected["selection"]
+    assert isinstance(selection, dict)
+    future = selection["evaluated_at_epoch"] + 1
+
+    if record_kind == "candidate":
+        expected["candidates"][0]["observed_at_epoch"] = future
+    elif record_kind == "evidence":
+        expected["evidence"][0]["observed_at_epoch"] = future
+    else:
+        handling = expected["handling"][0]
+        handling["observed_epoch"] = future
+        _rehash_handling_mapping(handling)
+
+    with pytest.raises(ValueError, match="evaluat|observed|temporal"):
+        EntryOracleCase.from_mapping(forged)
+
+
+def test_fixture_parser_rejects_handling_before_referenced_evidence() -> None:
+    forged = deepcopy(cases()[0])
+    expected = forged["expected"]
+    assert isinstance(expected, dict)
+    evidence = expected["evidence"][0]
+    handling = expected["handling"][0]
+    handling["observed_epoch"] = evidence["observed_trigger_epoch"] - 1
+    _rehash_handling_mapping(handling)
+
+    with pytest.raises(ValueError, match="handling|evidence|precede|temporal"):
+        EntryOracleCase.from_mapping(forged)
+
+
+def test_fixture_parser_requires_next_candle_wick_to_be_exactly_one_bar_later() -> None:
+    forged = deepcopy(
+        next(item for item in cases() if item["case_id"] == "next-candle-wick-handling")
+    )
+    expected = forged["expected"]
+    assert isinstance(expected, dict)
+    handling = next(
+        item for item in expected["handling"] if item["handling_mode"] == "NEXT_CANDLE_WICK"
+    )
+    evidence = next(
+        item for item in expected["evidence"] if item["evidence_id"] == handling["evidence_id"]
+    )
+    handling["observed_epoch"] = evidence["observed_trigger_epoch"] + 60
+    _rehash_handling_mapping(handling)
+
+    with pytest.raises(ValueError, match="NEXT_CANDLE_WICK|next candle|300"):
         EntryOracleCase.from_mapping(forged)
 
 
@@ -380,6 +577,99 @@ def test_edge_and_pine_inputs_replay_to_manually_reviewed_results() -> None:
         assert evaluate_entry_stream(pine).to_mapping() == (generated["pine_expected"])
 
 
+def test_raw_oracle_retention_event_cannot_create_an_active_model() -> None:
+    retained = deepcopy(cases()[0])
+    setup = retained["input"]["events"][0]["match_request"]["setup"]
+    confirmed_close = retained["input"]["events"][0]["match_request"]["confirmed_bar"][
+        "close_epoch"
+    ]
+    setup["terminal_reason"] = "RETENTION_EVICTED"
+    setup["terminal_epoch"] = confirmed_close
+
+    result = evaluate_entry_stream(EntryOracleCase.from_mapping(retained))
+
+    assert result.candidates == ()
+    assert result.evidence == ()
+    assert result.handling == ()
+
+
+def test_edge_oracle_retention_event_cannot_create_an_active_model() -> None:
+    retained = generated_case("dir-close-engagement")
+    edge_input = retained["edge_input"]
+    setup = edge_input["events"][0]["match_request"]["setup"]
+    confirmed_close = edge_input["events"][0]["match_request"]["confirmed_bar"]["close_epoch"]
+    setup["terminal_reason"] = "RETENTION_EVICTED"
+    setup["terminal_epoch"] = confirmed_close
+
+    parsed = EntryOracleCase.from_edge_mapping(
+        edge_input,
+        replay_metadata=replay_metadata_from_vector(retained),
+    )
+    result = evaluate_entry_stream(parsed)
+
+    assert result.candidates == ()
+    assert result.evidence == ()
+    assert result.handling == ()
+
+
+def test_raw_oracle_rejects_a_scan_cutoff_after_the_confirmed_event() -> None:
+    future = deepcopy(next(item for item in cases() if item["case_id"] == "htf-flip-15m"))
+    scan = future["input"]["events"][0]["htf_scan_requests"][0]
+    scan["scan_cutoff_epoch"] += 300
+
+    with pytest.raises(ValueError, match="cutoff|coverage|confirmed"):
+        EntryOracleCase.from_mapping(future)
+
+
+def test_edge_oracle_rejects_a_compact_proof_after_the_confirmed_event() -> None:
+    future = generated_case("htf-flip-15m")
+    transcript = future["edge_input"]["events"][0]["match_request"]["htf_proofs"][0]
+    transcript["scan_cutoff_epoch"] += 300
+    transcript["coverage_end_epoch"] += 300
+    transcript["expected_child_count"] += 5
+    transcript["observed_child_count"] += 5
+
+    with pytest.raises(ValueError, match="cutoff|coverage|confirmed"):
+        EntryOracleCase.from_edge_mapping(
+            future["edge_input"],
+            replay_metadata=replay_metadata_from_vector(future),
+        )
+
+
+def test_raw_oracle_rejects_engagement_after_the_confirmed_event() -> None:
+    future = deepcopy(cases()[0])
+    request = future["input"]["events"][0]["match_request"]
+    request["setup"]["zone_engaged_epoch"] = request["confirmed_bar"]["close_epoch"] + 1
+
+    with pytest.raises(ValueError, match="engag|confirmed"):
+        EntryOracleCase.from_mapping(future)
+
+
+def test_edge_oracle_rejects_engagement_after_the_confirmed_event() -> None:
+    future = generated_case("dir-close-engagement")
+    request = future["edge_input"]["events"][0]["match_request"]
+    request["setup"]["zone_engaged_epoch"] = request["confirmed_bar"]["close_epoch"] + 1
+
+    with pytest.raises(ValueError, match="engag|confirmed"):
+        EntryOracleCase.from_edge_mapping(
+            future["edge_input"],
+            replay_metadata=replay_metadata_from_vector(future),
+        )
+
+
+def test_edge_oracle_rejects_engagement_after_an_accepted_flip_trigger() -> None:
+    future = generated_case("htf-flip-15m")
+    request = future["edge_input"]["events"][0]["match_request"]
+    trigger = request["htf_proofs"][0]["recross_candle"]["close_epoch"]
+    request["setup"]["zone_engaged_epoch"] = trigger + 1
+
+    with pytest.raises(ValueError, match="engag|trigger"):
+        EntryOracleCase.from_edge_mapping(
+            future["edge_input"],
+            replay_metadata=replay_metadata_from_vector(future),
+        )
+
+
 def test_vector_builder_rejects_unreviewed_expected_or_wrong_policy() -> None:
     changed_expected = deepcopy(load_fixture_document(FIXTURES))
     changed_expected["cases"][0]["expected"]["selection"]["reason"] = "NO_CANDIDATE"
@@ -425,6 +715,279 @@ def test_strict_vector_document_rejects_coordinated_forged_evidence_payload() ->
     _coordinate_forged_evidence_payload(forged["cases"][0]["expected"])
 
     with pytest.raises(ValueError, match="payload_sha256|payload digest"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def _coordinate_forged_candidate_id(
+    expected: dict[str, object],
+    forged_candidate_id: str,
+) -> None:
+    candidate = expected["candidates"][0]
+    old_candidate_id = candidate["candidate_id"]
+    candidate["candidate_id"] = forged_candidate_id
+
+    selection = expected["selection"]
+    selection["candidate_ids_considered"] = sorted(
+        forged_candidate_id if item == old_candidate_id else item
+        for item in selection["candidate_ids_considered"]
+    )
+    if selection["canonical_candidate_id"] == old_candidate_id:
+        selection["canonical_candidate_id"] = forged_candidate_id
+
+    for handling in expected["handling"]:
+        if handling["candidate_id"] == old_candidate_id:
+            handling["candidate_id"] = forged_candidate_id
+    for evidence in expected["evidence"]:
+        if evidence["candidate_id"] == old_candidate_id:
+            evidence["candidate_id"] = forged_candidate_id
+            _rehash_evidence_mapping(expected, evidence)
+    for handling in expected["handling"]:
+        if handling["candidate_id"] == forged_candidate_id:
+            _rehash_handling_mapping(handling)
+    _rehash_selection_mapping(selection)
+
+
+def _coordinate_forged_evidence_id(
+    expected: dict[str, object],
+    forged_evidence_id: str,
+) -> None:
+    evidence = expected["evidence"][0]
+    old_evidence_id = evidence["evidence_id"]
+    evidence["evidence_id"] = forged_evidence_id
+    for handling in expected["handling"]:
+        if handling["evidence_id"] == old_evidence_id:
+            handling["evidence_id"] = forged_evidence_id
+            _rehash_handling_mapping(handling)
+    selection = expected["selection"]
+    if selection["canonical_evidence_id"] == old_evidence_id:
+        selection["canonical_evidence_id"] = forged_evidence_id
+        _rehash_selection_mapping(selection)
+
+
+def test_strict_vector_document_recomputes_candidate_identity() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    expected = forged["cases"][0]["expected"]
+    _coordinate_forged_candidate_id(expected, "a" * 64)
+
+    with pytest.raises(ValueError, match="candidate_id|candidate identity"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_recomputes_evidence_identity_with_dependents() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    expected = forged["cases"][0]["expected"]
+    _coordinate_forged_evidence_id(expected, "a" * 64)
+
+    with pytest.raises(ValueError, match="evidence_id|evidence identity"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_recomputes_handling_identity() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    forged["cases"][0]["expected"]["handling"][0]["handling_id"] = "a" * 64
+
+    with pytest.raises(ValueError, match="handling_id|handling identity"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_recomputes_selection_identity() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    forged["cases"][0]["expected"]["selection"]["selection_id"] = "a" * 64
+
+    with pytest.raises(ValueError, match="selection_id|selection identity"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_rejects_unknown_considered_candidate() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    selection = forged["cases"][0]["expected"]["selection"]
+    selection["candidate_ids_considered"] = sorted(
+        [*selection["candidate_ids_considered"], "a" * 64]
+    )
+    _rehash_selection_mapping(selection)
+
+    with pytest.raises(ValueError, match="candidate_ids_considered|unknown|active"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_rejects_missing_active_considered_candidate() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    case = next(item for item in forged["cases"] if item["case_id"] == "exact-flip-then-close")
+    selection = case["expected"]["selection"]
+    removable = next(
+        item
+        for item in selection["candidate_ids_considered"]
+        if item != selection["canonical_candidate_id"]
+    )
+    selection["candidate_ids_considered"].remove(removable)
+    _rehash_selection_mapping(selection)
+
+    with pytest.raises(ValueError, match="candidate_ids_considered|active|inconsistent"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["foreign_candidate", "foreign_evidence", "wrong_model"],
+)
+def test_strict_vector_document_rejects_incoherent_canonical_selection(
+    mutation: str,
+) -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    case = next(item for item in forged["cases"] if item["case_id"] == "exact-flip-then-close")
+    expected = case["expected"]
+    selection = expected["selection"]
+    if mutation == "foreign_candidate":
+        selection["canonical_candidate_id"] = next(
+            item["candidate_id"]
+            for item in expected["candidates"]
+            if item["candidate_id"] != selection["canonical_candidate_id"]
+        )
+        _rehash_selection_mapping(selection)
+    elif mutation == "foreign_evidence":
+        selection["canonical_evidence_id"] = next(
+            item["evidence_id"]
+            for item in expected["evidence"]
+            if item["candidate_id"] != selection["canonical_candidate_id"]
+        )
+        _rehash_selection_mapping(selection)
+    else:
+        selection["canonical_model"] = (
+            "DIR_CLOSE" if selection["canonical_model"] == "HTF_FLIP" else "HTF_FLIP"
+        )
+
+    with pytest.raises(ValueError, match="canonical|inconsistent|selection"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_rejects_unconsidered_legacy_canonical_record() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    case = next(item for item in forged["cases"] if item["case_id"] == "generic-break-rejected")
+    expected = case["expected"]
+    candidate = expected["candidates"][0]
+    evidence = expected["evidence"][0]
+    selection = expected["selection"]
+    selection.update(
+        {
+            "canonical_candidate_id": candidate["candidate_id"],
+            "canonical_evidence_id": evidence["evidence_id"],
+            "canonical_model": candidate["model"],
+            "fidelity": evidence["fidelity"],
+        }
+    )
+    _rehash_selection_mapping(selection)
+
+    with pytest.raises(ValueError, match="canonical|considered|selection"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_rejects_foreign_handling_ownership() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    case = next(item for item in forged["cases"] if item["case_id"] == "exact-flip-then-close")
+    expected = case["expected"]
+    handling = expected["handling"][0]
+    handling["candidate_id"] = next(
+        item["candidate_id"]
+        for item in expected["candidates"]
+        if item["candidate_id"] != handling["candidate_id"]
+    )
+    _rehash_handling_mapping(handling)
+
+    with pytest.raises(ValueError, match="foreign|ownership|handling"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_rejects_edge_pine_diffs_outside_common_fidelity() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    pine_request = forged["cases"][0]["pine_edge_input"]["events"][0]["match_request"]
+    pine_request["generic_break_detected"] = not pine_request["generic_break_detected"]
+
+    with pytest.raises(ValueError, match="Edge|Pine|common_fidelity|differ"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["incomplete_prefix", "invalid_contact", "raw_child_outside_cutoff"],
+)
+def test_strict_vector_document_reuses_canonical_transcript_and_scan_semantics(
+    mutation: str,
+) -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    case = next(item for item in forged["cases"] if item["case_id"] == "htf-flip-15m")
+    if mutation == "raw_child_outside_cutoff":
+        scan = case["input"]["events"][0]["htf_scan_requests"][0]
+        child = scan["children"][0]
+        child["open_epoch"] = scan["htf_open_epoch"] - 60
+        child["close_epoch"] = scan["htf_open_epoch"]
+    else:
+        for input_key in ("edge_input", "pine_edge_input"):
+            transcript = case[input_key]["events"][0]["match_request"]["htf_proofs"][0]
+            if mutation == "incomplete_prefix":
+                transcript["scan_cutoff_epoch"] = transcript["htf_open_epoch"] + 180
+                transcript["coverage_end_epoch"] = transcript["htf_open_epoch"] + 180
+                transcript["expected_child_count"] = 3
+                transcript["observed_child_count"] = 3
+            else:
+                transcript["contact_candle"].update(
+                    {
+                        "open_ticks": 99,
+                        "high_ticks": 99,
+                        "low_ticks": 98,
+                        "close_ticks": 99,
+                    }
+                )
+
+    with pytest.raises(
+        ValueError,
+        match="completed|five-minute|contact|outside|cutoff|canonical",
+    ):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["future_engagement", "future_compact", "future_raw", "early_evaluation"],
+)
+def test_strict_vector_document_rejects_event_temporal_mutations(
+    mutation: str,
+) -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    case_id = (
+        "htf-flip-15m" if mutation in {"future_compact", "future_raw"} else ("dir-close-engagement")
+    )
+    case = next(item for item in forged["cases"] if item["case_id"] == case_id)
+    if mutation == "future_engagement":
+        for input_key in ("input", "edge_input", "pine_edge_input"):
+            request = case[input_key]["events"][0]["match_request"]
+            request["setup"]["zone_engaged_epoch"] = request["confirmed_bar"]["close_epoch"] + 1
+    elif mutation == "future_compact":
+        for input_key in ("edge_input", "pine_edge_input"):
+            transcript = case[input_key]["events"][0]["match_request"]["htf_proofs"][0]
+            transcript["scan_cutoff_epoch"] += 300
+            transcript["coverage_end_epoch"] += 300
+            transcript["expected_child_count"] += 5
+            transcript["observed_child_count"] += 5
+    elif mutation == "future_raw":
+        case["input"]["events"][0]["htf_scan_requests"][0]["scan_cutoff_epoch"] += 300
+    else:
+        for input_key in ("input", "edge_input", "pine_edge_input"):
+            request = case[input_key]["events"][0]["match_request"]
+            case[input_key]["evaluated_at_epoch"] = request["confirmed_bar"]["close_epoch"] - 1
+
+    with pytest.raises(ValueError, match="engag|cutoff|coverage|evaluat|confirmed"):
+        RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
+
+
+def test_strict_vector_document_rejects_coordinated_temporal_result_graph() -> None:
+    forged = build_vectors(load_fixture_document(FIXTURES))
+    case = next(item for item in forged["cases"] if item["case_id"] == "htf-flip-15m")
+    expected = case["expected"]
+    evidence = expected["evidence"][0]
+    evidence["observed_trigger_epoch"] = evidence["coverage_start_epoch"] - 1
+    _rehash_evidence_mapping(expected, evidence)
+
+    with pytest.raises(ValueError, match="coverage|trigger|temporal"):
         RDEntryArbitrationVectorsV2.model_validate_json(json.dumps(forged))
 
 
@@ -739,7 +1302,7 @@ def test_identical_candidate_replay_may_append_new_valid_evidence() -> None:
     )
     later = _event(
         "context-30",
-        _candle(OPEN),
+        _candle(OPEN + 300),
         setup=facts,
         scans=(_scan(setup=facts, context=30),),
     )
@@ -763,6 +1326,71 @@ def test_identical_duplicate_event_is_idempotent_and_conflict_is_rejected() -> N
         evaluate_entry_stream(
             _case((close, replace(close, base_match_request=_request(_candle(OPEN)))))
         )
+
+
+@pytest.mark.parametrize(
+    ("close_event_id", "terminal_event_id"),
+    [
+        ("a-close", "z-terminal"),
+        ("z-close", "a-terminal"),
+    ],
+)
+def test_distinct_same_close_events_are_rejected_independent_of_event_id_order(
+    close_event_id: str,
+    terminal_event_id: str,
+) -> None:
+    close_epoch = OPEN + 300
+    terminal_setup = _setup(
+        terminal_reason=SetupAttemptTerminalReason.RETENTION_EVICTED,
+        terminal_epoch=close_epoch,
+    )
+    close = _close_event(close_event_id)
+    terminal = _event(terminal_event_id, _candle(OPEN), setup=terminal_setup)
+
+    with pytest.raises(ValueError, match="same close|overlap|distinct"):
+        evaluate_entry_stream(_case((close, terminal)))
+
+
+def test_overlapping_confirmed_bars_are_rejected_after_event_deduplication() -> None:
+    first = _event("first", _candle(OPEN))
+    overlapping = _event("overlapping", _candle(OPEN + 120))
+
+    with pytest.raises(ValueError, match="overlap|chronolog"):
+        evaluate_entry_stream(_case((first, overlapping)))
+
+
+def test_out_of_order_nonoverlapping_bars_preserve_gaps_and_replay_order() -> None:
+    early = _event("early", _candle(OPEN))
+    later = _event("later", _candle(OPEN + 600))
+
+    result = evaluate_entry_stream(_case((later, early)))
+
+    assert result.candidates == ()
+    assert result.evidence == ()
+    assert result.handling == ()
+
+
+def test_case_evaluation_cannot_precede_a_confirmed_event_close() -> None:
+    with pytest.raises(ValueError, match="evaluat|event close|confirmed"):
+        replace(
+            _case((_event("event", _candle(OPEN)),)),
+            evaluated_at_epoch=OPEN + 299,
+        )
+
+
+def test_same_anchor_later_transcript_cannot_rewrite_gap_or_destination_history() -> None:
+    forged = generated_case("htf-flip-partial-coverage")
+    later = forged["edge_input"]["events"][1]["match_request"]["htf_proofs"][0]
+    later["observed_child_count"] = later["expected_child_count"]
+    later["gap_present"] = False
+    later["destination_seen_before_contact"] = False
+    parsed = EntryOracleCase.from_edge_mapping(
+        forged["edge_input"],
+        replay_metadata=replay_metadata_from_vector(forged),
+    )
+
+    with pytest.raises(ValueError, match="prefix|gap|destination|rewrite"):
+        evaluate_entry_stream(parsed)
 
 
 def test_one_case_cannot_change_immutable_attempt_facts() -> None:
@@ -836,8 +1464,8 @@ def test_event_that_completes_both_must_terminalize_exactly_then() -> None:
 
     with pytest.raises(ValueError, match="both|terminal"):
         evaluate_entry_stream(_case((flip, nonterminal_close)))
-    with pytest.raises(ValueError, match="both|terminal|reason"):
-        evaluate_entry_stream(_case((flip, wrong_terminal)))
+    retained = evaluate_entry_stream(_case((flip, wrong_terminal)))
+    assert {item.model for item in retained.candidates} == {EntryModelV2.HTF_FLIP}
 
 
 def test_delayed_both_terminal_fact_is_rejected() -> None:
@@ -1047,6 +1675,9 @@ def test_edge_mapping_parses_strictly_and_replays_without_a_scanner() -> None:
         lambda value: value["events"][0]["match_request"]["confirmed_bar"].update(
             {"high_ticks": 97}
         ),
+        lambda value: value["events"][0]["match_request"]["confirmed_bar"].update(
+            {"low_ticks": 103}
+        ),
         lambda value: value["events"][0]["match_request"].update(
             {"attempt_kind": "INITIAL", "trigger_ordinal": 2}
         ),
@@ -1060,8 +1691,19 @@ def test_edge_mapping_rejects_unknown_missing_or_non_integer_fields(
 
     with pytest.raises(
         ValueError,
-        match="unknown|missing|integer|high|trigger_ordinal|INITIAL",
+        match="unknown|missing|integer|high|low|trigger_ordinal|INITIAL",
     ):
+        EntryOracleCase.from_edge_mapping(
+            mapping,
+            replay_metadata=_replay_metadata(),
+        )
+
+
+def test_edge_mapping_rejects_evaluation_before_the_confirmed_event_close() -> None:
+    mapping = _edge_close_mapping()
+    mapping["evaluated_at_epoch"] = OPEN + 299
+
+    with pytest.raises(ValueError, match="evaluat|event close|confirmed"):
         EntryOracleCase.from_edge_mapping(
             mapping,
             replay_metadata=_replay_metadata(),

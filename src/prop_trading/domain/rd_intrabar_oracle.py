@@ -14,6 +14,7 @@ from prop_trading.domain.rd_entry_models import (
     HTFFlipProofTranscript,
     OrderedCandle,
     ProofPlane,
+    validate_completed_htf_prefix,
 )
 
 
@@ -68,17 +69,12 @@ class HTFFlipScanRequest:
         ):
             raise ValueError("children must be a tuple of OrderedCandle values")
 
-        resolution = self.proof_resolution_seconds
-        coverage_seconds = self.scan_cutoff_epoch - self.htf_open_epoch
-        context_seconds = self.timeframe_minutes * 60
-        if resolution >= 300 or 300 % resolution != 0:
-            raise ValueError("proof_resolution_seconds must divide 300 and be below 300")
-        if not 0 < coverage_seconds <= context_seconds:
-            raise ValueError("scan cutoff must be inside the HTF context")
-        if coverage_seconds % 300 != 0:
-            raise ValueError("scan cutoff must align to a completed five-minute slice")
-        if coverage_seconds % resolution != 0:
-            raise ValueError("scan cutoff must align to the proof resolution")
+        validate_completed_htf_prefix(
+            context_minutes=self.timeframe_minutes,
+            htf_open_epoch=self.htf_open_epoch,
+            scan_cutoff_epoch=self.scan_cutoff_epoch,
+            proof_resolution_seconds=self.proof_resolution_seconds,
+        )
 
 
 def _contacts_zone(setup: SetupEntryFacts, candle: OrderedCandle) -> bool:
@@ -99,9 +95,12 @@ def _validate_transcript_shape(transcript: HTFFlipProofTranscript) -> None:
     if not isinstance(transcript, HTFFlipProofTranscript):
         raise ValueError("transcript must be an HTFFlipProofTranscript")
 
-    context_end = transcript.htf_open_epoch + transcript.context_minutes * 60
-    if not (transcript.htf_open_epoch < transcript.scan_cutoff_epoch <= context_end):
-        raise ValueError("scan cutoff must be inside the HTF context")
+    validate_completed_htf_prefix(
+        context_minutes=transcript.context_minutes,
+        htf_open_epoch=transcript.htf_open_epoch,
+        scan_cutoff_epoch=transcript.scan_cutoff_epoch,
+        proof_resolution_seconds=transcript.proof_resolution_seconds,
+    )
 
     resolution = transcript.proof_resolution_seconds
     coverage_seconds = transcript.coverage_end_epoch - transcript.coverage_start_epoch

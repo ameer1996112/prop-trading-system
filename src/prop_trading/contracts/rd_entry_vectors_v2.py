@@ -1,4 +1,9 @@
-"""Strict schema model for scanner-free RD entry arbitration vectors."""
+"""Strict schema and semantic model for RD entry arbitration vectors.
+
+Exported JSON Schema describes structural constraints only. Semantic trust requires
+loading through :class:`RDEntryArbitrationVectorsV2`, whose Pydantic validators
+reuse the canonical domain parsers, identity constructors, and result-graph checks.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ from prop_trading.domain.rd_entry_models import (
 from prop_trading.domain.rd_entry_models import (
     ProofPlane as DomainProofPlane,
 )
+from prop_trading.domain.rd_entry_oracle import EntryOracleCase
 
 NonNegativeInteger = Annotated[SafeInteger, Field(ge=0)]
 PositiveInteger = Annotated[SafeInteger, Field(gt=0)]
@@ -482,6 +488,56 @@ class RDEntryArbitrationVectorCaseV2(ContractModel):
             for event in self.pine_edge_input.events
         ):
             raise ValueError("Pine input common fidelity must be UNRESOLVED")
+
+        replay_metadata = {
+            "setup_id": self.setup_id,
+            "symbol": self.symbol,
+            "feed": self.feed,
+            "calculation_start_epoch": self.calculation_start_epoch,
+            "emission_start_epoch": self.emission_start_epoch,
+            "emission_end_epoch": self.emission_end_epoch,
+            "pine_supported": self.pine_supported,
+        }
+        raw_fixture = {
+            "case_id": self.case_id,
+            **replay_metadata,
+            "input": self.input.model_dump(mode="json"),
+            "expected": self.expected.model_dump(mode="json"),
+            "pine_expected": self.pine_expected.model_dump(mode="json"),
+        }
+        try:
+            EntryOracleCase.from_mapping(raw_fixture)
+            EntryOracleCase.from_edge_mapping(
+                self.edge_input.model_dump(mode="json"),
+                replay_metadata=replay_metadata,
+            )
+            EntryOracleCase.from_edge_mapping(
+                self.pine_edge_input.model_dump(mode="json"),
+                replay_metadata=replay_metadata,
+            )
+        except ValueError as exc:
+            raise ValueError(f"vector case violates canonical domain semantics: {exc}") from exc
+
+        edge_mapping = self.edge_input.model_dump(mode="json")
+        normalized_pine = self.pine_edge_input.model_dump(mode="json")
+        edge_events = edge_mapping["events"]
+        pine_events = normalized_pine["events"]
+        assert isinstance(edge_events, list)
+        assert isinstance(pine_events, list)
+        for edge_event, pine_event in zip(edge_events, pine_events, strict=True):
+            assert isinstance(edge_event, dict)
+            assert isinstance(pine_event, dict)
+            edge_request = edge_event["match_request"]
+            pine_request = pine_event["match_request"]
+            assert isinstance(edge_request, dict)
+            assert isinstance(pine_request, dict)
+            edge_setup = edge_request["setup"]
+            pine_setup = pine_request["setup"]
+            assert isinstance(edge_setup, dict)
+            assert isinstance(pine_setup, dict)
+            pine_setup["common_fidelity"] = edge_setup["common_fidelity"]
+        if normalized_pine != edge_mapping:
+            raise ValueError("Edge and Pine inputs may differ only at setup.common_fidelity")
         return self
 
 

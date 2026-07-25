@@ -44,6 +44,7 @@ from prop_trading.domain.rd_entry_models import (
     evidence_payload_sha256,
     handling_id,
     selection_id,
+    validate_entry_result_graph,
 )
 from prop_trading.domain.rd_intrabar_oracle import (
     HTFFlipScanRequest,
@@ -627,6 +628,34 @@ def _validate_event_identities(events: tuple[EntryOracleEvent, ...]) -> None:
         _merge_immutable(unique, (event,), key="event_id")
 
 
+def _deduplicated_ordered_events(
+    events: tuple[EntryOracleEvent, ...],
+) -> tuple[EntryOracleEvent, ...]:
+    unique: dict[str, EntryOracleEvent] = {}
+    for event in events:
+        _merge_immutable(unique, (event,), key="event_id")
+    ordered = tuple(
+        sorted(
+            unique.values(),
+            key=lambda item: (
+                item.base_match_request.confirmed_bar.close_epoch,
+                item.event_id,
+            ),
+        )
+    )
+    previous: EntryOracleEvent | None = None
+    for event in ordered:
+        if previous is not None:
+            previous_bar = previous.base_match_request.confirmed_bar
+            current_bar = event.base_match_request.confirmed_bar
+            if previous_bar.close_epoch == current_bar.close_epoch:
+                raise ValueError("distinct events cannot share the same confirmed close")
+            if current_bar.open_epoch < previous_bar.close_epoch:
+                raise ValueError("distinct confirmed event bars cannot overlap")
+        previous = event
+    return ordered
+
+
 def _parse_candidate(value: object, name: str) -> EntryCandidate:
     mapping = _strict_mapping(value, name=name, keys=_CANDIDATE_KEYS)
     normalized_value = mapping["normalized_from"]
@@ -1001,38 +1030,15 @@ def _validate_result_surface(value: object, name: str) -> None:
         key="handling_id",
         name=f"{name}.handling",
     )
-    candidate_by_id = {item.candidate_id: item for item in candidates}
-    evidence_by_id = {item.evidence_id: item for item in evidence}
-    if any(item.candidate_id not in candidate_by_id for item in evidence):
-        raise ValueError(f"{name}.evidence references an unknown candidate")
-    for item in handling:
-        referenced_evidence = evidence_by_id.get(item.evidence_id)
-        if (
-            item.candidate_id not in candidate_by_id
-            or referenced_evidence is None
-            or referenced_evidence.candidate_id != item.candidate_id
-        ):
-            raise ValueError(f"{name}.handling references an unknown or foreign record")
-    considered = set(selection.candidate_ids_considered)
-    if not considered.issubset(candidate_by_id):
-        raise ValueError(f"{name}.selection considers an unknown candidate")
-    if selection.canonical_candidate_id is None:
-        if selection.canonical_model is not None:
-            raise ValueError(f"{name}.selection canonical model requires a candidate")
-        return
-    canonical_evidence_id = selection.canonical_evidence_id
-    if canonical_evidence_id is None:
-        raise ValueError(f"{name}.selection canonical evidence requires a candidate")
-    canonical_candidate = candidate_by_id.get(selection.canonical_candidate_id)
-    canonical_evidence = evidence_by_id.get(canonical_evidence_id)
-    if (
-        canonical_candidate is None
-        or selection.canonical_candidate_id not in considered
-        or canonical_evidence is None
-        or canonical_evidence.candidate_id != selection.canonical_candidate_id
-        or selection.canonical_model is not canonical_candidate.model
-    ):
-        raise ValueError(f"{name}.selection references an inconsistent canonical record")
+    try:
+        validate_entry_result_graph(
+            candidates=candidates,
+            evidence=evidence,
+            handling=handling,
+            selection=selection,
+        )
+    except ValueError as exc:
+        raise ValueError(f"{name} has an invalid semantic result graph: {exc}") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -1051,6 +1057,9 @@ class EntryOracleEvent:
             raise ValueError("htf_scan_requests must contain HTFFlipScanRequest values")
         if any(item.setup != self.base_match_request.setup for item in self.htf_scan_requests):
             raise ValueError("HTF scan setup must match the event match request setup")
+        confirmed_close = self.base_match_request.confirmed_bar.close_epoch
+        if any(item.scan_cutoff_epoch > confirmed_close for item in self.htf_scan_requests):
+            raise ValueError("HTF scan cutoff cannot follow the confirmed event close")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1209,6 +1218,7 @@ class EntryOracleCase:
             raise ValueError("setup_invalidated must be a bool")
         if self.policy_version != "rd-entry-arbitration-v2":
             raise ValueError("policy_version must be rd-entry-arbitration-v2")
+        ordered_events = _deduplicated_ordered_events(self.events)
         baseline_request = self.events[0].base_match_request if self.events else None
         for event in self.events:
             request = event.base_match_request
@@ -1243,6 +1253,11 @@ class EntryOracleCase:
             close_epoch = request.confirmed_bar.close_epoch
             if not self.emission_start_epoch <= close_epoch <= self.emission_end_epoch:
                 raise ValueError("event close lies outside the inclusive emission window")
+        if ordered_events and (
+            self.evaluated_at_epoch
+            < ordered_events[-1].base_match_request.confirmed_bar.close_epoch
+        ):
+            raise ValueError("evaluated_at_epoch cannot precede a confirmed event close")
 
     def arbitration_request(
         self,
@@ -1452,6 +1467,47 @@ def _upsert_latest_htf_transcript(
         if transcript != previous:
             raise ValueError("HTF transcript boundary has conflicting content")
         return
+    if transcript.htf_open_epoch == previous.htf_open_epoch:
+        static_previous = (
+            previous.context_minutes,
+            previous.htf_open_epoch,
+            previous.htf_open_ticks,
+            previous.proof_resolution_seconds,
+            previous.coverage_start_epoch,
+            previous.full_lifecycle_ordered,
+        )
+        static_current = (
+            transcript.context_minutes,
+            transcript.htf_open_epoch,
+            transcript.htf_open_ticks,
+            transcript.proof_resolution_seconds,
+            transcript.coverage_start_epoch,
+            transcript.full_lifecycle_ordered,
+        )
+        if static_current != static_previous:
+            raise ValueError("same-anchor HTF transcript changed static prefix facts")
+        expected_delta = transcript.expected_child_count - previous.expected_child_count
+        observed_delta = transcript.observed_child_count - previous.observed_child_count
+        if expected_delta <= 0 or not 0 <= observed_delta <= expected_delta:
+            raise ValueError("same-anchor HTF transcript prefix counts are not monotonic")
+        if previous.gap_present and not transcript.gap_present:
+            raise ValueError("same-anchor HTF transcript cannot erase a prior gap")
+        if (
+            previous.destination_seen_before_contact
+            and not transcript.destination_seen_before_contact
+        ):
+            raise ValueError("same-anchor HTF transcript cannot erase prior destination history")
+        if not (previous.gap_present or transcript.gap_present):
+            if (
+                previous.contact_candle is not None
+                and transcript.contact_candle != previous.contact_candle
+            ):
+                raise ValueError("same-anchor HTF transcript rewrote contact history")
+            if (
+                previous.recross_candle is not None
+                and transcript.recross_candle != previous.recross_candle
+            ):
+                raise ValueError("same-anchor HTF transcript rewrote recross history")
     transcripts[transcript.context_minutes] = transcript
 
 
@@ -1547,9 +1603,16 @@ def _merge_terminal_fact(
         reason is not SetupAttemptTerminalReason.BOTH_ACTIVE_MODELS_OBSERVED
     ):
         raise ValueError("event completing both models has wrong terminal reason")
+    if (
+        reason
+        in {
+            SetupAttemptTerminalReason.INVALIDATED,
+            SetupAttemptTerminalReason.RETENTION_EVICTED,
+        }
+        and active_models_after != active_models_before
+    ):
+        raise ValueError("invalidation or retention event emitted a new active candidate")
     if reason is SetupAttemptTerminalReason.INVALIDATED:
-        if active_models_after != active_models_before:
-            raise ValueError("invalidation event emitted a new active candidate")
         expected_before_entry = len(active_models_before) == 0
         if setup.invalidated_before_entry is not expected_before_entry:
             raise ValueError("invalidated_before_entry disagrees with prior candidates")
@@ -1569,18 +1632,7 @@ def evaluate_entry_stream(case: EntryOracleCase) -> EntryOracleResult:
     candidates_by_model: dict[EntryModelV2, EntryCandidate] = {}
     evidence_by_id: dict[str, EntryCandidateEvidence] = {}
     handling_by_id: dict[str, EntryHandlingObservation] = {}
-    events_by_id: dict[str, EntryOracleEvent] = {}
-    for event in case.events:
-        _merge_immutable(events_by_id, (event,), key="event_id")
-    ordered_events = tuple(
-        sorted(
-            events_by_id.values(),
-            key=lambda item: (
-                item.base_match_request.confirmed_bar.close_epoch,
-                item.event_id,
-            ),
-        )
-    )
+    ordered_events = _deduplicated_ordered_events(case.events)
     terminal_fact: tuple[SetupAttemptTerminalReason, int] | None = None
     terminal_wick_grace_from: EntryOracleEvent | None = None
     terminal_wick_grace_consumed = False

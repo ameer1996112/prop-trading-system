@@ -332,6 +332,25 @@ def test_compact_transcript_replays_to_the_same_proof() -> None:
     assert replayed == scanned
 
 
+def test_compact_transcript_requires_a_completed_five_minute_prefix() -> None:
+    transcript = scan_htf_flip(_exact_demand_request()).transcript
+
+    with pytest.raises(ValueError, match="five-minute|completed"):
+        validate_htf_flip_transcript(
+            _setup(),
+            replace(
+                transcript,
+                scan_cutoff_epoch=OPEN_EPOCH + 180,
+                coverage_end_epoch=OPEN_EPOCH + 180,
+                expected_child_count=3,
+                observed_child_count=3,
+            ),
+        )
+
+    accepted = validate_htf_flip_transcript(_setup(), transcript)
+    assert accepted.coverage_end_epoch == OPEN_EPOCH + 300
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [

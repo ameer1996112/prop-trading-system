@@ -265,7 +265,7 @@ def test_unengaged_or_invalidated_setup_emits_no_new_candidate() -> None:
         _setup(),
         invalidated_before_entry=True,
         terminal_reason=SetupAttemptTerminalReason.INVALIDATED,
-        terminal_epoch=950,
+        terminal_epoch=1_300,
     )
     invalidated = match_entry_candidates(_request(setup=invalidated_setup, generic_break=True))
 
@@ -273,6 +273,93 @@ def test_unengaged_or_invalidated_setup_emits_no_new_candidate() -> None:
     assert invalidated.candidates == ()
     assert invalidated.evidence == ()
     assert invalidated.handling == ()
+
+
+def test_retention_event_cannot_emit_new_trigger_records() -> None:
+    retention = replace(
+        _setup(),
+        terminal_reason=SetupAttemptTerminalReason.RETENTION_EVICTED,
+        terminal_epoch=1_300,
+    )
+
+    result = match_entry_candidates(
+        _request(
+            setup=retention,
+            generic_break=True,
+            rejection_respect=True,
+        )
+    )
+
+    assert result.candidates == ()
+    assert result.evidence == ()
+    assert result.handling == ()
+
+
+@pytest.mark.parametrize(
+    ("reason", "invalidated_before_entry"),
+    [
+        (SetupAttemptTerminalReason.INVALIDATED, True),
+        (SetupAttemptTerminalReason.RETENTION_EVICTED, False),
+    ],
+)
+def test_future_terminal_fact_cannot_suppress_an_earlier_matcher_event(
+    reason: SetupAttemptTerminalReason,
+    invalidated_before_entry: bool,
+) -> None:
+    future_terminal = replace(
+        _setup(),
+        terminal_reason=reason,
+        terminal_epoch=1_600,
+        invalidated_before_entry=invalidated_before_entry,
+    )
+
+    with pytest.raises(ValueError, match="terminal|confirmed"):
+        match_entry_candidates(_request(setup=future_terminal))
+
+
+def test_matcher_rejects_engagement_after_the_confirmed_event() -> None:
+    with pytest.raises(ValueError, match="engag|confirmed"):
+        match_entry_candidates(_request(setup=_setup(zone_engaged_epoch=1_301)))
+
+
+def test_matcher_rejects_engagement_after_an_accepted_flip_trigger() -> None:
+    with pytest.raises(ValueError, match="engag|trigger"):
+        match_entry_candidates(
+            _request(
+                setup=_setup(zone_engaged_epoch=1_121),
+                htf_proofs=(_flip_proof(trigger_epoch=1_120),),
+            )
+        )
+
+
+def test_matcher_rejects_a_compact_proof_from_after_the_confirmed_event() -> None:
+    future = _flip_proof(
+        scan_cutoff_epoch=1_600,
+        expected_child_count=10,
+        observed_child_count=10,
+    )
+
+    with pytest.raises(ValueError, match="cutoff|coverage|confirmed"):
+        match_entry_candidates(_request(htf_proofs=(future,)))
+
+
+def test_matcher_accepts_causal_equality_and_an_older_completed_proof() -> None:
+    equality = match_entry_candidates(
+        _request(
+            setup=_setup(zone_engaged_epoch=1_300),
+            htf_proofs=(_flip_proof(trigger_epoch=1_300),),
+        )
+    )
+    older = match_entry_candidates(
+        _request(
+            open_epoch=1_300,
+            close_epoch=1_600,
+            htf_proofs=(_flip_proof(scan_cutoff_epoch=1_300),),
+        )
+    )
+
+    assert any(item.model is EntryModelV2.HTF_FLIP for item in equality.candidates)
+    assert any(item.model is EntryModelV2.HTF_FLIP for item in older.candidates)
 
 
 @pytest.mark.parametrize(
@@ -502,15 +589,16 @@ def test_scanned_htf_break_normalizes_to_flip() -> None:
     assert result.candidates[0].normalized_from is EntryModelV2.LEGACY_BREAK_CANDLE
 
 
-def test_same_trigger_close_outside_htf_boundary_does_not_normalize_break() -> None:
+def test_older_out_of_boundary_flip_does_not_normalize_current_break() -> None:
     proof = _flip_proof(
-        event_anchor_epoch=1_100,
-        trigger_epoch=1_300,
-        scan_cutoff_epoch=1_400,
+        event_anchor_epoch=100,
+        trigger_epoch=300,
+        scan_cutoff_epoch=400,
     )
 
     result = match_entry_candidates(
         _request(
+            setup=_setup(zone_engaged_epoch=100),
             open_ticks=101,
             close_ticks=100,
             htf_proofs=(proof,),
@@ -527,23 +615,24 @@ def test_same_trigger_close_outside_htf_boundary_does_not_normalize_break() -> N
     assert result.candidates[1].state is CandidateState.REJECTED
 
 
-def test_multiple_out_of_boundary_proofs_are_input_order_stable() -> None:
+def test_multiple_older_non_normalizing_proofs_are_input_order_stable() -> None:
     proofs = (
         _flip_proof(
             context_minutes=15,
-            event_anchor_epoch=1_100,
-            trigger_epoch=1_300,
-            scan_cutoff_epoch=1_400,
+            event_anchor_epoch=100,
+            trigger_epoch=300,
+            scan_cutoff_epoch=400,
         ),
         _flip_proof(
             context_minutes=30,
-            event_anchor_epoch=1_150,
-            trigger_epoch=1_300,
-            scan_cutoff_epoch=1_450,
+            event_anchor_epoch=100,
+            trigger_epoch=300,
+            scan_cutoff_epoch=400,
         ),
     )
     forward = match_entry_candidates(
         _request(
+            setup=_setup(zone_engaged_epoch=100),
             open_ticks=101,
             close_ticks=100,
             htf_proofs=proofs,
@@ -552,6 +641,7 @@ def test_multiple_out_of_boundary_proofs_are_input_order_stable() -> None:
     )
     reverse = match_entry_candidates(
         _request(
+            setup=_setup(zone_engaged_epoch=100),
             open_ticks=101,
             close_ticks=100,
             htf_proofs=tuple(reversed(proofs)),

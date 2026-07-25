@@ -148,6 +148,39 @@ def _require_optional_trigger_pair(epoch: int | None, ticks: int | None, name: s
         _require_int(ticks, f"{name}_ticks")
 
 
+def validate_completed_htf_prefix(
+    *,
+    context_minutes: int,
+    htf_open_epoch: int,
+    scan_cutoff_epoch: int,
+    proof_resolution_seconds: int,
+) -> int:
+    """Validate one nonempty, completed-five-minute HTF replay prefix.
+
+    Returns the authoritative expected lower-timeframe child count.
+    """
+    _require_int(context_minutes, "context_minutes", positive=True)
+    if context_minutes not in {15, 30, 60}:
+        raise ValueError("context_minutes must be one of 15, 30, 60")
+    _require_int(htf_open_epoch, "htf_open_epoch", non_negative=True)
+    _require_int(scan_cutoff_epoch, "scan_cutoff_epoch", non_negative=True)
+    _require_int(
+        proof_resolution_seconds,
+        "proof_resolution_seconds",
+        positive=True,
+    )
+    if proof_resolution_seconds >= 300 or 300 % proof_resolution_seconds != 0:
+        raise ValueError("proof_resolution_seconds must divide 300 and be below 300")
+    coverage_seconds = scan_cutoff_epoch - htf_open_epoch
+    if not 0 < coverage_seconds <= context_minutes * 60:
+        raise ValueError("scan cutoff must be inside the HTF context")
+    if coverage_seconds % 300 != 0:
+        raise ValueError("coverage length must align to a completed five-minute slice")
+    if coverage_seconds % proof_resolution_seconds != 0:
+        raise ValueError("scan cutoff must align to the proof resolution")
+    return coverage_seconds // proof_resolution_seconds
+
+
 @dataclass(frozen=True, slots=True)
 class OrderedCandle:
     open_epoch: int
@@ -204,9 +237,6 @@ class HTFFlipProofTranscript:
     same_child: bool
 
     def __post_init__(self) -> None:
-        _require_int(self.context_minutes, "context_minutes", positive=True)
-        if self.context_minutes not in {15, 30, 60}:
-            raise ValueError("context_minutes must be one of 15, 30, 60")
         for name, value in (
             ("htf_open_epoch", self.htf_open_epoch),
             ("htf_open_ticks", self.htf_open_ticks),
@@ -231,14 +261,16 @@ class HTFFlipProofTranscript:
                     "observed_child_count",
                 },
             )
-        if self.proof_resolution_seconds >= 300 or 300 % self.proof_resolution_seconds != 0:
-            raise ValueError("proof_resolution_seconds must divide 300 and be below 300")
         if self.coverage_start_epoch != self.htf_open_epoch:
             raise ValueError("coverage_start_epoch must equal htf_open_epoch")
         if self.coverage_end_epoch != self.scan_cutoff_epoch:
             raise ValueError("coverage_end_epoch must equal scan_cutoff_epoch")
-        if self.coverage_end_epoch <= self.coverage_start_epoch:
-            raise ValueError("coverage must have increasing epochs")
+        validate_completed_htf_prefix(
+            context_minutes=self.context_minutes,
+            htf_open_epoch=self.htf_open_epoch,
+            scan_cutoff_epoch=self.scan_cutoff_epoch,
+            proof_resolution_seconds=self.proof_resolution_seconds,
+        )
         for name, value in (
             ("gap_present", self.gap_present),
             ("full_lifecycle_ordered", self.full_lifecycle_ordered),
@@ -725,3 +757,165 @@ def selection_id(identity: EntrySelectionIdentity) -> str:
             "setup_id": identity.setup_id,
         }
     )
+
+
+def validate_entry_result_graph(
+    *,
+    candidates: tuple[EntryCandidate, ...],
+    evidence: tuple[EntryCandidateEvidence, ...],
+    handling: tuple[EntryHandlingObservation, ...],
+    selection: EntrySelection,
+) -> None:
+    """Validate semantic identities, ownership, selection coherence, and causality."""
+    candidate_by_id = {item.candidate_id: item for item in candidates}
+    evidence_by_id = {item.evidence_id: item for item in evidence}
+    if len(candidate_by_id) != len(candidates):
+        raise ValueError("candidate IDs must be unique")
+    if len(evidence_by_id) != len(evidence):
+        raise ValueError("evidence IDs must be unique")
+    if len({item.handling_id for item in handling}) != len(handling):
+        raise ValueError("handling IDs must be unique")
+
+    for candidate_record in candidates:
+        authoritative_id = candidate_id(
+            EntryCandidateIdentity(
+                setup_id=candidate_record.setup_id,
+                model=candidate_record.model,
+                direction=candidate_record.direction,
+                event_anchor_epoch=candidate_record.event_anchor_epoch,
+                trigger_ordinal=candidate_record.trigger_ordinal,
+            )
+        )
+        if candidate_record.candidate_id != authoritative_id:
+            raise ValueError("candidate_id conflicts with its domain identity")
+        if candidate_record.setup_id != selection.setup_id:
+            raise ValueError("candidate setup ownership disagrees with selection")
+        if candidate_record.observed_at_epoch > selection.evaluated_at_epoch:
+            raise ValueError("candidate observation exceeds selection evaluation")
+
+    for evidence_record in evidence:
+        owner = candidate_by_id.get(evidence_record.candidate_id)
+        if owner is None:
+            raise ValueError("evidence references an unknown candidate")
+        authoritative_payload = evidence_payload_sha256(
+            candidate_id=evidence_record.candidate_id,
+            observed_trigger_epoch=evidence_record.observed_trigger_epoch,
+            observed_trigger_ticks=evidence_record.observed_trigger_ticks,
+            htf_context_minutes=evidence_record.htf_context_minutes,
+            fidelity=evidence_record.fidelity,
+            proof_plane=evidence_record.proof_plane,
+            proof_resolution_seconds=evidence_record.proof_resolution_seconds,
+            coverage_start_epoch=evidence_record.coverage_start_epoch,
+            coverage_end_epoch=evidence_record.coverage_end_epoch,
+            ambiguity_codes=evidence_record.ambiguity_codes,
+            passed_rule_ids=evidence_record.passed_rule_ids,
+            failed_rule_ids=evidence_record.failed_rule_ids,
+            source_claim_ids=evidence_record.source_claim_ids,
+        )
+        if evidence_record.payload_sha256 != authoritative_payload:
+            raise ValueError("evidence payload_sha256 conflicts with its domain payload")
+        authoritative_id = evidence_id(
+            EntryEvidenceIdentity(
+                candidate_id=evidence_record.candidate_id,
+                proof_plane=evidence_record.proof_plane,
+                proof_resolution_seconds=evidence_record.proof_resolution_seconds,
+                coverage_start_epoch=evidence_record.coverage_start_epoch,
+                coverage_end_epoch=evidence_record.coverage_end_epoch,
+                observed_trigger_epoch=evidence_record.observed_trigger_epoch,
+                payload_sha256=evidence_record.payload_sha256,
+            )
+        )
+        if evidence_record.evidence_id != authoritative_id:
+            raise ValueError("evidence_id conflicts with its domain identity")
+        trigger = evidence_record.observed_trigger_epoch
+        if trigger is not None and not (
+            evidence_record.coverage_start_epoch <= trigger <= evidence_record.coverage_end_epoch
+        ):
+            raise ValueError("evidence trigger lies outside its coverage")
+        if evidence_record.coverage_end_epoch > evidence_record.observed_at_epoch:
+            raise ValueError("evidence coverage exceeds its observed time")
+        if evidence_record.observed_at_epoch > selection.evaluated_at_epoch:
+            raise ValueError("evidence observation exceeds selection evaluation")
+
+    for handling_record in handling:
+        owner = candidate_by_id.get(handling_record.candidate_id)
+        referenced_evidence = evidence_by_id.get(handling_record.evidence_id)
+        if (
+            owner is None
+            or referenced_evidence is None
+            or referenced_evidence.candidate_id != handling_record.candidate_id
+        ):
+            raise ValueError("handling references an unknown or foreign record")
+        authoritative_id = handling_id(
+            EntryHandlingIdentity(
+                candidate_id=handling_record.candidate_id,
+                evidence_id=handling_record.evidence_id,
+                handling_mode=handling_record.handling_mode,
+                attempt_kind=handling_record.attempt_kind,
+                observed_epoch=handling_record.observed_epoch,
+                observed_ticks=handling_record.observed_ticks,
+                fidelity=handling_record.fidelity,
+                source_claim_ids=handling_record.source_claim_ids,
+            )
+        )
+        if handling_record.handling_id != authoritative_id:
+            raise ValueError("handling_id conflicts with its domain identity")
+        evidence_epoch = (
+            referenced_evidence.observed_trigger_epoch
+            if referenced_evidence.observed_trigger_epoch is not None
+            else referenced_evidence.observed_at_epoch
+        )
+        if handling_record.observed_epoch < evidence_epoch:
+            raise ValueError("handling observation precedes referenced evidence")
+        if handling_record.observed_epoch > selection.evaluated_at_epoch:
+            raise ValueError("handling observation exceeds selection evaluation")
+        if handling_record.handling_mode is HandlingMode.NEXT_CANDLE_WICK and (
+            owner.model is not EntryModelV2.DIR_CLOSE
+            or referenced_evidence.proof_plane is not ProofPlane.CONFIRMED_5M
+            or referenced_evidence.observed_trigger_epoch is None
+            or owner.observed_at_epoch != referenced_evidence.observed_trigger_epoch
+            or handling_record.observed_epoch != referenced_evidence.observed_trigger_epoch + 300
+        ):
+            raise ValueError(
+                "NEXT_CANDLE_WICK must follow its directional-close evidence by 300 seconds"
+            )
+
+    active_candidate_ids = tuple(
+        sorted(
+            item.candidate_id
+            for item in candidates
+            if item.model in {EntryModelV2.DIR_CLOSE, EntryModelV2.HTF_FLIP}
+        )
+    )
+    if selection.candidate_ids_considered != active_candidate_ids:
+        raise ValueError("selection candidate_ids_considered disagree with active candidates")
+    authoritative_selection_id = selection_id(
+        EntrySelectionIdentity(
+            setup_id=selection.setup_id,
+            policy_version=selection.policy_version,
+            revision=selection.revision,
+            candidate_ids_considered=selection.candidate_ids_considered,
+            canonical_candidate_id=selection.canonical_candidate_id,
+            canonical_evidence_id=selection.canonical_evidence_id,
+            reason=selection.reason,
+            fidelity=selection.fidelity,
+            action=selection.action,
+        )
+    )
+    if selection.selection_id != authoritative_selection_id:
+        raise ValueError("selection_id conflicts with its domain identity")
+    if selection.canonical_candidate_id is None:
+        if selection.canonical_model is not None:
+            raise ValueError("selection canonical model requires a candidate")
+        return
+    canonical_candidate = candidate_by_id.get(selection.canonical_candidate_id)
+    canonical_evidence = evidence_by_id.get(selection.canonical_evidence_id or "")
+    if (
+        canonical_candidate is None
+        or canonical_evidence is None
+        or canonical_candidate.candidate_id not in selection.candidate_ids_considered
+        or canonical_evidence.candidate_id != canonical_candidate.candidate_id
+        or selection.canonical_model is not canonical_candidate.model
+        or selection.fidelity is not canonical_evidence.fidelity
+    ):
+        raise ValueError("selection references an inconsistent canonical record")

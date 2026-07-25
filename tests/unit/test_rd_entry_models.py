@@ -245,6 +245,8 @@ def test_ordered_candle_rejects_invalid_interval_and_ohlc() -> None:
         _candle(open_epoch=60, close_epoch=60)
     with pytest.raises(ValueError, match="high_ticks is below candle values"):
         OrderedCandle(0, 60, 100, 105, 90, 110)
+    with pytest.raises(ValueError, match="low_ticks is above candle values"):
+        OrderedCandle(0, 60, 100, 120, 105, 110)
 
 
 def test_ticks_are_integers_but_only_epochs_are_non_negative() -> None:

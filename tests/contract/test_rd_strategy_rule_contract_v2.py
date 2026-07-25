@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from prop_trading.contracts.rd_strategy_v2 import (
 )
 
 CONTRACT = Path("config/phase0/rd-strategy-rule-contract-v2.json")
+BASE_CONTRACT = Path("config/phase0/rd-strategy-rule-contract.json")
 OFFICIAL_CHANNEL = "UC54xbL96tU58iez3YbTVTAg"
 PROHIBITED_VIDEOS = {"LCydpj3CaHo", "rO5els-o3Oo"}
 
@@ -269,6 +271,27 @@ def test_v2_policy_is_closed_and_paper_only() -> None:
     )
     assert contract.automation_policy.htf_context_minutes == (15, 30, 60)
     assert contract.automation_policy.arbitration_policy_version == "rd-entry-arbitration-v2"
+
+
+def test_v2_base_contract_digest_is_bound_to_the_exact_base_contract_bytes() -> None:
+    contract = RDStrategyRuleContractV2.model_validate_json(CONTRACT.read_bytes())
+
+    assert contract.base_contract_sha256 == hashlib.sha256(BASE_CONTRACT.read_bytes()).hexdigest()
+
+    forged = valid_contract_payload()
+    forged["base_contract_sha256"] = "a" * 64
+    with pytest.raises(ValidationError, match="base contract|sha256|digest"):
+        RDStrategyRuleContractV2.model_validate(forged)
+
+
+def test_duplicate_inherited_rule_ids_are_rejected_before_set_comparison() -> None:
+    value = valid_contract_payload()
+    inherited = value["inherited_rule_ids"]
+    assert isinstance(inherited, tuple)
+    value["inherited_rule_ids"] = (*inherited, inherited[0])
+
+    with pytest.raises(ValidationError, match="duplicate|repeats|unique"):
+        RDStrategyRuleContractV2.model_validate(value)
 
 
 def test_v2_sources_are_official_and_exclude_third_parties() -> None:
