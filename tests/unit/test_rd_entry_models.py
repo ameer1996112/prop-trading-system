@@ -65,6 +65,37 @@ def _transcript(**changes: object) -> HTFFlipProofTranscript:
     return HTFFlipProofTranscript(**values)  # type: ignore[arg-type]
 
 
+def _handling_observation() -> EntryHandlingObservation:
+    return EntryHandlingObservation(
+        handling_id="c" * 64,
+        candidate_id="a" * 64,
+        evidence_id="b" * 64,
+        handling_mode=HandlingMode.AGGRESSIVE,
+        attempt_kind=AttemptKind.INITIAL,
+        observed_epoch=1,
+        observed_ticks=None,
+        fidelity=CandidateFidelity.EXACT,
+        source_claim_ids=("claim",),
+    )
+
+
+def _selection() -> EntrySelection:
+    return EntrySelection(
+        selection_id="c" * 64,
+        setup_id="setup",
+        policy_version="rd-entry-arbitration-v2",
+        revision=0,
+        candidate_ids_considered=("a" * 64, "b" * 64),
+        canonical_candidate_id="a" * 64,
+        canonical_evidence_id="b" * 64,
+        canonical_model=EntryModelV2.DIR_CLOSE,
+        reason=SelectionReason.ONLY_EXACT_TRIGGER,
+        fidelity=CandidateFidelity.EXACT,
+        action=SelectionAction.PAPER_ELIGIBLE,
+        evaluated_at_epoch=1,
+    )
+
+
 def test_candidate_identity_is_semantic_and_proof_independent() -> None:
     identity = EntryCandidateIdentity(
         setup_id="setup-1",
@@ -336,34 +367,25 @@ def test_candidate_evidence_has_no_model_and_validates_evidence_identity_shape()
         replace(evidence, htf_context_minutes=(30, 15))
 
 
-def test_handling_and_selection_enforce_reference_and_ordering_invariants() -> None:
-    with pytest.raises(ValueError, match="candidate_id must be"):
-        EntryHandlingObservation(
-            handling_id="c" * 64,
-            candidate_id="",
-            evidence_id="b" * 64,
-            handling_mode=HandlingMode.AGGRESSIVE,
-            attempt_kind=AttemptKind.INITIAL,
-            observed_epoch=1,
-            observed_ticks=None,
-            fidelity=CandidateFidelity.EXACT,
-            source_claim_ids=("claim", "claim"),
-        )
-    with pytest.raises(ValueError, match="policy_version must be"):
-        EntrySelection(
-            selection_id="c" * 64,
-            setup_id="setup",
-            policy_version="not-a-policy",  # type: ignore[arg-type]
-            revision=0,
-            candidate_ids_considered=("b" * 64, "a" * 64),
-            canonical_candidate_id="a" * 64,
-            canonical_evidence_id=None,
-            canonical_model=EntryModelV2.DIR_CLOSE,
-            reason=SelectionReason.NO_CANDIDATE,
-            fidelity=None,
-            action=SelectionAction.NONE,
-            evaluated_at_epoch=1,
-        )
+def test_handling_observation_rejects_duplicate_source_claim_ids() -> None:
+    with pytest.raises(ValueError, match="source_claim_ids must not contain duplicates"):
+        replace(_handling_observation(), source_claim_ids=("claim", "claim"))
+
+
+def test_selection_rejects_unsorted_or_duplicate_candidate_ids_considered() -> None:
+    selection = _selection()
+
+    with pytest.raises(ValueError, match="candidate_ids_considered must be sorted"):
+        replace(selection, candidate_ids_considered=("b" * 64, "a" * 64))
+    with pytest.raises(ValueError, match="candidate_ids_considered must not contain duplicates"):
+        replace(selection, candidate_ids_considered=("a" * 64, "a" * 64))
+
+
+def test_selection_rejects_exactly_one_null_canonical_id() -> None:
+    with pytest.raises(
+        ValueError, match="canonical candidate and evidence IDs must both be present or absent"
+    ):
+        replace(_selection(), canonical_evidence_id=None)
 
 
 def test_candidate_attempt_ordinal_must_be_positive_for_every_attempt_kind() -> None:
