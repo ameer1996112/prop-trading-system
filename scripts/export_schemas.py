@@ -7,7 +7,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from prop_trading.contracts.models import SCHEMA_MODELS
+from prop_trading.contracts.schema_registry import SCHEMA_MODELS
 
 
 def _render(model: type) -> bytes:
