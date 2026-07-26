@@ -24,355 +24,36 @@ import {
   SOURCE_CLAIMS,
 } from "../src/rd-entry-policy";
 import { SOURCE_CLAIM_CATALOG } from "../src/rd-entry-source-catalog";
+import {
+  parseRdEntryOracleVectorDocument,
+  type RdEntryOracleVectorCase as OracleVectorCase,
+} from "../src/rd-entry-vector-contract";
 
-interface OracleVectorCase {
-  readonly case_id: string;
-  readonly setup_id: string;
-  readonly symbol: string;
-  readonly feed: string;
-  readonly calculation_start_epoch: number;
-  readonly emission_start_epoch: number;
-  readonly emission_end_epoch: number;
-  readonly pine_supported: boolean;
-  readonly input: Readonly<Record<string, unknown>>;
-  readonly edge_input: {
-    readonly setup_id: string;
-    readonly events: readonly EntryStreamEvent[];
-    readonly setup_invalidated: boolean;
-    readonly policy_version: "rd-entry-arbitration-v2";
-    readonly revision: number;
-    readonly evaluated_at_epoch: number;
-  };
-  readonly pine_edge_input: OracleVectorCase["edge_input"];
-  readonly expected: EntryEvaluation & {
-    readonly htf_transcripts: readonly HTFFlipProofTranscript[];
-  };
-  readonly pine_expected: OracleVectorCase["expected"];
-}
-
-interface OracleVectorDocument {
-  readonly schema_id: "phase0.rd-entry-arbitration-vectors.v2";
-  readonly cases: readonly OracleVectorCase[];
-}
-
-const DOCUMENT_KEYS = ["cases", "schema_id"] as const;
-const CASE_KEYS = [
-  "calculation_start_epoch",
-  "case_id",
-  "edge_input",
-  "emission_end_epoch",
-  "emission_start_epoch",
-  "expected",
-  "feed",
-  "input",
-  "pine_edge_input",
-  "pine_expected",
-  "pine_supported",
-  "setup_id",
-  "symbol",
-] as const;
-const INPUT_KEYS = [
-  "evaluated_at_epoch",
-  "events",
-  "policy_version",
-  "revision",
-  "setup_id",
-  "setup_invalidated",
-] as const;
-const EVENT_KEYS = ["event_id", "match_request"] as const;
-const MATCH_REQUEST_KEYS = [
-  "attempt_kind",
-  "confirmed_bar",
-  "generic_break_detected",
-  "htf_proofs",
-  "rejection_respect_detected",
-  "setup",
-  "trigger_ordinal",
-] as const;
-const SETUP_KEYS = [
-  "common_fidelity",
-  "direction",
-  "invalidated_before_entry",
-  "setup_id",
-  "terminal_epoch",
-  "terminal_reason",
-  "zone_bottom_ticks",
-  "zone_engaged_epoch",
-  "zone_top_ticks",
-] as const;
-const RESULT_KEYS = [
-  "candidates",
-  "evidence",
-  "handling",
-  "htf_transcripts",
-  "selection",
-] as const;
-
-function objectValue(
-  value: unknown,
-  name: string,
-): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new TypeError(`${name} must be an object`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function exactKeys(
-  value: Record<string, unknown>,
-  keys: readonly string[],
-  name: string,
-): void {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new TypeError(`${name} has unknown or missing fields`);
-  }
-}
-
-function closedText(value: unknown, name: string): string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.trim() !== value
-  ) {
-    throw new TypeError(`${name} must be a non-empty closed string`);
-  }
-  return value;
-}
-
-function nonNegativeInteger(value: unknown, name: string): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new TypeError(`${name} must be a non-negative safe integer`);
-  }
-  return value;
-}
-
-function booleanValue(value: unknown, name: string): boolean {
-  if (typeof value !== "boolean") {
-    throw new TypeError(`${name} must be a boolean`);
-  }
-  return value;
-}
-
-function containsRawChildren(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsRawChildren);
-  if (value === null || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return (
-    Object.hasOwn(record, "children") ||
-    Object.hasOwn(record, "htf_scan_requests") ||
-    Object.values(record).some(containsRawChildren)
-  );
-}
-
-function pineProjection(
-  input: OracleVectorCase["edge_input"],
-): OracleVectorCase["edge_input"] {
-  return {
-    ...input,
-    events: input.events.map((event) => ({
-      ...event,
-      match_request: {
-        ...event.match_request,
-        setup: {
-          ...event.match_request.setup,
-          common_fidelity: "UNRESOLVED",
-        },
-      },
-    })),
-  };
-}
-
-function validateEdgeInput(
-  value: unknown,
-  caseSetupId: string,
-  name: string,
-): void {
-  const input = objectValue(value, name);
-  exactKeys(input, INPUT_KEYS, name);
-  if (closedText(input.setup_id, `${name}.setup_id`) !== caseSetupId) {
-    throw new TypeError(`${name}.setup_id disagrees with replay metadata`);
-  }
-  if (input.policy_version !== "rd-entry-arbitration-v2") {
-    throw new TypeError(`${name}.policy_version is unsupported`);
-  }
-  booleanValue(input.setup_invalidated, `${name}.setup_invalidated`);
-  nonNegativeInteger(input.revision, `${name}.revision`);
-  const evaluatedAt = nonNegativeInteger(
-    input.evaluated_at_epoch,
-    `${name}.evaluated_at_epoch`,
-  );
-  if (!Array.isArray(input.events) || input.events.length === 0) {
-    throw new TypeError(`${name}.events must be a non-empty array`);
-  }
-  let latestClose = 0;
-  for (const [index, rawEvent] of input.events.entries()) {
-    const event = objectValue(rawEvent, `${name}.events[${index}]`);
-    exactKeys(event, EVENT_KEYS, `${name}.events[${index}]`);
-    closedText(event.event_id, `${name}.events[${index}].event_id`);
-    const request = objectValue(
-      event.match_request,
-      `${name}.events[${index}].match_request`,
-    );
-    exactKeys(
-      request,
-      MATCH_REQUEST_KEYS,
-      `${name}.events[${index}].match_request`,
-    );
-    const setup = objectValue(
-      request.setup,
-      `${name}.events[${index}].match_request.setup`,
-    );
-    exactKeys(
-      setup,
-      SETUP_KEYS,
-      `${name}.events[${index}].match_request.setup`,
-    );
-    if (
-      closedText(
-        setup.setup_id,
-        `${name}.events[${index}].match_request.setup.setup_id`,
-      ) !== caseSetupId
-    ) {
-      throw new TypeError(`${name} event setup_id disagrees with metadata`);
-    }
-    const bar = objectValue(
-      request.confirmed_bar,
-      `${name}.events[${index}].match_request.confirmed_bar`,
-    );
-    latestClose = Math.max(
-      latestClose,
-      nonNegativeInteger(
-        bar.close_epoch,
-        `${name}.events[${index}].match_request.confirmed_bar.close_epoch`,
-      ),
-    );
-  }
-  if (evaluatedAt < latestClose) {
-    throw new TypeError(`${name}.evaluated_at_epoch precedes an event`);
-  }
-  if (containsRawChildren(input)) {
-    throw new TypeError(`${name} contains raw intrabar children`);
-  }
-}
-
-function validateResult(value: unknown, name: string): void {
-  const result = objectValue(value, name);
-  exactKeys(result, RESULT_KEYS, name);
-  for (const field of [
-    "candidates",
-    "evidence",
-    "handling",
-    "htf_transcripts",
-  ] as const) {
-    if (!Array.isArray(result[field])) {
-      throw new TypeError(`${name}.${field} must be an array`);
-    }
-  }
-  objectValue(result.selection, `${name}.selection`);
-}
-
-function validateCase(value: unknown, index: number): OracleVectorCase {
-  const name = `document.cases[${index}]`;
-  const vector = objectValue(value, name);
-  exactKeys(vector, CASE_KEYS, name);
-  closedText(vector.case_id, `${name}.case_id`);
-  const setupId = closedText(vector.setup_id, `${name}.setup_id`);
-  closedText(vector.symbol, `${name}.symbol`);
-  closedText(vector.feed, `${name}.feed`);
-  const calculationStart = nonNegativeInteger(
-    vector.calculation_start_epoch,
-    `${name}.calculation_start_epoch`,
-  );
-  const emissionStart = nonNegativeInteger(
-    vector.emission_start_epoch,
-    `${name}.emission_start_epoch`,
-  );
-  const emissionEnd = nonNegativeInteger(
-    vector.emission_end_epoch,
-    `${name}.emission_end_epoch`,
-  );
-  if (!(calculationStart <= emissionStart && emissionStart <= emissionEnd)) {
-    throw new TypeError(`${name} replay epochs are not ordered`);
-  }
-  booleanValue(vector.pine_supported, `${name}.pine_supported`);
-  objectValue(vector.input, `${name}.input`);
-  validateEdgeInput(vector.edge_input, setupId, `${name}.edge_input`);
-  validateEdgeInput(
-    vector.pine_edge_input,
-    setupId,
-    `${name}.pine_edge_input`,
-  );
-  validateResult(vector.expected, `${name}.expected`);
-  validateResult(vector.pine_expected, `${name}.pine_expected`);
-
-  const typed = vector as unknown as OracleVectorCase;
-  if (
-    JSON.stringify(pineProjection(typed.edge_input)) !==
-    JSON.stringify(typed.pine_edge_input)
-  ) {
-    throw new TypeError(`${name} Pine view changed a non-fidelity path`);
-  }
-  if (
-    !typed.pine_edge_input.events.every(
-      (event) =>
-        event.match_request.setup.common_fidelity === "UNRESOLVED",
-    )
-  ) {
-    throw new TypeError(`${name} Pine setup fidelity is not unresolved`);
-  }
-  for (const [viewName, input] of [
-    ["edge_input", typed.edge_input],
-    ["pine_edge_input", typed.pine_edge_input],
-  ] as const) {
-    if (
-      input.events.some(({ match_request }) => {
-        const close = match_request.confirmed_bar.close_epoch;
-        return close < emissionStart || close > emissionEnd;
-      })
-    ) {
-      throw new TypeError(
-        `${name}.${viewName} event lies outside replay emission metadata`,
-      );
-    }
-  }
-  return typed;
-}
-
-function parseDocument(value: unknown): OracleVectorDocument {
-  const root = objectValue(value, "document");
-  exactKeys(root, DOCUMENT_KEYS, "document");
-  if (root.schema_id !== "phase0.rd-entry-arbitration-vectors.v2") {
-    throw new TypeError("document.schema_id is unsupported");
-  }
-  if (!Array.isArray(root.cases) || root.cases.length !== 24) {
-    throw new TypeError("document must contain 24 reviewed cases");
-  }
-  const cases = root.cases.map(validateCase);
-  if (new Set(cases.map((item) => item.case_id)).size !== cases.length) {
-    throw new TypeError("document case IDs must be unique");
-  }
-  return {
-    schema_id: root.schema_id,
-    cases,
-  };
-}
-
-const rawDocument: unknown = JSON.parse(
-  readFileSync(
-    new URL(
-      "../../../contracts/vectors/rd-entry-arbitration-v2.json",
-      import.meta.url,
-    ),
-    "utf8",
+const VECTOR_BYTES = readFileSync(
+  new URL(
+    "../../../contracts/vectors/rd-entry-arbitration-v2.json",
+    import.meta.url,
   ),
 );
-const document = parseDocument(rawDocument);
+const document = await parseRdEntryOracleVectorDocument(VECTOR_BYTES);
+
+async function mutateVectorDocument(
+  caseId: string,
+  mutate: (vector: Record<string, unknown>) => void,
+): Promise<OracleVectorCase> {
+  const raw = JSON.parse(VECTOR_BYTES.toString("utf8")) as {
+    cases: Record<string, unknown>[];
+  };
+  const vector = raw.cases.find((item) => item.case_id === caseId);
+  if (vector === undefined) throw new TypeError(`missing vector ${caseId}`);
+  mutate(vector);
+  const parsed = await parseRdEntryOracleVectorDocument(
+    new TextEncoder().encode(JSON.stringify(raw)),
+  );
+  const result = parsed.cases.find((item) => item.case_id === caseId);
+  if (result === undefined) throw new TypeError(`missing vector ${caseId}`);
+  return result;
+}
 
 function caseById(caseId: string): OracleVectorCase {
   const vector = document.cases.find((item) => item.case_id === caseId);
@@ -407,8 +88,8 @@ function finalTranscripts(
       left.event_id.localeCompare(right.event_id),
   );
   for (const event of ordered) {
-    for (const transcript of event.match_request
-      .htf_proofs as unknown as readonly HTFFlipProofTranscript[]) {
+    for (const proof of event.match_request.htf_proofs) {
+      const transcript = "matched" in proof ? proof.transcript : proof;
       const previous = latest.get(transcript.context_minutes);
       if (previous !== undefined) {
         const comparison =
@@ -435,10 +116,10 @@ function finalTranscripts(
 function requireTranscript(
   proof: HTFFlipProof | HTFFlipProofTranscript | undefined,
 ): HTFFlipProofTranscript {
-  if (proof === undefined || !Object.hasOwn(proof, "context_minutes")) {
+  if (proof === undefined || "matched" in proof) {
     throw new TypeError("expected a compact HTF transcript fixture");
   }
-  return proof as HTFFlipProofTranscript;
+  return proof;
 }
 
 async function rehashEvidence(
@@ -589,8 +270,6 @@ describe("RD entry TypeScript/Python parity", () => {
 
   for (const vector of document.cases) {
     it(vector.case_id, async () => {
-      expect(containsRawChildren(vector.edge_input)).toBe(false);
-      expect(containsRawChildren(vector.pine_edge_input)).toBe(false);
       const actual = await evaluateInput(vector.edge_input);
       expect(actual).toEqual(expectedEvaluation(vector));
       expect(finalTranscripts(vector.edge_input.events)).toEqual(
@@ -601,13 +280,12 @@ describe("RD entry TypeScript/Python parity", () => {
 
   it("preserves replay metadata without changing matcher output", async () => {
     const vector = caseById("htf-flip-15m");
-    const mutated = validateCase(
-      {
-        ...vector,
-        symbol: "METADATA_ONLY",
-        feed: "REPLAY_FIXTURE",
+    const mutated = await mutateVectorDocument(
+      vector.case_id,
+      (value) => {
+        value.symbol = "METADATA_ONLY";
+        value.feed = "REPLAY_FIXTURE";
       },
-      0,
     );
 
     expect(await evaluateInput(mutated.edge_input)).toEqual(
@@ -628,23 +306,19 @@ describe("RD entry TypeScript/Python parity", () => {
     ["wrong boolean type", (value: Record<string, unknown>) => {
       value.pine_supported = 1;
     }],
-  ])("rejects malformed replay metadata: %s", (_, mutate) => {
-    const value = structuredClone(
-      caseById("dir-close-engagement"),
-    ) as unknown as Record<string, unknown>;
-    mutate(value);
-    expect(() => validateCase(value, 0)).toThrow(TypeError);
+  ])("rejects malformed replay metadata: %s", async (_, mutate) => {
+    await expect(
+      mutateVectorDocument("dir-close-engagement", mutate),
+    ).rejects.toThrow(TypeError);
   });
 
-  it("rejects a Pine view that changes a non-fidelity path", () => {
-    const vector = caseById("dir-close-engagement");
-    const pine = {
-      ...vector.pine_edge_input,
-      revision: vector.pine_edge_input.revision + 1,
-    };
-    expect(() =>
-      validateCase({ ...vector, pine_edge_input: pine }, 0),
-    ).toThrow(/Pine view/u);
+  it("rejects a Pine view that changes a non-fidelity path", async () => {
+    await expect(
+      mutateVectorDocument("dir-close-engagement", (value) => {
+        const pine = value.pine_edge_input as Record<string, unknown>;
+        pine.revision = Number(pine.revision) + 1;
+      }),
+    ).rejects.toThrow(/Pine|pine/u);
   });
 });
 
@@ -1077,6 +751,45 @@ describe("immutable terminal and handling-only grace", () => {
     ).rejects.toThrow(/authority event follows terminal/u);
   });
 
+  it("does not grant grace when one event creates both active models", async () => {
+    const source = caseById("htf-flip-15m").edge_input.events[0]!;
+    const closeEpoch = source.match_request.confirmed_bar.close_epoch;
+    const terminal: EntryStreamEvent = {
+      ...source,
+      event_id: "same-event-both-models",
+      match_request: {
+        ...source.match_request,
+        setup: {
+          ...source.match_request.setup,
+          terminal_reason: "BOTH_ACTIVE_MODELS_OBSERVED",
+          terminal_epoch: closeEpoch,
+        },
+        confirmed_bar: {
+          ...source.match_request.confirmed_bar,
+          open_ticks: 98,
+          high_ticks: 102,
+          low_ticks: 98,
+          close_ticks: 101,
+        },
+      },
+    };
+    const authority = await evaluateEventsAt([terminal], closeEpoch);
+    expect(
+      new Set(authority.candidates.map((candidate) => candidate.model)),
+    ).toEqual(new Set(["DIR_CLOSE", "HTF_FLIP"]));
+
+    const postTerminal = graceEvent(
+      terminal,
+      "forbidden-same-event-both-grace",
+    );
+    await expect(
+      evaluateEventsAt(
+        [terminal, postTerminal],
+        postTerminal.match_request.confirmed_bar.close_epoch,
+      ),
+    ).rejects.toThrow(/authority event follows terminal/u);
+  });
+
   it("rejects malformed grace OHLC instead of reopening or silently accepting it", async () => {
     const [flip, terminal] = terminalEvents();
     const grace = graceEvent(terminal);
@@ -1186,6 +899,58 @@ describe("frozen RD source catalog", () => {
 });
 
 describe("bounded HTF transcript validation and identity", () => {
+  it("accepts exact 150-second proof resolution because it divides five minutes", async () => {
+    const request = compactRequest(
+      caseById("htf-flip-15m").edge_input.events[0]!,
+    );
+    const anchor = request.confirmed_bar.open_epoch;
+    const transcript: HTFFlipProofTranscript = {
+      context_minutes: 15,
+      htf_open_epoch: anchor,
+      htf_open_ticks: 100,
+      scan_cutoff_epoch: anchor + 300,
+      proof_resolution_seconds: 150,
+      coverage_start_epoch: anchor,
+      coverage_end_epoch: anchor + 300,
+      expected_child_count: 2,
+      observed_child_count: 2,
+      gap_present: false,
+      full_lifecycle_ordered: true,
+      destination_seen_before_contact: false,
+      contact_candle: {
+        open_epoch: anchor,
+        close_epoch: anchor + 150,
+        open_ticks: 99,
+        high_ticks: 99,
+        low_ticks: 96,
+        close_ticks: 97,
+      },
+      recross_candle: {
+        open_epoch: anchor + 150,
+        close_epoch: anchor + 300,
+        open_ticks: 99,
+        high_ticks: 101,
+        low_ticks: 98,
+        close_ticks: 100,
+      },
+      same_child: false,
+    };
+
+    const proof = await validateHtfFlipProof(request.setup, transcript);
+    const match = await evaluateEntryMatch({
+      ...request,
+      htf_proofs: [transcript],
+    });
+
+    expect(proof.fidelity).toBe("EXACT");
+    expect(proof.proof_resolution_seconds).toBe(150);
+    expect(match.candidates.map((candidate) => candidate.model)).toContain(
+      "HTF_FLIP",
+    );
+    expect(match.evidence[0]?.fidelity).toBe("EXACT");
+    expect(match.evidence[0]?.proof_resolution_seconds).toBe(150);
+  });
+
   it("rejects a differently bounded transcript even with its hash recomputed", async () => {
     const request = caseById("htf-flip-15m").edge_input.events[0]!
       .match_request as EdgeEntryMatchRequest;
@@ -1461,6 +1226,67 @@ describe("deterministic arbitration branches", () => {
         ],
       }),
     ).rejects.toThrow(/conflict/u);
+  });
+
+  it("rejects a candidate observed after the arbitration epoch", async () => {
+    const request = arbitrationRequest(
+      caseById("dir-close-engagement"),
+    );
+    await expect(
+      arbitrateEntryCandidates({
+        ...request,
+        candidates: request.candidates.map((candidate) => ({
+          ...candidate,
+          observed_at_epoch: request.evaluated_at_epoch + 1,
+        })),
+      }),
+    ).rejects.toThrow(/candidate.*observed|evaluation epoch/u);
+  });
+
+  it("rejects evidence observed after the arbitration epoch", async () => {
+    const request = arbitrationRequest(
+      caseById("dir-close-engagement"),
+    );
+    await expect(
+      arbitrateEntryCandidates({
+        ...request,
+        evidence: request.evidence.map((evidence) => ({
+          ...evidence,
+          observed_at_epoch: request.evaluated_at_epoch + 1,
+        })),
+      }),
+    ).rejects.toThrow(/evidence.*observed|evaluation epoch/u);
+  });
+
+  it("rejects evidence whose coverage ends after it was observed", async () => {
+    const request = arbitrationRequest(
+      caseById("dir-close-engagement"),
+    );
+    await expect(
+      arbitrateEntryCandidates({
+        ...request,
+        evidence: request.evidence.map((evidence) => ({
+          ...evidence,
+          observed_at_epoch: evidence.coverage_end_epoch - 1,
+        })),
+      }),
+    ).rejects.toThrow(/coverage.*observed|causality/u);
+  });
+
+  it("rejects future evidence coverage even when its identity is recomputed", async () => {
+    const request = arbitrationRequest(
+      caseById("dir-close-engagement"),
+    );
+    const futureEvidence = await rehashEvidence(request.evidence[0]!, {
+      coverage_end_epoch: request.evaluated_at_epoch + 1,
+      observed_at_epoch: request.evaluated_at_epoch + 1,
+    });
+    await expect(
+      arbitrateEntryCandidates({
+        ...request,
+        evidence: [futureEvidence],
+      }),
+    ).rejects.toThrow(/coverage|observed|evaluation epoch/u);
   });
 
   it("rejects values outside the closed candidate and evidence domains", async () => {

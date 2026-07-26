@@ -495,6 +495,11 @@ export async function arbitrateEntryCandidates(
       validateCandidateIdentity(candidate, request.setup_id)
     ),
   );
+  for (const candidate of candidates.values()) {
+    if (candidate.observed_at_epoch > request.evaluated_at_epoch) {
+      fail("candidate observed_at_epoch follows the evaluation epoch");
+    }
+  }
   const evidence = new Map<string, EntryCandidateEvidence>();
   mergeImmutable(
     evidence,
@@ -507,6 +512,12 @@ export async function arbitrateEntryCandidates(
     [...evidence.values()].map(validateEvidenceIdentity),
   );
   for (const item of evidence.values()) {
+    if (item.coverage_end_epoch > item.observed_at_epoch) {
+      fail("evidence coverage ends after evidence was observed");
+    }
+    if (item.observed_at_epoch > request.evaluated_at_epoch) {
+      fail("evidence observed_at_epoch follows the evaluation epoch");
+    }
     if (!candidates.has(item.candidate_id)) {
       fail(`evidence references unknown candidate: ${item.candidate_id}`);
     }
