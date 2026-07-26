@@ -174,6 +174,207 @@ export interface ObservationSetupEvidence
   readonly rule_passes: readonly boolean[];
 }
 
+export interface StoredMarketBarHeartbeat {
+  readonly receipt_id: string;
+  readonly batch_id: string | null;
+  readonly schema_version: "1.2" | "2.0";
+  readonly producer_role: "LEGACY_REFERENCE" | "ENTRY_V3_CANARY";
+  readonly producer_instance_id: string;
+  readonly producer_sequence: number;
+  readonly strategy_version: "1.2.0-contract1" | "2.0.0-contract2";
+  readonly symbol: string;
+  readonly ticker_id: string;
+  readonly feed: string;
+  readonly timeframe: "5";
+  readonly bar_open_epoch: number;
+  readonly bar_close_epoch: number;
+  readonly detector_code_hash: string | null;
+  readonly settings_hash: string | null;
+  readonly recorded_at: string;
+}
+
+export interface StoredEntrySetupEvent {
+  readonly event_id: string;
+  readonly setup_id: string;
+  readonly batch_id: string;
+  readonly receipt_id: string;
+  readonly confirmed_bar_close_epoch: number;
+  readonly proof_input_sha256: string;
+  readonly proof_input_json: string;
+  readonly recorded_at: string;
+}
+
+export interface StoredEntrySetupTerminal {
+  readonly setup_id: string;
+  readonly terminal_reason:
+    | "INVALIDATED"
+    | "BOTH_ACTIVE_MODELS_OBSERVED"
+    | "RETENTION_EVICTED";
+  readonly terminal_epoch: number;
+  readonly first_batch_id: string;
+  readonly first_receipt_id: string;
+  readonly recorded_at: string;
+}
+
+export interface StoredEntryCandidate {
+  readonly candidate_id: string;
+  readonly setup_id: string;
+  readonly model:
+    | "DIR_CLOSE"
+    | "HTF_FLIP"
+    | "LEGACY_BREAK_CANDLE"
+    | "LEGACY_REJECTION_RESPECT";
+  readonly state: "MATCHED" | "BLOCKED" | "REJECTED" | "NORMALIZED";
+  readonly event_anchor_epoch: number;
+  readonly trigger_ordinal: number;
+  readonly direction: "LONG" | "SHORT";
+  readonly source_claim_ids_json: string;
+  readonly normalized_from:
+    | "LEGACY_BREAK_CANDLE"
+    | "LEGACY_REJECTION_RESPECT"
+    | null;
+  readonly identity_sha256: string;
+  readonly first_receipt_id: string;
+  readonly observed_at_epoch: number;
+}
+
+export interface StoredEntryCandidateEvidence {
+  readonly evidence_id: string;
+  readonly candidate_id: string;
+  readonly receipt_id: string;
+  readonly observed_trigger_epoch: number | null;
+  readonly observed_trigger_ticks: number | null;
+  readonly htf_context_minutes_json: string;
+  readonly fidelity:
+    | "EXACT"
+    | "CALIBRATED"
+    | "DISCRETIONARY"
+    | "UNRESOLVED";
+  readonly proof_plane:
+    | "CONFIRMED_5M"
+    | "LOWER_TIMEFRAME_REPLAY"
+    | "EXTERNAL_ARCHIVED_TICK";
+  readonly proof_resolution_seconds: number;
+  readonly coverage_start_epoch: number;
+  readonly coverage_end_epoch: number;
+  readonly ambiguity_codes_json: string;
+  readonly passed_rule_ids_json: string;
+  readonly failed_rule_ids_json: string;
+  readonly source_claim_ids_json: string;
+  readonly payload_sha256: string;
+  readonly identity_sha256: string;
+  readonly observed_at_epoch: number;
+}
+
+export interface StoredEntryHandling {
+  readonly handling_id: string;
+  readonly candidate_id: string;
+  readonly evidence_id: string;
+  readonly receipt_id: string;
+  readonly handling_mode:
+    | "CLOSE_CONFIRMATION"
+    | "INTRABAR_FLIP"
+    | "NEXT_CANDLE_WICK"
+    | "AGGRESSIVE";
+  readonly attempt_kind: "INITIAL" | "RE_ENTRY";
+  readonly observed_epoch: number;
+  readonly observed_ticks: number | null;
+  readonly fidelity:
+    | "EXACT"
+    | "CALIBRATED"
+    | "DISCRETIONARY"
+    | "UNRESOLVED";
+  readonly source_claim_ids_json: string;
+  readonly identity_sha256: string;
+}
+
+export interface StoredProducerDiagnostic {
+  readonly diagnostic_id: string;
+  readonly batch_id: string;
+  readonly setup_id: string;
+  readonly candidate_refs_json: string;
+  readonly evidence_refs_json: string;
+  readonly realtime_evidence_refs_json: string;
+  readonly handling_refs_json: string;
+  readonly diagnostic_selection_json: string | null;
+  readonly observed_at: string;
+}
+
+export interface StoredEntrySelection {
+  readonly selection_id: string;
+  readonly batch_id: string;
+  readonly setup_id: string;
+  readonly policy_version: "rd-entry-arbitration-v2";
+  readonly revision: number;
+  readonly candidate_ids_considered_json: string;
+  readonly canonical_candidate_id: string | null;
+  readonly canonical_evidence_id: string | null;
+  readonly canonical_model: "DIR_CLOSE" | "HTF_FLIP" | null;
+  readonly reason:
+    | "ONLY_EXACT_TRIGGER"
+    | "EARLIEST_EXACT_TRIGGER"
+    | "FALLBACK_TO_CONFIRMED_CLOSE"
+    | "NO_EXACT_CANDIDATE"
+    | "UNRESOLVED_SOURCE_PRIORITY"
+    | "SETUP_INVALIDATED"
+    | "NO_CANDIDATE";
+  readonly fidelity:
+    | "EXACT"
+    | "CALIBRATED"
+    | "DISCRETIONARY"
+    | "UNRESOLVED"
+    | null;
+  readonly policy_action:
+    | "OBSERVE"
+    | "PAPER_ELIGIBLE"
+    | "SHADOW_ONLY"
+    | "NONE";
+  readonly action: "OBSERVE" | "PAPER_ELIGIBLE" | "SHADOW_ONLY" | "NONE";
+  readonly effective_action_reason: "PROMOTION_IDENTITY_MISMATCH" | null;
+  readonly evaluated_at_epoch: number;
+}
+
+export interface StoredEntryEvaluationMember {
+  readonly selection_id: string;
+  readonly object_kind: "CANDIDATE" | "EVIDENCE" | "HANDLING";
+  readonly object_id: string;
+}
+
+export interface StoredEntryParity {
+  readonly parity_id: string;
+  readonly batch_id: string;
+  readonly setup_id: string;
+  readonly producer_diagnostic_id: string;
+  readonly selection_id: string;
+  readonly parity_status: "MATCH" | "MISMATCH" | "NOT_PROVIDED";
+  readonly mismatch_reason:
+    | "CANDIDATE_KEYS"
+    | "EVIDENCE_DESCRIPTORS"
+    | "HANDLING_DESCRIPTORS"
+    | "SELECTED_CANDIDATE"
+    | "REASON"
+    | "FIDELITY"
+    | "DIAGNOSTIC_ACTION"
+    | "MULTIPLE"
+    | null;
+  readonly compared_at: string;
+}
+
+export interface StoredEntrySourceClaim {
+  readonly claim_id: string;
+  readonly contract_version: "2.0.0";
+  readonly source_id: string;
+  readonly youtube_video_id: string;
+  readonly published_date: string;
+  readonly title_snapshot: string;
+  readonly channel_id: "UC54xbL96tU58iez3YbTVTAg";
+  readonly channel_handle: "@RD_Forex";
+  readonly timestamp_start_seconds: number;
+  readonly timestamp_end_seconds: number;
+  readonly relationship: "SUPPORTS" | "NARROWS" | "SUPERSEDES";
+  readonly summary: string;
+}
+
 export interface PaperAccountCreateCommand {
   readonly schema_version: "1.0";
   readonly account_id: string;

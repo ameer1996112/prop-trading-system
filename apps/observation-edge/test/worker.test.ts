@@ -11,10 +11,541 @@ import {
   LIST_SETUP_EVIDENCE_SQL,
   SELECT_RECEIPT_SQL,
 } from "../src/queries";
-import type { Env, StoredReceipt, StoredSetupEvidence } from "../src/types";
+import type {
+  Env,
+  StoredEntryCandidate,
+  StoredEntryCandidateEvidence,
+  StoredEntryEvaluationMember,
+  StoredEntryHandling,
+  StoredEntryParity,
+  StoredEntrySelection,
+  StoredEntrySetupEvent,
+  StoredEntrySetupTerminal,
+  StoredEntrySourceClaim,
+  StoredMarketBarHeartbeat,
+  StoredProducerDiagnostic,
+  StoredReceipt,
+  StoredSetupEvidence,
+} from "../src/types";
 
 const CREDENTIAL = "edge-test-secret";
 const BASE_URL = "https://prop-trading-observation-edge.example";
+const ENTRY_STORAGE_TABLES = [
+  "observation_entry_batches",
+  "observation_market_bar_heartbeats",
+  "observation_entry_chunks",
+  "observation_entry_batch_completions",
+  "observation_entry_setup_events",
+  "observation_entry_setup_terminals",
+  "observation_entry_candidates",
+  "observation_entry_candidate_evidence",
+  "observation_entry_handling",
+  "observation_entry_producer_diagnostics",
+  "observation_entry_selections",
+  "observation_entry_evaluation_members",
+  "observation_entry_parity",
+  "observation_entry_source_claims",
+  "observation_entry_source_claim_relationships",
+  "observation_entry_quarantine",
+] as const;
+
+const ENTRY_STORAGE_IDS = {
+  batch: "b".repeat(64),
+  candidate: "c".repeat(64),
+  completion: "d".repeat(64),
+  evidence: "e".repeat(64),
+  event: "a".repeat(64),
+  handling: "f".repeat(64),
+  parity: "2".repeat(64),
+  payload: "9".repeat(64),
+  selection: "1".repeat(64),
+} as const;
+
+const ENTRY_STORAGE_ROW_TYPE_FIXTURES = {
+  candidate: {
+    candidate_id: ENTRY_STORAGE_IDS.candidate,
+    setup_id: "setup-entry-storage",
+    model: "DIR_CLOSE",
+    state: "MATCHED",
+    event_anchor_epoch: 1721808300,
+    trigger_ordinal: 1,
+    direction: "LONG",
+    source_claim_ids_json: '["standard-close-2024-03"]',
+    normalized_from: null,
+    identity_sha256: ENTRY_STORAGE_IDS.candidate,
+    first_receipt_id: "receipt-entry-storage-v3",
+    observed_at_epoch: 1721808300,
+  } satisfies StoredEntryCandidate,
+  evidence: {
+    evidence_id: ENTRY_STORAGE_IDS.evidence,
+    candidate_id: ENTRY_STORAGE_IDS.candidate,
+    receipt_id: "receipt-entry-storage-v3",
+    observed_trigger_epoch: 1721808300,
+    observed_trigger_ticks: 110000,
+    htf_context_minutes_json: "[]",
+    fidelity: "EXACT",
+    proof_plane: "CONFIRMED_5M",
+    proof_resolution_seconds: 300,
+    coverage_start_epoch: 1721808000,
+    coverage_end_epoch: 1721808300,
+    ambiguity_codes_json: "[]",
+    passed_rule_ids_json: '["ENTRY_DIR_CLOSE"]',
+    failed_rule_ids_json: "[]",
+    source_claim_ids_json: '["standard-close-2024-03"]',
+    payload_sha256: ENTRY_STORAGE_IDS.payload,
+    identity_sha256: ENTRY_STORAGE_IDS.evidence,
+    observed_at_epoch: 1721808300,
+  } satisfies StoredEntryCandidateEvidence,
+  evaluationMember: {
+    selection_id: ENTRY_STORAGE_IDS.selection,
+    object_kind: "CANDIDATE",
+    object_id: ENTRY_STORAGE_IDS.candidate,
+  } satisfies StoredEntryEvaluationMember,
+  handling: {
+    handling_id: ENTRY_STORAGE_IDS.handling,
+    candidate_id: ENTRY_STORAGE_IDS.candidate,
+    evidence_id: ENTRY_STORAGE_IDS.evidence,
+    receipt_id: "receipt-entry-storage-v3",
+    handling_mode: "CLOSE_CONFIRMATION",
+    attempt_kind: "INITIAL",
+    observed_epoch: 1721808300,
+    observed_ticks: 110000,
+    fidelity: "EXACT",
+    source_claim_ids_json: '["standard-close-2024-03"]',
+    identity_sha256: ENTRY_STORAGE_IDS.handling,
+  } satisfies StoredEntryHandling,
+  heartbeat: {
+    receipt_id: "receipt-entry-storage-v3",
+    batch_id: ENTRY_STORAGE_IDS.batch,
+    schema_version: "2.0",
+    producer_role: "ENTRY_V3_CANARY",
+    producer_instance_id: "entry-v3-canary-producer",
+    producer_sequence: 1,
+    strategy_version: "2.0.0-contract2",
+    symbol: "EURUSD",
+    ticker_id: "VANTAGE:EURUSD",
+    feed: "VANTAGE",
+    timeframe: "5",
+    bar_open_epoch: 1721808000,
+    bar_close_epoch: 1721808300,
+    detector_code_hash: "3".repeat(64),
+    settings_hash: "4".repeat(64),
+    recorded_at: "2026-07-24T10:00:00Z",
+  } satisfies StoredMarketBarHeartbeat,
+  parity: {
+    parity_id: ENTRY_STORAGE_IDS.parity,
+    batch_id: ENTRY_STORAGE_IDS.batch,
+    setup_id: "setup-entry-storage",
+    producer_diagnostic_id: "diagnostic-entry-storage",
+    selection_id: ENTRY_STORAGE_IDS.selection,
+    parity_status: "MISMATCH",
+    mismatch_reason: "DIAGNOSTIC_ACTION",
+    compared_at: "2026-07-24T10:00:03Z",
+  } satisfies StoredEntryParity,
+  producerDiagnostic: {
+    diagnostic_id: "diagnostic-entry-storage",
+    batch_id: ENTRY_STORAGE_IDS.batch,
+    setup_id: "setup-entry-storage",
+    candidate_refs_json: "[]",
+    evidence_refs_json: "[]",
+    realtime_evidence_refs_json: "[]",
+    handling_refs_json: "[]",
+    diagnostic_selection_json: null,
+    observed_at: "2026-07-24T10:00:00Z",
+  } satisfies StoredProducerDiagnostic,
+  selection: {
+    selection_id: ENTRY_STORAGE_IDS.selection,
+    batch_id: ENTRY_STORAGE_IDS.batch,
+    setup_id: "setup-entry-storage",
+    policy_version: "rd-entry-arbitration-v2",
+    revision: 1,
+    candidate_ids_considered_json: JSON.stringify([
+      ENTRY_STORAGE_IDS.candidate,
+    ]),
+    canonical_candidate_id: ENTRY_STORAGE_IDS.candidate,
+    canonical_evidence_id: ENTRY_STORAGE_IDS.evidence,
+    canonical_model: "DIR_CLOSE",
+    reason: "ONLY_EXACT_TRIGGER",
+    fidelity: "EXACT",
+    policy_action: "PAPER_ELIGIBLE",
+    action: "SHADOW_ONLY",
+    effective_action_reason: "PROMOTION_IDENTITY_MISMATCH",
+    evaluated_at_epoch: 1721808300,
+  } satisfies StoredEntrySelection,
+  setupEvent: {
+    event_id: ENTRY_STORAGE_IDS.event,
+    setup_id: "setup-entry-storage",
+    batch_id: ENTRY_STORAGE_IDS.batch,
+    receipt_id: "receipt-entry-storage-v3",
+    confirmed_bar_close_epoch: 1721808300,
+    proof_input_sha256: ENTRY_STORAGE_IDS.payload,
+    proof_input_json: '{"confirmed_bar":{"close_epoch":1721808300}}',
+    recorded_at: "2026-07-24T10:00:00Z",
+  } satisfies StoredEntrySetupEvent,
+  setupTerminal: {
+    setup_id: "setup-entry-storage",
+    terminal_reason: "BOTH_ACTIVE_MODELS_OBSERVED",
+    terminal_epoch: 1721808300,
+    first_batch_id: ENTRY_STORAGE_IDS.batch,
+    first_receipt_id: "receipt-entry-storage-v3",
+    recorded_at: "2026-07-24T10:00:02Z",
+  } satisfies StoredEntrySetupTerminal,
+  sourceClaim: {
+    claim_id: "standard-close-2024-03",
+    contract_version: "2.0.0",
+    source_id: "rd-course-2024-03",
+    youtube_video_id: "kxh_3__oAqg",
+    published_date: "2024-03-25",
+    title_snapshot:
+      "FULL course for LIQUIDITY supply and demand best NEW trading strategy 2026",
+    channel_id: "UC54xbL96tU58iez3YbTVTAg",
+    channel_handle: "@RD_Forex",
+    timestamp_start_seconds: 794,
+    timestamp_end_seconds: 876,
+    relationship: "SUPPORTS",
+    summary: "Official claim covering the standard close entry model.",
+  } satisfies StoredEntrySourceClaim,
+} as const;
+
+function applyObservationMigrationsThrough(
+  database: DatabaseSync,
+  root: string,
+  lastMigration: number,
+): void {
+  const migrations = readdirSync(`${root}/migrations`)
+    .filter((name) => /^\d{4}_.*\.sql$/u.test(name))
+    .filter((name) => Number(name.slice(0, 4)) <= lastMigration)
+    .sort();
+  expect(migrations.at(-1)?.slice(0, 4)).toBe(
+    String(lastMigration).padStart(4, "0"),
+  );
+  for (const migration of migrations) {
+    database.exec("BEGIN");
+    try {
+      database.exec(readFileSync(`${root}/migrations/${migration}`, "utf8"));
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+}
+
+function insertEntryStorageReceipt(
+  database: DatabaseSync,
+  fields: {
+    readonly receiptId: string;
+    readonly schemaVersion: "1.2" | "2.0";
+    readonly strategyVersion: "1.2.0-contract1" | "2.0.0-contract2";
+    readonly producerInstanceId: string;
+    readonly sequence: number;
+    readonly payloadSha256?: string;
+  },
+): void {
+  database
+    .prepare(
+      `INSERT INTO observation_receipts (
+        receipt_id, received_at, idempotency_key, payload_sha256,
+        schema_version, strategy_id, strategy_version, producer_instance_id,
+        sequence, symbol, ticker_id, feed, timeframe, kind
+      ) VALUES (
+        ?, '2026-07-24T10:00:00Z', ?, ?,
+        ?, 'rd_liquidity_sd_5m_v1', ?, ?,
+        ?, 'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5', 'snapshot'
+      )`,
+    )
+    .run(
+      fields.receiptId,
+      `entry-storage:${fields.receiptId}`,
+      fields.payloadSha256 ?? ENTRY_STORAGE_IDS.payload,
+      fields.schemaVersion,
+      fields.strategyVersion,
+      fields.producerInstanceId,
+      fields.sequence,
+    );
+}
+
+function seedEntryStorage(database: DatabaseSync): void {
+  insertEntryStorageReceipt(database, {
+    receiptId: "receipt-entry-storage-legacy",
+    schemaVersion: "1.2",
+    strategyVersion: "1.2.0-contract1",
+    producerInstanceId: "legacy-reference-producer",
+    sequence: 0,
+    payloadSha256: "A".repeat(64),
+  });
+  insertEntryStorageReceipt(database, {
+    receiptId: "receipt-entry-storage-v3",
+    schemaVersion: "2.0",
+    strategyVersion: "2.0.0-contract2",
+    producerInstanceId: "entry-v3-canary-producer",
+    sequence: 1,
+  });
+
+  database
+    .prepare(
+      `INSERT INTO observation_entry_batches (
+        batch_id, producer_instance_id, producer_sequence, kind,
+        bar_close_epoch, strategy_id, strategy_version, rule_contract_version,
+        execution_mode, symbol, ticker_id, feed, timeframe, tick_size,
+        bar_open_epoch, detector_code_hash, settings_hash, chunk_count,
+        first_receipt_id, first_seen_at
+      ) VALUES (
+        ?, 'entry-v3-canary-producer', 1, 'snapshot',
+        1721808300, 'rd_liquidity_sd_5m_v1', '2.0.0-contract2', '2.0.0',
+        'OBSERVATION_ONLY', 'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5', '0.00001',
+        1721808000, ?, ?, 1, 'receipt-entry-storage-v3',
+        '2026-07-24T10:00:00Z'
+      )`,
+    )
+    .run(ENTRY_STORAGE_IDS.batch, "3".repeat(64), "4".repeat(64));
+  database
+    .prepare(
+      `INSERT INTO observation_market_bar_heartbeats (
+        receipt_id, batch_id, schema_version, producer_role,
+        producer_instance_id, producer_sequence, strategy_version,
+        symbol, ticker_id, feed, timeframe, bar_open_epoch, bar_close_epoch,
+        detector_code_hash, settings_hash, recorded_at
+      ) VALUES (
+        'receipt-entry-storage-legacy', NULL, '1.2', 'LEGACY_REFERENCE',
+        'legacy-reference-producer', 0, '1.2.0-contract1',
+        'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5',
+        1721808000, 1721808300, NULL, NULL, '2026-07-24T10:00:00Z'
+      )`,
+    )
+    .run();
+  database
+    .prepare(
+      `INSERT INTO observation_market_bar_heartbeats (
+        receipt_id, batch_id, schema_version, producer_role,
+        producer_instance_id, producer_sequence, strategy_version,
+        symbol, ticker_id, feed, timeframe, bar_open_epoch, bar_close_epoch,
+        detector_code_hash, settings_hash, recorded_at
+      ) VALUES (
+        'receipt-entry-storage-v3', ?, '2.0', 'ENTRY_V3_CANARY',
+        'entry-v3-canary-producer', 1, '2.0.0-contract2',
+        'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5',
+        1721808000, 1721808300, ?, ?, '2026-07-24T10:00:00Z'
+      )`,
+    )
+    .run(ENTRY_STORAGE_IDS.batch, "3".repeat(64), "4".repeat(64));
+  database
+    .prepare(
+      `INSERT INTO observation_entry_chunks (
+        batch_id, chunk_index, chunk_count, receipt_id, payload_sha256,
+        validated_payload_json, recorded_at
+      ) VALUES (?, 0, 1, 'receipt-entry-storage-v3', ?, '{"eb":[]}',
+        '2026-07-24T10:00:00Z')`,
+    )
+    .run(ENTRY_STORAGE_IDS.batch, ENTRY_STORAGE_IDS.payload);
+  database
+    .prepare(
+      `INSERT INTO observation_entry_batch_completions (
+        completion_id, batch_id, assembled_payload_sha256, completed_at
+      ) VALUES (?, ?, ?, '2026-07-24T10:00:01Z')`,
+    )
+    .run(
+      ENTRY_STORAGE_IDS.completion,
+      ENTRY_STORAGE_IDS.batch,
+      ENTRY_STORAGE_IDS.payload,
+    );
+  database
+    .prepare(
+      `INSERT INTO observation_entry_setup_events (
+        event_id, setup_id, batch_id, receipt_id, confirmed_bar_close_epoch,
+        proof_input_sha256, proof_input_json, recorded_at
+      ) VALUES (
+        ?, 'setup-entry-storage', ?, 'receipt-entry-storage-v3', 1721808300,
+        ?, '{"confirmed_bar":{"close_epoch":1721808300}}',
+        '2026-07-24T10:00:00Z'
+      )`,
+    )
+    .run(
+      ENTRY_STORAGE_IDS.event,
+      ENTRY_STORAGE_IDS.batch,
+      ENTRY_STORAGE_IDS.payload,
+    );
+  database
+    .prepare(
+      `INSERT INTO observation_entry_setup_terminals (
+        setup_id, terminal_reason, terminal_epoch, first_batch_id,
+        first_receipt_id, recorded_at
+      ) VALUES (
+        'setup-entry-storage', 'BOTH_ACTIVE_MODELS_OBSERVED', 1721808300, ?,
+        'receipt-entry-storage-v3', '2026-07-24T10:00:02Z'
+      )`,
+    )
+    .run(ENTRY_STORAGE_IDS.batch);
+  database
+    .prepare(
+      `INSERT INTO observation_entry_source_claims (
+        claim_id, contract_version, source_id, youtube_video_id, published_date,
+        title_snapshot, channel_id, channel_handle, timestamp_start_seconds,
+        timestamp_end_seconds, relationship, summary
+      ) VALUES (
+        'standard-close-2024-03', '2.0.0', 'rd-course-2024-03',
+        'kxh_3__oAqg', '2024-03-25',
+        'FULL course for LIQUIDITY supply and demand best NEW trading strategy 2026',
+        'UC54xbL96tU58iez3YbTVTAg', '@RD_Forex', 794, 876, 'SUPPORTS',
+        'Official claim covering the standard close entry model.'
+      )`,
+    )
+    .run();
+  database
+    .prepare(
+      `INSERT INTO observation_entry_source_claims (
+        claim_id, contract_version, source_id, youtube_video_id, published_date,
+        title_snapshot, channel_id, channel_handle, timestamp_start_seconds,
+        timestamp_end_seconds, relationship, summary
+      ) VALUES (
+        'closure-or-flip-2025-03', '2.0.0', 'rd-first-5m-live-2025-03',
+        'Gr0njSOtC10', '2025-03-20',
+        'First 5m livestream (1 win 1 loss) 1:2.5r trade on gj',
+        'UC54xbL96tU58iez3YbTVTAg', '@RD_Forex', 3106, 3149, 'NARROWS',
+        'Official narrowing claim for close-or-flip selection.'
+      )`,
+    )
+    .run();
+  database
+    .prepare(
+      `INSERT INTO observation_entry_source_claim_relationships (
+        claim_id, target_claim_id
+      ) VALUES ('closure-or-flip-2025-03', 'standard-close-2024-03')`,
+    )
+    .run();
+  database
+    .prepare(
+      `INSERT INTO observation_entry_candidates (
+        candidate_id, setup_id, model, state, event_anchor_epoch,
+        trigger_ordinal, direction, source_claim_ids_json, normalized_from,
+        identity_sha256, first_receipt_id, observed_at_epoch
+      ) VALUES (
+        ?, 'setup-entry-storage', 'DIR_CLOSE', 'MATCHED', 1721808300,
+        1, 'LONG', '["standard-close-2024-03"]', NULL,
+        ?, 'receipt-entry-storage-v3', 1721808300
+      )`,
+    )
+    .run(ENTRY_STORAGE_IDS.candidate, ENTRY_STORAGE_IDS.candidate);
+  database
+    .prepare(
+      `INSERT INTO observation_entry_candidate_evidence (
+        evidence_id, candidate_id, receipt_id, observed_trigger_epoch,
+        observed_trigger_ticks, htf_context_minutes_json, fidelity, proof_plane,
+        proof_resolution_seconds, coverage_start_epoch, coverage_end_epoch,
+        ambiguity_codes_json, passed_rule_ids_json, failed_rule_ids_json,
+        source_claim_ids_json, payload_sha256, identity_sha256, observed_at_epoch
+      ) VALUES (
+        ?, ?, 'receipt-entry-storage-v3', 1721808300, 110000,
+        '[]', 'EXACT', 'CONFIRMED_5M', 300, 1721808000, 1721808300,
+        '[]', '["ENTRY_DIR_CLOSE"]', '[]', '["standard-close-2024-03"]',
+        ?, ?, 1721808300
+      )`,
+    )
+    .run(
+      ENTRY_STORAGE_IDS.evidence,
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.payload,
+      ENTRY_STORAGE_IDS.evidence,
+    );
+  database
+    .prepare(
+      `INSERT INTO observation_entry_handling (
+        handling_id, candidate_id, evidence_id, receipt_id, handling_mode,
+        attempt_kind, observed_epoch, observed_ticks, fidelity,
+        source_claim_ids_json, identity_sha256
+      ) VALUES (
+        ?, ?, ?, 'receipt-entry-storage-v3', 'CLOSE_CONFIRMATION',
+        'INITIAL', 1721808300, 110000, 'EXACT',
+        '["standard-close-2024-03"]', ?
+      )`,
+    )
+    .run(
+      ENTRY_STORAGE_IDS.handling,
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.evidence,
+      ENTRY_STORAGE_IDS.handling,
+    );
+  database
+    .prepare(
+      `INSERT INTO observation_entry_producer_diagnostics (
+        diagnostic_id, batch_id, setup_id, candidate_refs_json,
+        evidence_refs_json, realtime_evidence_refs_json, handling_refs_json,
+        diagnostic_selection_json, observed_at
+      ) VALUES (
+        'diagnostic-entry-storage', ?, 'setup-entry-storage',
+        '[{"model":"DIR_CLOSE"}]', '[{"proof_plane":"CONFIRMED_5M"}]',
+        '[{"proof_plane":"REALTIME_TICK","proof_resolution_seconds":0,
+           "observed_trigger_epoch":1721808300,
+           "coverage_start_epoch":1721808300,
+           "coverage_end_epoch":1721808300}]',
+        '[{"handling_mode":"CLOSE_CONFIRMATION"}]',
+        '{"version":"PINE_DIAGNOSTIC_ONLY","action":"SHADOW_ONLY"}',
+        '2026-07-24T10:00:00Z'
+      )`,
+    )
+    .run(ENTRY_STORAGE_IDS.batch);
+  database
+    .prepare(
+      `INSERT INTO observation_entry_selections (
+        selection_id, batch_id, setup_id, policy_version, revision,
+        candidate_ids_considered_json, canonical_candidate_id,
+        canonical_evidence_id, canonical_model, reason, fidelity,
+        policy_action, action, effective_action_reason, evaluated_at_epoch
+      ) VALUES (
+        ?, ?, 'setup-entry-storage', 'rd-entry-arbitration-v2', 1,
+        ?, ?, ?, 'DIR_CLOSE', 'ONLY_EXACT_TRIGGER', 'EXACT',
+        'PAPER_ELIGIBLE', 'SHADOW_ONLY', 'PROMOTION_IDENTITY_MISMATCH',
+        1721808300
+      )`,
+    )
+    .run(
+      ENTRY_STORAGE_IDS.selection,
+      ENTRY_STORAGE_IDS.batch,
+      JSON.stringify([ENTRY_STORAGE_IDS.candidate]),
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.evidence,
+    );
+  database
+    .prepare(
+      `INSERT INTO observation_entry_evaluation_members (
+        selection_id, object_kind, object_id
+      ) VALUES (?, 'CANDIDATE', ?)`,
+    )
+    .run(ENTRY_STORAGE_IDS.selection, ENTRY_STORAGE_IDS.candidate);
+  database
+    .prepare(
+      `INSERT INTO observation_entry_parity (
+        parity_id, batch_id, setup_id, producer_diagnostic_id, selection_id,
+        parity_status, mismatch_reason, compared_at
+      ) VALUES (
+        ?, ?, 'setup-entry-storage', 'diagnostic-entry-storage', ?,
+        'MISMATCH', 'DIAGNOSTIC_ACTION', '2026-07-24T10:00:03Z'
+      )`,
+    )
+    .run(
+      ENTRY_STORAGE_IDS.parity,
+      ENTRY_STORAGE_IDS.batch,
+      ENTRY_STORAGE_IDS.selection,
+    );
+  database
+    .prepare(
+      `INSERT INTO observation_entry_quarantine (
+        quarantine_id, receipt_id, batch_id, producer_instance_id,
+        producer_sequence, presented_bar_close_epoch, object_kind, object_id,
+        existing_sha256, presented_sha256, reason, quarantined_at
+      ) VALUES (
+        'quarantine-entry-storage', 'receipt-entry-storage-v3', ?,
+        NULL, NULL, NULL, 'CANDIDATE', ?, ?, ?,
+        'IMMUTABLE_ID_CONFLICT', '2026-07-24T10:00:04Z'
+      )`,
+    )
+    .run(
+      ENTRY_STORAGE_IDS.batch,
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.payload,
+    );
+}
 
 class FakeStatement {
   private values: unknown[] = [];
@@ -1168,6 +1699,1389 @@ describe("deployment contract", () => {
     expect(migration).not.toMatch(
       /^\s*(credential|payload|raw_payload|canonical_payload)\s+text/gmu,
     );
+  });
+
+  it("defines immutable normalized entry storage and parity audit rows", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const migration = readFileSync(
+      `${root}/migrations/0023_observation_entries.sql`,
+      "utf8",
+    ).toLowerCase();
+
+    for (const table of ENTRY_STORAGE_TABLES) {
+      expect(migration).toContain(`create table ${table}`);
+    }
+    expect(migration).toContain("paper_eligible");
+    expect(migration).toContain("shadow_only");
+    expect(migration).not.toMatch(/execute|broker|order_command/u);
+    expect(migration).toContain("entry candidates are immutable");
+    expect(migration).toContain("entry evidence is append-only");
+    expect(migration).toContain("entry selections are immutable");
+    expect(migration).toContain("pragma foreign_key_check");
+  });
+
+  it("applies the entry schema with closed foreign keys and continuity indexes", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+
+    expect(
+      database
+        .prepare(
+          `SELECT name
+           FROM sqlite_schema
+           WHERE type = 'table'
+             AND (
+               name LIKE 'observation_entry_%'
+               OR name = 'observation_market_bar_heartbeats'
+             )
+           ORDER BY name`,
+        )
+        .all()
+        .map((row) => row.name),
+    ).toEqual([...ENTRY_STORAGE_TABLES].sort());
+
+    const immutableTriggerPrefixes = [
+      "observation_entry_batches",
+      "observation_market_bar_heartbeats",
+      "observation_entry_chunks",
+      "observation_entry_completions",
+      "observation_entry_setup_events",
+      "observation_entry_terminals",
+      "observation_entry_candidates",
+      "observation_entry_evidence",
+      "observation_entry_handling",
+      "observation_entry_diagnostics",
+      "observation_entry_selections",
+      "observation_entry_evaluation_members",
+      "observation_entry_parity",
+      "observation_entry_source_claims",
+      "observation_entry_source_relationships",
+      "observation_entry_quarantine",
+    ];
+    expect(
+      database
+        .prepare(
+          `SELECT name
+           FROM sqlite_schema
+           WHERE type = 'trigger'
+             AND (
+               name LIKE 'observation_entry_%_no_update'
+               OR name LIKE 'observation_entry_%_no_delete'
+               OR name LIKE 'observation_market_bar_heartbeats_no_%'
+             )
+           ORDER BY name`,
+        )
+        .all()
+        .map((row) => row.name),
+    ).toEqual(
+      immutableTriggerPrefixes
+        .flatMap((prefix) => [`${prefix}_no_delete`, `${prefix}_no_update`])
+        .sort(),
+    );
+
+    const expectedIndexes = new Map<string, readonly string[]>([
+      ["idx_entry_chunks_batch", ["batch_id", "chunk_index"]],
+      [
+        "idx_market_bar_heartbeat_schedule",
+        [
+          "producer_role",
+          "symbol",
+          "ticker_id",
+          "feed",
+          "timeframe",
+          "bar_close_epoch",
+        ],
+      ],
+      [
+        "idx_entry_batches_producer_sequence",
+        ["producer_instance_id", "producer_sequence"],
+      ],
+      ["idx_entry_candidates_setup", ["setup_id", "observed_at_epoch"]],
+      ["idx_entry_candidates_model", ["model", "observed_at_epoch"]],
+      [
+        "idx_entry_evidence_candidate",
+        ["candidate_id", "observed_at_epoch"],
+      ],
+      ["idx_entry_evidence_fidelity", ["fidelity", "observed_at_epoch"]],
+      ["idx_entry_selections_setup_revision", ["setup_id", "revision"]],
+      ["idx_entry_selections_reason", ["reason", "evaluated_at_epoch"]],
+      ["idx_entry_parity_status", ["parity_status", "compared_at"]],
+      [
+        "idx_entry_evaluation_members_selection",
+        ["selection_id", "object_kind"],
+      ],
+      ["idx_entry_terminals_epoch", ["terminal_epoch", "setup_id"]],
+      [
+        "idx_entry_setup_events_stream",
+        ["setup_id", "confirmed_bar_close_epoch", "event_id"],
+      ],
+    ]);
+    for (const [indexName, columns] of expectedIndexes) {
+      expect(
+        database
+          .prepare(`PRAGMA index_info('${indexName}')`)
+          .all()
+          .map((row) => row.name),
+      ).toEqual(columns);
+    }
+
+    const foreignKeys = (
+      table: (typeof ENTRY_STORAGE_TABLES)[number],
+    ): readonly Record<string, unknown>[] =>
+      database
+        .prepare(`PRAGMA foreign_key_list('${table}')`)
+        .all() as Record<string, unknown>[];
+    expect(foreignKeys("observation_entry_batches")).toEqual([
+      expect.objectContaining({
+        table: "observation_receipts",
+        from: "first_receipt_id",
+        to: "receipt_id",
+        on_delete: "RESTRICT",
+      }),
+    ]);
+    expect(foreignKeys("observation_market_bar_heartbeats")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_batches",
+          from: "batch_id",
+          to: "batch_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_receipts",
+          from: "receipt_id",
+          to: "receipt_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_chunks")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_batches",
+          from: "batch_id",
+          to: "batch_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_receipts",
+          from: "receipt_id",
+          to: "receipt_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_batch_completions")).toEqual([
+      expect.objectContaining({
+        table: "observation_entry_batches",
+        from: "batch_id",
+        to: "batch_id",
+        on_delete: "RESTRICT",
+      }),
+    ]);
+    expect(foreignKeys("observation_entry_setup_events")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_batches",
+          from: "batch_id",
+          to: "batch_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_receipts",
+          from: "receipt_id",
+          to: "receipt_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_setup_terminals")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_batches",
+          from: "first_batch_id",
+          to: "batch_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_receipts",
+          from: "first_receipt_id",
+          to: "receipt_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_candidate_evidence")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_candidates",
+          from: "candidate_id",
+          to: "candidate_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_receipts",
+          from: "receipt_id",
+          to: "receipt_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_handling")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_candidates",
+          from: "candidate_id",
+          to: "candidate_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_entry_candidate_evidence",
+          from: "evidence_id",
+          to: "evidence_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_receipts",
+          from: "receipt_id",
+          to: "receipt_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_selections")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_batches",
+          from: "batch_id",
+          to: "batch_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_entry_candidates",
+          from: "canonical_candidate_id",
+          to: "candidate_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_entry_candidate_evidence",
+          from: "canonical_evidence_id",
+          to: "evidence_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(
+      foreignKeys("observation_entry_source_claim_relationships"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_source_claims",
+          from: "claim_id",
+          to: "claim_id",
+          on_delete: "RESTRICT",
+        }),
+        expect.objectContaining({
+          table: "observation_entry_source_claims",
+          from: "target_claim_id",
+          to: "claim_id",
+          on_delete: "RESTRICT",
+        }),
+      ]),
+    );
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+
+    const columns = ENTRY_STORAGE_TABLES.flatMap((table) =>
+      database
+        .prepare(`PRAGMA table_info('${table}')`)
+        .all()
+        .map((row) => String(row.name)),
+    );
+    expect(columns).not.toEqual(
+      expect.arrayContaining([
+        "credential",
+        "raw_credential",
+        "raw_payload",
+        "broker",
+        "order_command",
+        "live_execution",
+      ]),
+    );
+  });
+
+  it("normalizes legacy milliseconds and v3 seconds to one bar schedule identity", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    seedEntryStorage(database);
+
+    const rows = database
+      .prepare(
+        `SELECT
+           schema_version, producer_role, producer_instance_id,
+           detector_code_hash, settings_hash, symbol, ticker_id, feed,
+           timeframe, bar_open_epoch, bar_close_epoch
+         FROM observation_market_bar_heartbeats
+         ORDER BY schema_version`,
+      )
+      .all();
+    expect(rows).toEqual([
+      {
+        schema_version: "1.2",
+        producer_role: "LEGACY_REFERENCE",
+        producer_instance_id: "legacy-reference-producer",
+        detector_code_hash: null,
+        settings_hash: null,
+        symbol: "EURUSD",
+        ticker_id: "VANTAGE:EURUSD",
+        feed: "VANTAGE",
+        timeframe: "5",
+        bar_open_epoch: 1721808000,
+        bar_close_epoch: 1721808300,
+      },
+      {
+        schema_version: "2.0",
+        producer_role: "ENTRY_V3_CANARY",
+        producer_instance_id: "entry-v3-canary-producer",
+        detector_code_hash: "3".repeat(64),
+        settings_hash: "4".repeat(64),
+        symbol: "EURUSD",
+        ticker_id: "VANTAGE:EURUSD",
+        feed: "VANTAGE",
+        timeframe: "5",
+        bar_open_epoch: 1721808000,
+        bar_close_epoch: 1721808300,
+      },
+    ]);
+    expect(
+      rows.map(
+        (row) =>
+          `${row.symbol}|${row.ticker_id}|${row.feed}|${row.timeframe}|` +
+          `${row.bar_open_epoch}|${row.bar_close_epoch}`,
+      ),
+    ).toEqual([
+      "EURUSD|VANTAGE:EURUSD|VANTAGE|5|1721808000|1721808300",
+      "EURUSD|VANTAGE:EURUSD|VANTAGE|5|1721808000|1721808300",
+    ]);
+
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-entry-storage-raw-ms",
+      schemaVersion: "1.2",
+      strategyVersion: "1.2.0-contract1",
+      producerInstanceId: "legacy-raw-ms",
+      sequence: 0,
+    });
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_market_bar_heartbeats (
+            receipt_id, batch_id, schema_version, producer_role,
+            producer_instance_id, producer_sequence, strategy_version,
+            symbol, ticker_id, feed, timeframe, bar_open_epoch, bar_close_epoch,
+            detector_code_hash, settings_hash, recorded_at
+          ) VALUES (
+            'receipt-entry-storage-raw-ms', NULL, '1.2', 'LEGACY_REFERENCE',
+            'legacy-raw-ms', 0, '1.2.0-contract1',
+            'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5',
+            1721808000000, 1721808300000, NULL, NULL,
+            '2026-07-24T10:00:00Z'
+          )`,
+        )
+        .run(),
+    ).toThrow(/CHECK constraint failed/u);
+  });
+
+  it("enforces closed entry enums, JSON shapes, and authoritative proof planes", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    seedEntryStorage(database);
+
+    const insertCandidateAs = (
+      candidateId: string,
+      model: string,
+      sourceClaimIdsJson = '["standard-close-2024-03"]',
+    ): void => {
+      database
+        .prepare(
+          `INSERT INTO observation_entry_candidates (
+            candidate_id, setup_id, model, state, event_anchor_epoch,
+            trigger_ordinal, direction, source_claim_ids_json, normalized_from,
+            identity_sha256, first_receipt_id, observed_at_epoch
+          ) VALUES (
+            ?, 'setup-entry-storage', ?, 'MATCHED', 1721808300,
+            1, 'LONG', ?, NULL, ?, 'receipt-entry-storage-v3', 1721808300
+          )`,
+        )
+        .run(candidateId, model, sourceClaimIdsJson, candidateId);
+    };
+    insertCandidateAs("5".repeat(64), "HTF_FLIP");
+    insertCandidateAs("6".repeat(64), "LEGACY_BREAK_CANDLE");
+    insertCandidateAs("7".repeat(64), "LEGACY_REJECTION_RESPECT");
+    expect(
+      database
+        .prepare(
+          `SELECT DISTINCT model
+           FROM observation_entry_candidates
+           ORDER BY model`,
+        )
+        .all()
+        .map((row) => row.model),
+    ).toEqual([
+      "DIR_CLOSE",
+      "HTF_FLIP",
+      "LEGACY_BREAK_CANDLE",
+      "LEGACY_REJECTION_RESPECT",
+    ]);
+    expect(() => insertCandidateAs("8".repeat(64), "BROKER_FILL")).toThrow(
+      /CHECK constraint failed/u,
+    );
+    expect(() => insertCandidateAs("8".repeat(64), "DIR_CLOSE", "{}")).toThrow(
+      /CHECK constraint failed/u,
+    );
+
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_candidate_evidence (
+            evidence_id, candidate_id, receipt_id, observed_trigger_epoch,
+            observed_trigger_ticks, htf_context_minutes_json, fidelity,
+            proof_plane, proof_resolution_seconds, coverage_start_epoch,
+            coverage_end_epoch, ambiguity_codes_json, passed_rule_ids_json,
+            failed_rule_ids_json, source_claim_ids_json, payload_sha256,
+            identity_sha256, observed_at_epoch
+          ) SELECT
+            ?, candidate_id, receipt_id, observed_trigger_epoch,
+            observed_trigger_ticks, htf_context_minutes_json, fidelity,
+            'REALTIME_TICK', 1, coverage_start_epoch, coverage_end_epoch,
+            ambiguity_codes_json, passed_rule_ids_json, failed_rule_ids_json,
+            source_claim_ids_json, payload_sha256, ?, observed_at_epoch
+          FROM observation_entry_candidate_evidence
+          WHERE evidence_id = ?`,
+        )
+        .run(
+          "8".repeat(64),
+          "8".repeat(64),
+          ENTRY_STORAGE_IDS.evidence,
+        ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_candidate_evidence (
+            evidence_id, candidate_id, receipt_id, observed_trigger_epoch,
+            observed_trigger_ticks, htf_context_minutes_json, fidelity,
+            proof_plane, proof_resolution_seconds, coverage_start_epoch,
+            coverage_end_epoch, ambiguity_codes_json, passed_rule_ids_json,
+            failed_rule_ids_json, source_claim_ids_json, payload_sha256,
+            identity_sha256, observed_at_epoch
+          ) SELECT
+            ?, candidate_id, receipt_id, observed_trigger_epoch,
+            observed_trigger_ticks, '{}', fidelity, proof_plane,
+            proof_resolution_seconds, coverage_start_epoch, coverage_end_epoch,
+            ambiguity_codes_json, passed_rule_ids_json, failed_rule_ids_json,
+            source_claim_ids_json, payload_sha256, ?, observed_at_epoch
+          FROM observation_entry_candidate_evidence
+          WHERE evidence_id = ?`,
+        )
+        .run(
+          "8".repeat(64),
+          "8".repeat(64),
+          ENTRY_STORAGE_IDS.evidence,
+        ),
+    ).toThrow(/CHECK constraint failed/u);
+
+    const insertDiagnostic = (
+      diagnosticId: string,
+      candidateRefsJson: string,
+      realtimeEvidenceRefsJson: string,
+    ): void => {
+      database
+        .prepare(
+          `INSERT INTO observation_entry_producer_diagnostics (
+            diagnostic_id, batch_id, setup_id, candidate_refs_json,
+            evidence_refs_json, realtime_evidence_refs_json,
+            handling_refs_json, diagnostic_selection_json, observed_at
+          ) VALUES (
+            ?, ?, 'setup-entry-storage', ?, '[]', ?, '[]', NULL,
+            '2026-07-24T10:00:00Z'
+          )`,
+        )
+        .run(
+          diagnosticId,
+          ENTRY_STORAGE_IDS.batch,
+          candidateRefsJson,
+          realtimeEvidenceRefsJson,
+        );
+    };
+    expect(() =>
+      insertDiagnostic("diagnostic-scalar", "{}", "[]"),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertDiagnostic(
+        "diagnostic-bad-realtime-resolution",
+        "[]",
+        `[{
+          "proof_plane":"REALTIME_TICK",
+          "proof_resolution_seconds":1,
+          "observed_trigger_epoch":1721808300,
+          "coverage_start_epoch":1721808300,
+          "coverage_end_epoch":1721808300
+        }]`,
+      ),
+    ).toThrow(/realtime evidence must be diagnostic point coverage/u);
+    expect(() =>
+      insertDiagnostic(
+        "diagnostic-bad-realtime-coverage",
+        "[]",
+        `[{
+          "proof_plane":"REALTIME_TICK",
+          "proof_resolution_seconds":0,
+          "observed_trigger_epoch":1721808300,
+          "coverage_start_epoch":1721808000,
+          "coverage_end_epoch":1721808300
+        }]`,
+      ),
+    ).toThrow(/realtime evidence must be diagnostic point coverage/u);
+    insertDiagnostic(
+      "diagnostic-valid-realtime",
+      "[]",
+      `[{
+        "proof_plane":"REALTIME_TICK",
+        "proof_resolution_seconds":0,
+        "observed_trigger_epoch":1721808300,
+        "coverage_start_epoch":1721808300,
+        "coverage_end_epoch":1721808300
+      }]`,
+    );
+    expect(
+      database
+        .prepare(
+          `SELECT json_array_length(realtime_evidence_refs_json) AS count
+           FROM observation_entry_producer_diagnostics
+           WHERE diagnostic_id = 'diagnostic-valid-realtime'`,
+        )
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("allows promotion mismatch only as a paper-to-shadow reduction", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    seedEntryStorage(database);
+
+    const insertSelection = (
+      selectionId: string,
+      revision: number,
+      policyAction: string,
+      action: string,
+      reason: string | null,
+      canonicalModel = "DIR_CLOSE",
+    ): void => {
+      database
+        .prepare(
+          `INSERT INTO observation_entry_selections (
+            selection_id, batch_id, setup_id, policy_version, revision,
+            candidate_ids_considered_json, canonical_candidate_id,
+            canonical_evidence_id, canonical_model, reason, fidelity,
+            policy_action, action, effective_action_reason, evaluated_at_epoch
+          ) VALUES (
+            ?, ?, 'setup-entry-storage', 'rd-entry-arbitration-v2', ?,
+            ?, ?, ?, ?, 'ONLY_EXACT_TRIGGER', 'EXACT', ?, ?, ?, 1721808300
+          )`,
+        )
+        .run(
+          selectionId,
+          ENTRY_STORAGE_IDS.batch,
+          revision,
+          JSON.stringify([ENTRY_STORAGE_IDS.candidate]),
+          ENTRY_STORAGE_IDS.candidate,
+          ENTRY_STORAGE_IDS.evidence,
+          canonicalModel,
+          policyAction,
+          action,
+          reason,
+        );
+    };
+    insertSelection("3".repeat(64), 2, "OBSERVE", "OBSERVE", null);
+    expect(() =>
+      insertSelection("4".repeat(64), 3, "PAPER_ELIGIBLE", "PAPER_ELIGIBLE", null),
+    ).not.toThrow();
+    expect(() =>
+      insertSelection(
+        "5".repeat(64),
+        4,
+        "PAPER_ELIGIBLE",
+        "SHADOW_ONLY",
+        null,
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertSelection(
+        "5".repeat(64),
+        4,
+        "OBSERVE",
+        "SHADOW_ONLY",
+        "PROMOTION_IDENTITY_MISMATCH",
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertSelection(
+        "5".repeat(64),
+        4,
+        "PAPER_ELIGIBLE",
+        "PAPER_ELIGIBLE",
+        "PROMOTION_IDENTITY_MISMATCH",
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertSelection("5".repeat(64), 4, "PAPER_ELIGIBLE", "EXECUTE", null),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertSelection("5".repeat(64), 4, "OBSERVE", "OBSERVE", null, "LEGACY_BREAK_CANDLE"),
+    ).toThrow(/CHECK constraint failed/u);
+
+    expect(
+      database
+        .prepare(
+          `SELECT policy_action, action, effective_action_reason
+           FROM observation_entry_selections
+           ORDER BY revision`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        policy_action: "PAPER_ELIGIBLE",
+        action: "SHADOW_ONLY",
+        effective_action_reason: "PROMOTION_IDENTITY_MISMATCH",
+      },
+      {
+        policy_action: "OBSERVE",
+        action: "OBSERVE",
+        effective_action_reason: null,
+      },
+      {
+        policy_action: "PAPER_ELIGIBLE",
+        action: "PAPER_ELIGIBLE",
+        effective_action_reason: null,
+      },
+    ]);
+  });
+
+  it("records every conflict class in append-only credential-free quarantine", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    seedEntryStorage(database);
+
+    const reasons = [
+      "IMMUTABLE_ID_CONFLICT",
+      "INCONSISTENT_CHUNK_COUNT",
+      "INCONSISTENT_BATCH_METADATA",
+      "DUPLICATE_SETUP_ACROSS_CHUNKS",
+      "BATCH_SETUP_LIMIT",
+      "INCOMPLETE_BATCH",
+      "EVENT_STREAM_CONTEXT_MISSING",
+      "EVENT_STREAM_CONFLICT",
+      "TERMINAL_FACT_CONFLICT",
+      "SEQUENCE_CONFLICT",
+      "BAR_CLOSE_CONFLICT",
+      "SEQUENCE_TIME_CONFLICT",
+      "PRODUCER_IDENTITY_CONFLICT",
+    ] as const;
+    for (const [index, reason] of reasons.entries()) {
+      if (reason === "IMMUTABLE_ID_CONFLICT") continue;
+      database
+        .prepare(
+          `INSERT INTO observation_entry_quarantine (
+            quarantine_id, receipt_id, batch_id, producer_instance_id,
+            producer_sequence, presented_bar_close_epoch, object_kind, object_id,
+            existing_sha256, presented_sha256, reason, quarantined_at
+          ) VALUES (
+            ?, 'receipt-entry-storage-v3', ?, 'entry-v3-canary-producer',
+            1, 1721808300, 'BATCH', ?, NULL, ?, ?, '2026-07-24T10:00:04Z'
+          )`,
+        )
+        .run(
+          `quarantine-entry-storage-${String(index).padStart(2, "0")}`,
+          ENTRY_STORAGE_IDS.batch,
+          ENTRY_STORAGE_IDS.batch,
+          ENTRY_STORAGE_IDS.payload,
+          reason,
+        );
+    }
+    expect(
+      database
+        .prepare(
+          `SELECT reason
+           FROM observation_entry_quarantine
+           ORDER BY reason`,
+        )
+        .all()
+        .map((row) => row.reason),
+    ).toEqual([...reasons].sort());
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_quarantine (
+            quarantine_id, receipt_id, batch_id, producer_instance_id,
+            producer_sequence, presented_bar_close_epoch, object_kind, object_id,
+            existing_sha256, presented_sha256, reason, quarantined_at
+          ) VALUES (
+            'quarantine-missing-conflict-identity', NULL, NULL, NULL,
+            NULL, NULL, 'BATCH', 'unknown', NULL, ?,
+            'SEQUENCE_CONFLICT', '2026-07-24T10:00:04Z'
+          )`,
+        )
+        .run(ENTRY_STORAGE_IDS.payload),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(
+      database
+        .prepare("PRAGMA table_info('observation_entry_quarantine')")
+        .all()
+        .map((row) => row.name),
+    ).not.toEqual(
+      expect.arrayContaining([
+        "credential",
+        "raw_credential",
+        "raw_payload",
+        "payload_json",
+      ]),
+    );
+  });
+
+  it("rejects updates and deletes on every entry audit projection", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    seedEntryStorage(database);
+
+    const messages = new Map<string, readonly [string, string]>([
+      [
+        "observation_entry_candidates",
+        ["entry candidates are immutable", "entry candidates are append-only"],
+      ],
+      [
+        "observation_entry_candidate_evidence",
+        ["entry evidence is immutable", "entry evidence is append-only"],
+      ],
+      [
+        "observation_entry_handling",
+        ["entry handling is immutable", "entry handling is append-only"],
+      ],
+      [
+        "observation_entry_selections",
+        ["entry selections are immutable", "entry selections are append-only"],
+      ],
+    ]);
+    for (const table of ENTRY_STORAGE_TABLES) {
+      const [updateMessage, deleteMessage] = messages.get(table) ?? [
+        `${table} rows are immutable`,
+        `${table} rows are append-only`,
+      ];
+      expect(() =>
+        database.exec(`UPDATE ${table} SET rowid = rowid`),
+      ).toThrow(updateMessage);
+      expect(() => database.exec(`DELETE FROM ${table}`)).toThrow(
+        deleteMessage,
+      );
+    }
+  });
+
+  it("executes entry storage SQL constants with complete row shapes", async () => {
+    const queries = await import("../src/rd-entry-queries");
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-entry-query-v3",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "entry-query-producer",
+      sequence: 1,
+    });
+
+    const insertBatch = (
+      batchId: string,
+      sequence: number,
+      barOpenEpoch: number,
+      barCloseEpoch: number,
+    ): void => {
+      database.prepare(queries.INSERT_ENTRY_BATCH_SQL).run(
+        batchId,
+        "entry-query-producer",
+        sequence,
+        "snapshot",
+        barCloseEpoch,
+        "rd_liquidity_sd_5m_v1",
+        "2.0.0-contract2",
+        "2.0.0",
+        "OBSERVATION_ONLY",
+        "EURUSD",
+        "VANTAGE:EURUSD",
+        "VANTAGE",
+        "5",
+        "0.00001",
+        barOpenEpoch,
+        "3".repeat(64),
+        "4".repeat(64),
+        1,
+        "receipt-entry-query-v3",
+        "2026-07-24T10:00:00Z",
+      );
+    };
+    insertBatch(ENTRY_STORAGE_IDS.batch, 1, 1721808000, 1721808300);
+    insertBatch("8".repeat(64), 2, 1721808300, 1721808600);
+    insertBatch("7".repeat(64), 3, 1721808600, 1721808900);
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_BATCH_SQL)
+        .get(ENTRY_STORAGE_IDS.batch),
+    ).toMatchObject({
+      batch_id: ENTRY_STORAGE_IDS.batch,
+      producer_sequence: 1,
+      bar_open_epoch: 1721808000,
+      bar_close_epoch: 1721808300,
+      execution_mode: "OBSERVATION_ONLY",
+    });
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_BATCH_BY_SEQUENCE_SQL)
+        .get("entry-query-producer", 2),
+    ).toMatchObject({
+      batch_id: "8".repeat(64),
+      producer_sequence: 2,
+    });
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_BATCH_BY_CLOSE_SQL)
+        .get("entry-query-producer", 1721808900),
+    ).toMatchObject({
+      batch_id: "7".repeat(64),
+      producer_sequence: 3,
+    });
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_SEQUENCE_NEIGHBORS_SQL)
+        .all(
+          "entry-query-producer",
+          "entry-query-producer",
+          2,
+          "entry-query-producer",
+          2,
+        )
+        .map((row) => ({
+          producer_sequence: row.producer_sequence,
+          bar_close_epoch: row.bar_close_epoch,
+        })),
+    ).toEqual([
+      { producer_sequence: 1, bar_close_epoch: 1721808300 },
+      { producer_sequence: 3, bar_close_epoch: 1721808900 },
+    ]);
+
+    database.prepare(queries.INSERT_MARKET_BAR_HEARTBEAT_SQL).run(
+      "receipt-entry-query-v3",
+      ENTRY_STORAGE_IDS.batch,
+      "2.0",
+      "ENTRY_V3_CANARY",
+      "entry-query-producer",
+      1,
+      "2.0.0-contract2",
+      "EURUSD",
+      "VANTAGE:EURUSD",
+      "VANTAGE",
+      "5",
+      1721808000,
+      1721808300,
+      "3".repeat(64),
+      "4".repeat(64),
+      "2026-07-24T10:00:00Z",
+    );
+    database.prepare(queries.INSERT_ENTRY_CHUNK_SQL).run(
+      ENTRY_STORAGE_IDS.batch,
+      0,
+      1,
+      "receipt-entry-query-v3",
+      ENTRY_STORAGE_IDS.payload,
+      '{"eb":[]}',
+      "2026-07-24T10:00:00Z",
+    );
+    expect(
+      database
+        .prepare(queries.LIST_ENTRY_CHUNKS_SQL)
+        .all(ENTRY_STORAGE_IDS.batch),
+    ).toEqual([
+      {
+        batch_id: ENTRY_STORAGE_IDS.batch,
+        chunk_index: 0,
+        chunk_count: 1,
+        receipt_id: "receipt-entry-query-v3",
+        payload_sha256: ENTRY_STORAGE_IDS.payload,
+        validated_payload_json: '{"eb":[]}',
+        recorded_at: "2026-07-24T10:00:00Z",
+      },
+    ]);
+    database.prepare(queries.INSERT_ENTRY_COMPLETION_SQL).run(
+      ENTRY_STORAGE_IDS.completion,
+      ENTRY_STORAGE_IDS.batch,
+      ENTRY_STORAGE_IDS.payload,
+      "2026-07-24T10:00:01Z",
+    );
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_COMPLETION_SQL)
+        .get(ENTRY_STORAGE_IDS.batch),
+    ).toEqual({
+      completion_id: ENTRY_STORAGE_IDS.completion,
+      batch_id: ENTRY_STORAGE_IDS.batch,
+      assembled_payload_sha256: ENTRY_STORAGE_IDS.payload,
+      completed_at: "2026-07-24T10:00:01Z",
+    });
+    database.prepare(queries.INSERT_ENTRY_SETUP_EVENT_SQL).run(
+      ENTRY_STORAGE_IDS.event,
+      "setup-entry-query",
+      ENTRY_STORAGE_IDS.batch,
+      "receipt-entry-query-v3",
+      1721808300,
+      ENTRY_STORAGE_IDS.payload,
+      '{"confirmed_bar":{"close_epoch":1721808300}}',
+      "2026-07-24T10:00:00Z",
+    );
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_SETUP_EVENTS_SQL)
+        .all("setup-entry-query"),
+    ).toEqual([
+      ENTRY_STORAGE_ROW_TYPE_FIXTURES.setupEvent,
+    ].map((event) => ({ ...event, setup_id: "setup-entry-query", receipt_id: "receipt-entry-query-v3" })));
+    database.prepare(queries.INSERT_ENTRY_TERMINAL_SQL).run(
+      "setup-entry-query",
+      "BOTH_ACTIVE_MODELS_OBSERVED",
+      1721808300,
+      ENTRY_STORAGE_IDS.batch,
+      "receipt-entry-query-v3",
+      "2026-07-24T10:00:02Z",
+    );
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_TERMINAL_SQL)
+        .get("setup-entry-query"),
+    ).toEqual({
+      ...ENTRY_STORAGE_ROW_TYPE_FIXTURES.setupTerminal,
+      setup_id: "setup-entry-query",
+      first_receipt_id: "receipt-entry-query-v3",
+    });
+
+    const insertSourceClaim = (
+      claimId: string,
+      sourceId: string,
+      videoId: string,
+      publishedDate: string,
+      title: string,
+      start: number,
+      end: number,
+      relationship: "SUPPORTS" | "NARROWS",
+      summary: string,
+    ): void => {
+      database.prepare(queries.INSERT_ENTRY_SOURCE_CLAIM_SQL).run(
+        claimId,
+        sourceId,
+        videoId,
+        publishedDate,
+        title,
+        "UC54xbL96tU58iez3YbTVTAg",
+        "@RD_Forex",
+        start,
+        end,
+        relationship,
+        summary,
+      );
+    };
+    insertSourceClaim(
+      "standard-close-2024-03",
+      "rd-course-2024-03",
+      "kxh_3__oAqg",
+      "2024-03-25",
+      "FULL course for LIQUIDITY supply and demand best NEW trading strategy 2026",
+      794,
+      876,
+      "SUPPORTS",
+      "Official claim covering the standard close entry model.",
+    );
+    insertSourceClaim(
+      "closure-or-flip-2025-03",
+      "rd-first-5m-live-2025-03",
+      "Gr0njSOtC10",
+      "2025-03-20",
+      "First 5m livestream (1 win 1 loss) 1:2.5r trade on gj",
+      3106,
+      3149,
+      "NARROWS",
+      "Official narrowing claim for close-or-flip selection.",
+    );
+    database.prepare(queries.INSERT_ENTRY_SOURCE_RELATIONSHIP_SQL).run(
+      "closure-or-flip-2025-03",
+      "standard-close-2024-03",
+    );
+    database.prepare(queries.INSERT_ENTRY_SOURCE_CLAIM_SQL).run(
+      "unofficial-claim",
+      "unofficial-source",
+      "unofficial",
+      "2026-07-24",
+      "Untrusted metadata",
+      "UNOFFICIAL_CHANNEL",
+      "@unofficial",
+      0,
+      1,
+      "SUPPORTS",
+      "Must not persist.",
+    );
+    expect(
+      database
+        .prepare(
+          `SELECT *
+           FROM observation_entry_source_claims
+           WHERE claim_id = 'standard-close-2024-03'`,
+        )
+        .get(),
+    ).toEqual(ENTRY_STORAGE_ROW_TYPE_FIXTURES.sourceClaim);
+    expect(
+      database
+        .prepare(
+          `SELECT claim_id
+           FROM observation_entry_source_claims
+           WHERE claim_id = 'unofficial-claim'`,
+        )
+        .all(),
+    ).toEqual([]);
+
+    database.prepare(queries.INSERT_ENTRY_CANDIDATES_SQL).run(
+      "receipt-entry-query-v3",
+      JSON.stringify([
+        {
+          candidate_id: ENTRY_STORAGE_IDS.candidate,
+          setup_id: "setup-entry-query",
+          model: "DIR_CLOSE",
+          state: "MATCHED",
+          event_anchor_epoch: 1721808300,
+          trigger_ordinal: 1,
+          direction: "LONG",
+          source_claim_ids_json: '["standard-close-2024-03"]',
+          normalized_from: null,
+          identity_sha256: ENTRY_STORAGE_IDS.candidate,
+          observed_at_epoch: 1721808300,
+        },
+      ]),
+    );
+    database.prepare(queries.INSERT_ENTRY_EVIDENCE_SQL).run(
+      "receipt-entry-query-v3",
+      JSON.stringify([
+        {
+          evidence_id: ENTRY_STORAGE_IDS.evidence,
+          candidate_id: ENTRY_STORAGE_IDS.candidate,
+          observed_trigger_epoch: 1721808300,
+          observed_trigger_ticks: 110000,
+          htf_context_minutes_json: "[]",
+          fidelity: "EXACT",
+          proof_plane: "CONFIRMED_5M",
+          proof_resolution_seconds: 300,
+          coverage_start_epoch: 1721808000,
+          coverage_end_epoch: 1721808300,
+          ambiguity_codes_json: "[]",
+          passed_rule_ids_json: '["ENTRY_DIR_CLOSE"]',
+          failed_rule_ids_json: "[]",
+          source_claim_ids_json: '["standard-close-2024-03"]',
+          payload_sha256: ENTRY_STORAGE_IDS.payload,
+          identity_sha256: ENTRY_STORAGE_IDS.evidence,
+          observed_at_epoch: 1721808300,
+        },
+      ]),
+    );
+    database.prepare(queries.INSERT_ENTRY_HANDLING_SQL).run(
+      "receipt-entry-query-v3",
+      JSON.stringify([
+        {
+          handling_id: ENTRY_STORAGE_IDS.handling,
+          candidate_id: ENTRY_STORAGE_IDS.candidate,
+          evidence_id: ENTRY_STORAGE_IDS.evidence,
+          handling_mode: "CLOSE_CONFIRMATION",
+          attempt_kind: "INITIAL",
+          observed_epoch: 1721808300,
+          observed_ticks: 110000,
+          fidelity: "EXACT",
+          source_claim_ids_json: '["standard-close-2024-03"]',
+          identity_sha256: ENTRY_STORAGE_IDS.handling,
+        },
+      ]),
+    );
+    expect(
+      database
+        .prepare(queries.SELECT_ENTRY_IDENTITIES_SQL)
+        .all(
+          JSON.stringify([ENTRY_STORAGE_IDS.candidate]),
+          JSON.stringify([ENTRY_STORAGE_IDS.evidence]),
+          JSON.stringify([ENTRY_STORAGE_IDS.handling]),
+        ),
+    ).toEqual([
+      {
+        object_kind: "candidate",
+        object_id: ENTRY_STORAGE_IDS.candidate,
+        identity_sha256: ENTRY_STORAGE_IDS.candidate,
+      },
+      {
+        object_kind: "evidence",
+        object_id: ENTRY_STORAGE_IDS.evidence,
+        identity_sha256: ENTRY_STORAGE_IDS.evidence,
+      },
+      {
+        object_kind: "handling",
+        object_id: ENTRY_STORAGE_IDS.handling,
+        identity_sha256: ENTRY_STORAGE_IDS.handling,
+      },
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT *
+           FROM observation_entry_candidates
+           WHERE candidate_id = ?`,
+        )
+        .get(ENTRY_STORAGE_IDS.candidate),
+    ).toEqual({
+      ...ENTRY_STORAGE_ROW_TYPE_FIXTURES.candidate,
+      setup_id: "setup-entry-query",
+      first_receipt_id: "receipt-entry-query-v3",
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT *
+           FROM observation_entry_candidate_evidence
+           WHERE evidence_id = ?`,
+        )
+        .get(ENTRY_STORAGE_IDS.evidence),
+    ).toEqual({
+      ...ENTRY_STORAGE_ROW_TYPE_FIXTURES.evidence,
+      receipt_id: "receipt-entry-query-v3",
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT *
+           FROM observation_entry_handling
+           WHERE handling_id = ?`,
+        )
+        .get(ENTRY_STORAGE_IDS.handling),
+    ).toEqual({
+      ...ENTRY_STORAGE_ROW_TYPE_FIXTURES.handling,
+      receipt_id: "receipt-entry-query-v3",
+    });
+
+    database.prepare(queries.INSERT_PRODUCER_DIAGNOSTIC_SQL).run(
+      "diagnostic-entry-query",
+      ENTRY_STORAGE_IDS.batch,
+      "setup-entry-query",
+      "[]",
+      "[]",
+      "[]",
+      "[]",
+      null,
+      "2026-07-24T10:00:00Z",
+    );
+    database.prepare(queries.INSERT_ENTRY_SELECTION_SQL).run(
+      ENTRY_STORAGE_IDS.selection,
+      ENTRY_STORAGE_IDS.batch,
+      "setup-entry-query",
+      "rd-entry-arbitration-v2",
+      1,
+      JSON.stringify([ENTRY_STORAGE_IDS.candidate]),
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.evidence,
+      "DIR_CLOSE",
+      "ONLY_EXACT_TRIGGER",
+      "EXACT",
+      "PAPER_ELIGIBLE",
+      "SHADOW_ONLY",
+      "PROMOTION_IDENTITY_MISMATCH",
+      1721808300,
+    );
+    database.prepare(queries.INSERT_ENTRY_EVALUATION_MEMBERS_SQL).run(
+      JSON.stringify([
+        {
+          selection_id: ENTRY_STORAGE_IDS.selection,
+          object_kind: "CANDIDATE",
+          object_id: ENTRY_STORAGE_IDS.candidate,
+        },
+      ]),
+    );
+    database.prepare(queries.INSERT_ENTRY_PARITY_SQL).run(
+      ENTRY_STORAGE_IDS.parity,
+      ENTRY_STORAGE_IDS.batch,
+      "setup-entry-query",
+      "diagnostic-entry-query",
+      ENTRY_STORAGE_IDS.selection,
+      "MISMATCH",
+      "DIAGNOSTIC_ACTION",
+      "2026-07-24T10:00:03Z",
+    );
+    database.prepare(queries.INSERT_ENTRY_QUARANTINE_SQL).run(
+      "quarantine-entry-query",
+      "receipt-entry-query-v3",
+      ENTRY_STORAGE_IDS.batch,
+      null,
+      null,
+      null,
+      "CANDIDATE",
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.candidate,
+      ENTRY_STORAGE_IDS.payload,
+      "IMMUTABLE_ID_CONFLICT",
+      "2026-07-24T10:00:04Z",
+    );
+    expect(
+      database
+        .prepare(
+          `SELECT *
+           FROM observation_entry_producer_diagnostics
+           WHERE diagnostic_id = 'diagnostic-entry-query'`,
+        )
+        .get(),
+    ).toEqual({
+      ...ENTRY_STORAGE_ROW_TYPE_FIXTURES.producerDiagnostic,
+      diagnostic_id: "diagnostic-entry-query",
+      setup_id: "setup-entry-query",
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT *
+           FROM observation_entry_selections
+           WHERE selection_id = ?`,
+        )
+        .get(ENTRY_STORAGE_IDS.selection),
+    ).toEqual({
+      ...ENTRY_STORAGE_ROW_TYPE_FIXTURES.selection,
+      setup_id: "setup-entry-query",
+    });
+    expect(
+      database
+        .prepare("SELECT * FROM observation_entry_evaluation_members")
+        .get(),
+    ).toEqual(ENTRY_STORAGE_ROW_TYPE_FIXTURES.evaluationMember);
+    expect(
+      database.prepare("SELECT * FROM observation_entry_parity").get(),
+    ).toEqual({
+      ...ENTRY_STORAGE_ROW_TYPE_FIXTURES.parity,
+      setup_id: "setup-entry-query",
+      producer_diagnostic_id: "diagnostic-entry-query",
+    });
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("keeps Task 4 receipt hashes and fails deferred entry FKs at commit", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 22);
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-entry-storage-compatible-legacy",
+      schemaVersion: "1.2",
+      strategyVersion: "1.2.0-contract1",
+      producerInstanceId: "compatible-legacy",
+      sequence: 0,
+      payloadSha256: "A".repeat(64),
+    });
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-entry-storage-compatible-v3",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "compatible-v3",
+      sequence: 1,
+    });
+
+    const migration = readFileSync(
+      `${root}/migrations/0023_observation_entries.sql`,
+      "utf8",
+    );
+    expect(migration.toLowerCase()).not.toContain(
+      "pragma defer_foreign_keys = off",
+    );
+    database.exec("BEGIN");
+    database.exec(migration);
+    database.exec("COMMIT");
+    expect(
+      database
+        .prepare(
+          `SELECT receipt_id, payload_sha256
+           FROM observation_receipts
+           WHERE receipt_id LIKE 'receipt-entry-storage-compatible-%'
+           ORDER BY receipt_id`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        receipt_id: "receipt-entry-storage-compatible-legacy",
+        payload_sha256: "A".repeat(64),
+      },
+      {
+        receipt_id: "receipt-entry-storage-compatible-v3",
+        payload_sha256: ENTRY_STORAGE_IDS.payload,
+      },
+    ]);
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+
+    const rollbackDatabase = new DatabaseSync(":memory:");
+    rollbackDatabase.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(rollbackDatabase, root, 22);
+    const migrationWithDeferredViolation = migration.replace(
+      "PRAGMA foreign_key_check;",
+      `INSERT INTO observation_market_bar_heartbeats (
+        receipt_id, batch_id, schema_version, producer_role,
+        producer_instance_id, producer_sequence, strategy_version,
+        symbol, ticker_id, feed, timeframe, bar_open_epoch, bar_close_epoch,
+        detector_code_hash, settings_hash, recorded_at
+      ) VALUES (
+        'missing-receipt', NULL, '1.2', 'LEGACY_REFERENCE',
+        'deferred-producer', 0, '1.2.0-contract1',
+        'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5',
+        1721808000, 1721808300, NULL, NULL, '2026-07-24T10:00:00Z'
+      );
+      PRAGMA foreign_key_check;`,
+    );
+    rollbackDatabase.exec("BEGIN");
+    rollbackDatabase.exec("PRAGMA defer_foreign_keys = ON");
+    rollbackDatabase.exec(migrationWithDeferredViolation);
+    expect(
+      rollbackDatabase.prepare("PRAGMA foreign_key_check").all(),
+    ).toEqual([
+      expect.objectContaining({
+        table: "observation_market_bar_heartbeats",
+        parent: "observation_receipts",
+      }),
+    ]);
+    expect(() => rollbackDatabase.exec("COMMIT")).toThrow(
+      /FOREIGN KEY constraint failed/u,
+    );
+    rollbackDatabase.exec("ROLLBACK");
+    expect(
+      rollbackDatabase
+        .prepare(
+          `SELECT name
+           FROM sqlite_schema
+           WHERE type = 'table'
+             AND name = 'observation_market_bar_heartbeats'`,
+        )
+        .all(),
+    ).toEqual([]);
   });
 
   it("migrates legacy receipt references and rejects entry schema sequence zero", () => {
