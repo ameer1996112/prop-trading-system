@@ -1158,6 +1158,13 @@ describe("deployment contract", () => {
     expect(migration).toContain("insert into observation_receipts_entry_v2");
     expect(migration).toContain("from observation_receipts");
     expect(migration).toContain("pragma foreign_key_check");
+    expect(migration).not.toContain("pragma defer_foreign_keys = off");
+    expect(migration).toMatch(
+      /schema_version in \('1\.0', '1\.1', '1\.2'\)\s+and\s+length\(payload_sha256\) = 64/su,
+    );
+    expect(migration).toMatch(
+      /schema_version = '2\.0'\s+and\s+length\(payload_sha256\) = 64\s+and\s+payload_sha256 not glob '\*\[\^0-9a-f\]\*'/su,
+    );
     expect(migration).not.toMatch(
       /^\s*(credential|payload|raw_payload|canonical_payload)\s+text/gmu,
     );
@@ -1185,12 +1192,13 @@ describe("deployment contract", () => {
       receiptId: string,
       schemaVersion: "1.0" | "1.1" | "1.2",
       strategyVersion: "1.0.0-phase1" | "1.1.0-paper1" | "1.2.0-contract1",
+      legacyPayloadSha256: string,
     ): void => {
       insertReceipt.run(
         receiptId,
         "2026-07-24T10:00:00Z",
         `legacy:${receiptId}`,
-        payloadSha256,
+        legacyPayloadSha256,
         schemaVersion,
         strategyVersion,
         "legacy-producer",
@@ -1202,9 +1210,9 @@ describe("deployment contract", () => {
       );
     };
 
-    insertLegacyReceipt("receipt-v1", "1.0", "1.0.0-phase1");
-    insertLegacyReceipt("receipt-v11", "1.1", "1.1.0-paper1");
-    insertLegacyReceipt("receipt-v12", "1.2", "1.2.0-contract1");
+    insertLegacyReceipt("receipt-v1", "1.0", "1.0.0-phase1", "A".repeat(64));
+    insertLegacyReceipt("receipt-v11", "1.1", "1.1.0-paper1", payloadSha256);
+    insertLegacyReceipt("receipt-v12", "1.2", "1.2.0-contract1", payloadSha256);
     database
       .prepare(
         `INSERT INTO paper_trade_intents (
@@ -1268,16 +1276,64 @@ describe("deployment contract", () => {
     expect(
       database
         .prepare(
-          `SELECT receipt_id, schema_version, sequence
+          `SELECT
+             receipt_id, received_at, idempotency_key, payload_sha256,
+             schema_version, strategy_id, strategy_version, producer_instance_id,
+             sequence, symbol, ticker_id, feed, timeframe, kind
            FROM observation_receipts
            WHERE receipt_id LIKE 'receipt-v%'
            ORDER BY receipt_id`,
         )
         .all(),
     ).toEqual([
-      { receipt_id: "receipt-v1", schema_version: "1.0", sequence: 0 },
-      { receipt_id: "receipt-v11", schema_version: "1.1", sequence: 0 },
-      { receipt_id: "receipt-v12", schema_version: "1.2", sequence: 0 },
+      {
+        receipt_id: "receipt-v1",
+        received_at: "2026-07-24T10:00:00Z",
+        idempotency_key: "legacy:receipt-v1",
+        payload_sha256: "A".repeat(64),
+        schema_version: "1.0",
+        strategy_id: "rd_liquidity_sd_5m_v1",
+        strategy_version: "1.0.0-phase1",
+        producer_instance_id: "legacy-producer",
+        sequence: 0,
+        symbol: "EURUSD",
+        ticker_id: "VANTAGE:EURUSD",
+        feed: "VANTAGE",
+        timeframe: "5",
+        kind: "snapshot",
+      },
+      {
+        receipt_id: "receipt-v11",
+        received_at: "2026-07-24T10:00:00Z",
+        idempotency_key: "legacy:receipt-v11",
+        payload_sha256: payloadSha256,
+        schema_version: "1.1",
+        strategy_id: "rd_liquidity_sd_5m_v1",
+        strategy_version: "1.1.0-paper1",
+        producer_instance_id: "legacy-producer",
+        sequence: 0,
+        symbol: "EURUSD",
+        ticker_id: "VANTAGE:EURUSD",
+        feed: "VANTAGE",
+        timeframe: "5",
+        kind: "snapshot",
+      },
+      {
+        receipt_id: "receipt-v12",
+        received_at: "2026-07-24T10:00:00Z",
+        idempotency_key: "legacy:receipt-v12",
+        payload_sha256: payloadSha256,
+        schema_version: "1.2",
+        strategy_id: "rd_liquidity_sd_5m_v1",
+        strategy_version: "1.2.0-contract1",
+        producer_instance_id: "legacy-producer",
+        sequence: 0,
+        symbol: "EURUSD",
+        ticker_id: "VANTAGE:EURUSD",
+        feed: "VANTAGE",
+        timeframe: "5",
+        kind: "snapshot",
+      },
     ]);
     expect(
       database
@@ -1298,22 +1354,142 @@ describe("deployment contract", () => {
     expect(
       database
         .prepare(
-          `SELECT receipt_id FROM observation_setup_evidence WHERE evidence_id = 'evidence-v12'`,
+          `SELECT * FROM observation_setup_evidence WHERE evidence_id = 'evidence-v12'`,
         )
         .get(),
-    ).toEqual({ receipt_id: "receipt-v12" });
+    ).toEqual({
+      evidence_id: "evidence-v12",
+      receipt_id: "receipt-v12",
+      recorded_at: "2026-07-24T10:00:00Z",
+      event_index: 0,
+      event_kind: "transition",
+      symbol: "EURUSD",
+      side: "DEMAND",
+      zone_key: "zone-v12",
+      liquidity_key: "liquidity-v12",
+      formation_bar_close_epoch: 100,
+      from_state: null,
+      to_state: "ACTIVE",
+      reason_code: "TEST",
+      decision: "WAIT",
+      entry_model: null,
+      rule_passes_json: JSON.stringify(Array.from({ length: 22 }, () => true)),
+      liquidity_formed_epoch: null,
+      own_extreme_broken_epoch: null,
+      liquidity_swept_epoch: null,
+      zone_engaged_epoch: null,
+      entry_confirmed_epoch: null,
+      zone_top: "1.10",
+      zone_bottom: "1.09",
+      zone_origin_open_epoch: 1,
+      zone_origin_close_epoch: 2,
+      liquidity_price: "1.11",
+      liquidity_origin_open_epoch: 3,
+      liquidity_origin_close_epoch: 4,
+      source_open_epoch: 5,
+      source_close_epoch: 100,
+      source_open: "1.10",
+      source_high: "1.12",
+      source_low: "1.09",
+      source_close: "1.11",
+    });
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(
       database
-        .prepare("PRAGMA index_list('observation_receipts')")
+        .prepare(
+          `SELECT name, sql
+           FROM sqlite_schema
+           WHERE type = 'index'
+             AND name IN (
+               'idx_observation_receipts_received',
+               'idx_observation_receipts_producer_sequence'
+             )
+           ORDER BY name`,
+        )
         .all()
-        .map((index) => index.name),
-    ).toEqual(
-      expect.arrayContaining([
-        "idx_observation_receipts_received",
-        "idx_observation_receipts_producer_sequence",
-      ]),
-    );
+        .map((index) => ({
+          name: index.name,
+          sql: String(index.sql).replace(/\s+/gu, " ").trim(),
+        })),
+    ).toEqual([
+      {
+        name: "idx_observation_receipts_producer_sequence",
+        sql: "CREATE INDEX idx_observation_receipts_producer_sequence ON observation_receipts(producer_instance_id, sequence DESC)",
+      },
+      {
+        name: "idx_observation_receipts_received",
+        sql: "CREATE INDEX idx_observation_receipts_received ON observation_receipts(received_at DESC, receipt_id DESC)",
+      },
+    ]);
+    const receiptForeignKey = (table: string, column: string): unknown =>
+      database
+        .prepare(`PRAGMA foreign_key_list('${table}')`)
+        .all()
+        .find((foreignKey) => foreignKey.from === column);
+    expect(
+      receiptForeignKey("paper_trade_intents", "source_receipt_id"),
+    ).toMatchObject({
+      table: "observation_receipts",
+      from: "source_receipt_id",
+      to: "receipt_id",
+      on_update: "NO ACTION",
+      on_delete: "NO ACTION",
+    });
+    expect(
+      receiptForeignKey("paper_blocked_automation_intents", "source_receipt_id"),
+    ).toMatchObject({
+      table: "observation_receipts",
+      from: "source_receipt_id",
+      to: "receipt_id",
+      on_update: "NO ACTION",
+      on_delete: "NO ACTION",
+    });
+    expect(
+      receiptForeignKey("observation_setup_evidence", "receipt_id"),
+    ).toMatchObject({
+      table: "observation_receipts",
+      from: "receipt_id",
+      to: "receipt_id",
+      on_update: "NO ACTION",
+      on_delete: "CASCADE",
+    });
+    expect(
+      database
+        .prepare(
+          `SELECT name, sql
+           FROM sqlite_schema
+           WHERE type = 'trigger'
+             AND name IN (
+               'paper_blocked_automation_intents_no_delete',
+               'paper_blocked_automation_intents_no_update',
+               'paper_trade_intents_no_delete',
+               'paper_trade_intents_no_update'
+             )
+           ORDER BY name`,
+        )
+        .all()
+        .map((trigger) => ({
+          name: trigger.name,
+          sql: String(trigger.sql).replace(/\s+/gu, " ").trim(),
+        })),
+    ).toEqual([
+      {
+        name: "paper_blocked_automation_intents_no_delete",
+        sql: "CREATE TRIGGER paper_blocked_automation_intents_no_delete BEFORE DELETE ON paper_blocked_automation_intents BEGIN SELECT RAISE(ABORT, 'blocked paper automation intents are append-only'); END",
+      },
+      {
+        name: "paper_blocked_automation_intents_no_update",
+        sql: "CREATE TRIGGER paper_blocked_automation_intents_no_update BEFORE UPDATE ON paper_blocked_automation_intents BEGIN SELECT RAISE(ABORT, 'blocked paper automation intents are append-only'); END",
+      },
+      {
+        name: "paper_trade_intents_no_delete",
+        sql: "CREATE TRIGGER paper_trade_intents_no_delete BEFORE DELETE ON paper_trade_intents BEGIN SELECT RAISE(ABORT, 'paper trade intents are append-only'); END",
+      },
+      {
+        name: "paper_trade_intents_no_update",
+        sql: "CREATE TRIGGER paper_trade_intents_no_update BEFORE UPDATE ON paper_trade_intents BEGIN SELECT RAISE(ABORT, 'paper trade intents are immutable'); END",
+      },
+    ]);
 
     expect(() =>
       insertReceipt.run(
@@ -1345,6 +1521,214 @@ describe("deployment contract", () => {
       "VANTAGE",
       "snapshot",
     );
+    expect(
+      database
+        .prepare(
+          `SELECT
+             receipt_id, received_at, idempotency_key, payload_sha256,
+             schema_version, strategy_id, strategy_version, producer_instance_id,
+             sequence, symbol, ticker_id, feed, timeframe, kind
+           FROM observation_receipts
+           WHERE receipt_id = 'receipt-v2-one'`,
+        )
+        .get(),
+    ).toEqual({
+      receipt_id: "receipt-v2-one",
+      received_at: "2026-07-24T10:00:01Z",
+      idempotency_key: "entry-v2:one",
+      payload_sha256: payloadSha256,
+      schema_version: "2.0",
+      strategy_id: "rd_liquidity_sd_5m_v1",
+      strategy_version: "2.0.0-contract2",
+      producer_instance_id: "entry-producer",
+      sequence: 1,
+      symbol: "EURUSD",
+      ticker_id: "VANTAGE:EURUSD",
+      feed: "VANTAGE",
+      timeframe: "5",
+      kind: "snapshot",
+    });
+    expect(() =>
+      insertReceipt.run(
+        "receipt-v2-uppercase-hash",
+        "2026-07-24T10:00:01Z",
+        "entry-v2:uppercase-hash",
+        "B".repeat(64),
+        "2.0",
+        "2.0.0-contract2",
+        "entry-producer",
+        1,
+        "EURUSD",
+        "VANTAGE:EURUSD",
+        "VANTAGE",
+        "snapshot",
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertReceipt.run(
+        "receipt-v2-malformed-hash",
+        "2026-07-24T10:00:01Z",
+        "entry-v2:malformed-hash",
+        "g".repeat(64),
+        "2.0",
+        "2.0.0-contract2",
+        "entry-producer",
+        1,
+        "EURUSD",
+        "VANTAGE:EURUSD",
+        "VANTAGE",
+        "snapshot",
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertReceipt.run(
+        "receipt-v2-legacy-strategy",
+        "2026-07-24T10:00:01Z",
+        "entry-v2:legacy-strategy",
+        payloadSha256,
+        "2.0",
+        "1.2.0-contract1",
+        "entry-producer",
+        1,
+        "EURUSD",
+        "VANTAGE:EURUSD",
+        "VANTAGE",
+        "snapshot",
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    expect(() =>
+      insertReceipt.run(
+        "receipt-v1-entry-strategy",
+        "2026-07-24T10:00:01Z",
+        "legacy:entry-strategy",
+        payloadSha256,
+        "1.0",
+        "2.0.0-contract2",
+        "legacy-producer",
+        0,
+        "EURUSD",
+        "VANTAGE:EURUSD",
+        "VANTAGE",
+        "snapshot",
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    const receiptsBeforeRepeat = database
+      .prepare(
+        `SELECT
+           receipt_id, received_at, idempotency_key, payload_sha256,
+           schema_version, strategy_id, strategy_version, producer_instance_id,
+           sequence, symbol, ticker_id, feed, timeframe, kind
+         FROM observation_receipts
+         ORDER BY receipt_id`,
+      )
+      .all();
+    const evidenceBeforeRepeat = database
+      .prepare("SELECT * FROM observation_setup_evidence ORDER BY evidence_id")
+      .all();
+    database.exec("BEGIN");
+    database.exec(
+      readFileSync(
+        `${root}/migrations/0022_observation_receipts_entry_v2.sql`,
+        "utf8",
+      ),
+    );
+    database.exec("COMMIT");
+    expect(
+      database
+        .prepare(
+          `SELECT
+             receipt_id, received_at, idempotency_key, payload_sha256,
+             schema_version, strategy_id, strategy_version, producer_instance_id,
+             sequence, symbol, ticker_id, feed, timeframe, kind
+           FROM observation_receipts
+           ORDER BY receipt_id`,
+        )
+        .all(),
+    ).toEqual(receiptsBeforeRepeat);
+    expect(
+      database
+        .prepare("SELECT * FROM observation_setup_evidence ORDER BY evidence_id")
+        .all(),
+    ).toEqual(evidenceBeforeRepeat);
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  it("fails deferred receipt FK violations at commit and rolls the rebuild back", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    const payloadSha256 = "a".repeat(64);
+    database.exec("PRAGMA foreign_keys = ON");
+    for (const migration of readdirSync(root + "/migrations")
+      .filter((name) => /^00(?:0[1-9]|1[0-9]|2[01])_.*\.sql$/u.test(name))
+      .sort()) {
+      database.exec(readFileSync(root + "/migrations/" + migration, "utf8"));
+    }
+    database
+      .prepare(
+        "INSERT INTO observation_receipts VALUES (?, ?, ?, ?, '1.2', " +
+          "'rd_liquidity_sd_5m_v1', '1.2.0-contract1', " +
+          "'rollback-producer', 0, 'EURUSD', 'VANTAGE:EURUSD', " +
+          "'VANTAGE', '5', 'snapshot')",
+      )
+      .run(
+        "receipt-rollback",
+        "2026-07-24T10:00:00Z",
+        "legacy:receipt-rollback",
+        payloadSha256,
+      );
+    const migration = readFileSync(
+      root + "/migrations/0022_observation_receipts_entry_v2.sql",
+      "utf8",
+    ).replace(
+      "PRAGMA foreign_key_check;",
+      "INSERT INTO paper_blocked_automation_intents (" +
+        "intent_id, source_receipt_id, payload_sha256, reason_code, blocked_at" +
+        ") VALUES (" +
+        "'blocked-unresolved', 'missing-receipt', '" +
+        payloadSha256 +
+        "', 'KILL_SWITCH_ENABLED', '2026-07-24T10:00:00Z');" +
+        "PRAGMA foreign_key_check;",
+    );
+
+    database.exec("BEGIN");
+    database.exec(migration);
+    expect(() => database.exec("COMMIT")).toThrow(
+      /FOREIGN KEY constraint failed/u,
+    );
+    database.exec("ROLLBACK");
+
+    expect(
+      database
+        .prepare(
+          "SELECT receipt_id, schema_version, strategy_version, sequence, " +
+            "payload_sha256 FROM observation_receipts",
+        )
+        .all(),
+    ).toEqual([
+      {
+        receipt_id: "receipt-rollback",
+        schema_version: "1.2",
+        strategy_version: "1.2.0-contract1",
+        sequence: 0,
+        payload_sha256: payloadSha256,
+      },
+    ]);
+    expect(
+      database
+        .prepare(
+          "SELECT name FROM sqlite_schema WHERE type = 'table' " +
+            "AND name = 'observation_receipts_entry_v2'",
+        )
+        .all(),
+    ).toEqual([]);
+    expect(
+      database
+        .prepare(
+          "SELECT intent_id FROM paper_blocked_automation_intents " +
+            "WHERE intent_id = 'blocked-unresolved'",
+        )
+        .all(),
+    ).toEqual([]);
   });
 
   it("stores sanitized setup evidence with strict receipt ownership", () => {

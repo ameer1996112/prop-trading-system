@@ -34,8 +34,16 @@ CREATE TABLE observation_receipts_entry_v2 (
     timeframe TEXT NOT NULL CHECK (timeframe = '5'),
     kind TEXT NOT NULL CHECK (kind IN ('incremental', 'snapshot')),
     CHECK (
-        length(payload_sha256) = 64
-        AND payload_sha256 NOT GLOB '*[^0-9a-f]*'
+        (
+            schema_version IN ('1.0', '1.1', '1.2')
+            AND length(payload_sha256) = 64
+        )
+        OR
+        (
+            schema_version = '2.0'
+            AND length(payload_sha256) = 64
+            AND payload_sha256 NOT GLOB '*[^0-9a-f]*'
+        )
     )
 ) STRICT;
 
@@ -50,6 +58,29 @@ SELECT
     sequence, symbol, ticker_id, feed, timeframe, kind
 FROM observation_receipts;
 
+-- The following two consumers use deferred NO ACTION foreign keys. Detach
+-- their receipt links before dropping the parent, then restore them after the
+-- replacement parent is in place so commit-time FK enforcement remains live.
+CREATE TABLE paper_trade_intent_receipt_refs_entry_v2_backup AS
+SELECT intent_id, source_receipt_id
+FROM paper_trade_intents
+WHERE source_receipt_id IS NOT NULL;
+
+CREATE TABLE paper_blocked_automation_intents_entry_v2_backup AS
+SELECT *
+FROM paper_blocked_automation_intents;
+
+DROP TRIGGER paper_trade_intents_no_update;
+DROP TRIGGER paper_trade_intents_no_delete;
+DROP TRIGGER paper_blocked_automation_intents_no_update;
+DROP TRIGGER paper_blocked_automation_intents_no_delete;
+
+UPDATE paper_trade_intents
+SET source_receipt_id = NULL
+WHERE source_receipt_id IS NOT NULL;
+
+DELETE FROM paper_blocked_automation_intents;
+
 -- This child deliberately cascades when its parent is dropped. Keep the
 -- append-only audit rows across the short parent-table replacement window.
 CREATE TABLE observation_setup_evidence_entry_v2_backup AS
@@ -61,11 +92,53 @@ DROP TABLE observation_receipts;
 ALTER TABLE observation_receipts_entry_v2
     RENAME TO observation_receipts;
 
+UPDATE paper_trade_intents
+SET source_receipt_id = (
+    SELECT source_receipt_id
+    FROM paper_trade_intent_receipt_refs_entry_v2_backup AS backup
+    WHERE backup.intent_id = paper_trade_intents.intent_id
+)
+WHERE EXISTS (
+    SELECT 1
+    FROM paper_trade_intent_receipt_refs_entry_v2_backup AS backup
+    WHERE backup.intent_id = paper_trade_intents.intent_id
+);
+
+INSERT INTO paper_blocked_automation_intents
+SELECT *
+FROM paper_blocked_automation_intents_entry_v2_backup;
+
 INSERT INTO observation_setup_evidence
 SELECT *
 FROM observation_setup_evidence_entry_v2_backup;
 
+DROP TABLE paper_trade_intent_receipt_refs_entry_v2_backup;
+DROP TABLE paper_blocked_automation_intents_entry_v2_backup;
 DROP TABLE observation_setup_evidence_entry_v2_backup;
+
+CREATE TRIGGER paper_trade_intents_no_update
+BEFORE UPDATE ON paper_trade_intents
+BEGIN
+    SELECT RAISE(ABORT, 'paper trade intents are immutable');
+END;
+
+CREATE TRIGGER paper_trade_intents_no_delete
+BEFORE DELETE ON paper_trade_intents
+BEGIN
+    SELECT RAISE(ABORT, 'paper trade intents are append-only');
+END;
+
+CREATE TRIGGER paper_blocked_automation_intents_no_update
+BEFORE UPDATE ON paper_blocked_automation_intents
+BEGIN
+    SELECT RAISE(ABORT, 'blocked paper automation intents are append-only');
+END;
+
+CREATE TRIGGER paper_blocked_automation_intents_no_delete
+BEFORE DELETE ON paper_blocked_automation_intents
+BEGIN
+    SELECT RAISE(ABORT, 'blocked paper automation intents are append-only');
+END;
 
 CREATE INDEX idx_observation_receipts_received
     ON observation_receipts(received_at DESC, receipt_id DESC);
@@ -74,4 +147,3 @@ CREATE INDEX idx_observation_receipts_producer_sequence
     ON observation_receipts(producer_instance_id, sequence DESC);
 
 PRAGMA foreign_key_check;
-PRAGMA defer_foreign_keys = OFF;
