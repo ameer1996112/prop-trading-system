@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -1134,6 +1135,216 @@ describe("deployment contract", () => {
     expect(migration).toContain("pragma foreign_key_check");
     expect(migration).toContain("pragma defer_foreign_keys = off");
     expect(migration).not.toMatch(/^\s*(credential|payload)\s+text/gm);
+  });
+
+  it("admits entry schema 2.0 while copying every legacy receipt", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const migration = readFileSync(
+      `${root}/migrations/0022_observation_receipts_entry_v2.sql`,
+      "utf8",
+    ).toLowerCase();
+
+    expect(migration).toContain("pragma defer_foreign_keys = on");
+    expect(migration).toContain(
+      "schema_version in ('1.0', '1.1', '1.2', '2.0')",
+    );
+    expect(migration).toContain(
+      "(schema_version = '2.0' and strategy_version = '2.0.0-contract2')",
+    );
+    expect(migration).toContain("(schema_version = '2.0' and sequence >= 1)");
+    expect(migration).toContain(
+      "(schema_version in ('1.0', '1.1', '1.2') and sequence >= 0)",
+    );
+    expect(migration).toContain("insert into observation_receipts_entry_v2");
+    expect(migration).toContain("from observation_receipts");
+    expect(migration).toContain("pragma foreign_key_check");
+    expect(migration).not.toMatch(
+      /^\s*(credential|payload|raw_payload|canonical_payload)\s+text/gmu,
+    );
+  });
+
+  it("migrates legacy receipt references and rejects entry schema sequence zero", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    const payloadSha256 = "a".repeat(64);
+    database.exec("PRAGMA foreign_keys = ON");
+    for (const migration of readdirSync(`${root}/migrations`)
+      .filter((name) => /^00(?:0[1-9]|1[0-9]|2[01])_.*\.sql$/u.test(name))
+      .sort()) {
+      database.exec(readFileSync(`${root}/migrations/${migration}`, "utf8"));
+    }
+
+    const insertReceipt = database.prepare(`
+      INSERT INTO observation_receipts (
+        receipt_id, received_at, idempotency_key, payload_sha256,
+        schema_version, strategy_id, strategy_version, producer_instance_id,
+        sequence, symbol, ticker_id, feed, timeframe, kind
+      ) VALUES (?, ?, ?, ?, ?, 'rd_liquidity_sd_5m_v1', ?, ?, ?, ?, ?, ?, '5', ?)
+    `);
+    const insertLegacyReceipt = (
+      receiptId: string,
+      schemaVersion: "1.0" | "1.1" | "1.2",
+      strategyVersion: "1.0.0-phase1" | "1.1.0-paper1" | "1.2.0-contract1",
+    ): void => {
+      insertReceipt.run(
+        receiptId,
+        "2026-07-24T10:00:00Z",
+        `legacy:${receiptId}`,
+        payloadSha256,
+        schemaVersion,
+        strategyVersion,
+        "legacy-producer",
+        0,
+        "EURUSD",
+        "VANTAGE:EURUSD",
+        "VANTAGE",
+        "snapshot",
+      );
+    };
+
+    insertLegacyReceipt("receipt-v1", "1.0", "1.0.0-phase1");
+    insertLegacyReceipt("receipt-v11", "1.1", "1.1.0-paper1");
+    insertLegacyReceipt("receipt-v12", "1.2", "1.2.0-contract1");
+    database
+      .prepare(
+        `INSERT INTO paper_trade_intents (
+          intent_id, idempotency_key, payload_sha256, symbol, side,
+          entry_price, stop_loss, take_profit, risk_bps, created_at,
+          source, source_receipt_id
+        ) VALUES (?, ?, ?, 'EURUSD', 'BUY', '1.10', '1.09', '1.12', 100, ?, 'TRADINGVIEW', ?)`,
+      )
+      .run(
+        "intent-v1",
+        "paper-intent:intent-v1",
+        payloadSha256,
+        "2026-07-24T10:00:00Z",
+        "receipt-v1",
+      );
+    database
+      .prepare(
+        `INSERT INTO paper_blocked_automation_intents (
+          intent_id, source_receipt_id, payload_sha256, reason_code, blocked_at
+        ) VALUES (?, ?, ?, 'KILL_SWITCH_ENABLED', ?)`,
+      )
+      .run(
+        "blocked-v11",
+        "receipt-v11",
+        payloadSha256,
+        "2026-07-24T10:00:00Z",
+      );
+    database
+      .prepare(
+        `INSERT INTO observation_setup_evidence (
+          evidence_id, receipt_id, recorded_at, event_index, event_kind,
+          symbol, side, zone_key, liquidity_key, formation_bar_close_epoch,
+          from_state, to_state, reason_code, decision, entry_model,
+          rule_passes_json, liquidity_formed_epoch, own_extreme_broken_epoch,
+          liquidity_swept_epoch, zone_engaged_epoch, entry_confirmed_epoch,
+          zone_top, zone_bottom, zone_origin_open_epoch, zone_origin_close_epoch,
+          liquidity_price, liquidity_origin_open_epoch, liquidity_origin_close_epoch,
+          source_open_epoch, source_close_epoch, source_open, source_high,
+          source_low, source_close
+        ) VALUES (?, ?, ?, 0, 'transition', 'EURUSD', 'DEMAND', 'zone-v12',
+          'liquidity-v12', 100, NULL, 'ACTIVE', 'TEST', 'WAIT', NULL, ?,
+          NULL, NULL, NULL, NULL, NULL, '1.10', '1.09', 1, 2, '1.11', 3, 4,
+          5, 100, '1.10', '1.12', '1.09', '1.11')`,
+      )
+      .run(
+        "evidence-v12",
+        "receipt-v12",
+        "2026-07-24T10:00:00Z",
+        JSON.stringify(Array.from({ length: 22 }, () => true)),
+      );
+
+    database.exec("BEGIN");
+    database.exec(
+      readFileSync(
+        `${root}/migrations/0022_observation_receipts_entry_v2.sql`,
+        "utf8",
+      ),
+    );
+    database.exec("COMMIT");
+
+    expect(
+      database
+        .prepare(
+          `SELECT receipt_id, schema_version, sequence
+           FROM observation_receipts
+           WHERE receipt_id LIKE 'receipt-v%'
+           ORDER BY receipt_id`,
+        )
+        .all(),
+    ).toEqual([
+      { receipt_id: "receipt-v1", schema_version: "1.0", sequence: 0 },
+      { receipt_id: "receipt-v11", schema_version: "1.1", sequence: 0 },
+      { receipt_id: "receipt-v12", schema_version: "1.2", sequence: 0 },
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT source_receipt_id FROM paper_trade_intents WHERE intent_id = 'intent-v1'`,
+        )
+        .get(),
+    ).toEqual({ source_receipt_id: "receipt-v1" });
+    expect(
+      database
+        .prepare(
+          `SELECT source_receipt_id
+           FROM paper_blocked_automation_intents
+           WHERE intent_id = 'blocked-v11'`,
+        )
+        .get(),
+    ).toEqual({ source_receipt_id: "receipt-v11" });
+    expect(
+      database
+        .prepare(
+          `SELECT receipt_id FROM observation_setup_evidence WHERE evidence_id = 'evidence-v12'`,
+        )
+        .get(),
+    ).toEqual({ receipt_id: "receipt-v12" });
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(
+      database
+        .prepare("PRAGMA index_list('observation_receipts')")
+        .all()
+        .map((index) => index.name),
+    ).toEqual(
+      expect.arrayContaining([
+        "idx_observation_receipts_received",
+        "idx_observation_receipts_producer_sequence",
+      ]),
+    );
+
+    expect(() =>
+      insertReceipt.run(
+        "receipt-v2-zero",
+        "2026-07-24T10:00:01Z",
+        "entry-v2:zero",
+        payloadSha256,
+        "2.0",
+        "2.0.0-contract2",
+        "entry-producer",
+        0,
+        "EURUSD",
+        "VANTAGE:EURUSD",
+        "VANTAGE",
+        "snapshot",
+      ),
+    ).toThrow(/CHECK constraint failed/u);
+    insertReceipt.run(
+      "receipt-v2-one",
+      "2026-07-24T10:00:01Z",
+      "entry-v2:one",
+      payloadSha256,
+      "2.0",
+      "2.0.0-contract2",
+      "entry-producer",
+      1,
+      "EURUSD",
+      "VANTAGE:EURUSD",
+      "VANTAGE",
+      "snapshot",
+    );
   });
 
   it("stores sanitized setup evidence with strict receipt ownership", () => {
