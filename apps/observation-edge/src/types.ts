@@ -1,10 +1,17 @@
+import type {
+  EntryBatchImmutableMetadata,
+  EntryBatchSemanticIdentity,
+  ValidatedEntryWireBatch,
+} from "./rd-entry-wire";
+
 export type ObservationKind = "incremental" | "snapshot";
 export type ReceiptStatus = "RECEIVED" | "DUPLICATE";
-export type ObservationSchemaVersion = "1.0" | "1.1" | "1.2";
+export type ObservationSchemaVersion = "1.0" | "1.1" | "1.2" | "2.0";
 export type StrategyVersion =
   | "1.0.0-phase1"
   | "1.1.0-paper1"
-  | "1.2.0-contract1";
+  | "1.2.0-contract1"
+  | "2.0.0-contract2";
 
 export interface ReceiptMetadata {
   readonly idempotencyKey: string;
@@ -20,12 +27,26 @@ export interface ReceiptMetadata {
   readonly kind: ObservationKind;
 }
 
-export interface ValidatedObservation {
-  readonly credential: string;
-  readonly canonicalPayload: Readonly<Record<string, CanonicalValue>>;
-  readonly metadata: ReceiptMetadata;
-  readonly paperCommands: readonly PaperAutomationCommand[];
-}
+export type ValidatedObservation =
+  | {
+      readonly version: "legacy";
+      readonly credential: string;
+      readonly canonicalPayload: Readonly<Record<string, CanonicalValue>>;
+      readonly metadata: ReceiptMetadata;
+      readonly paperCommands: readonly PaperAutomationCommand[];
+    }
+  | {
+      readonly version: "entry-v2";
+      readonly credential: string;
+      readonly canonicalPayload: Readonly<Record<string, CanonicalValue>>;
+      readonly metadata: ReceiptMetadata;
+      readonly paperCommands: readonly [];
+      readonly batchIdentity: EntryBatchSemanticIdentity;
+      readonly batchMetadata: EntryBatchImmutableMetadata;
+      readonly chunkIndex: number;
+      readonly chunkCount: number;
+      readonly entryBatches: readonly ValidatedEntryWireBatch[];
+    };
 
 export type CanonicalScalar = null | boolean | number | string;
 export type CanonicalValue =

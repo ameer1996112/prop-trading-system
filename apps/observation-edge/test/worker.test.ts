@@ -358,6 +358,66 @@ function contractIncrementalPayload(): Record<string, unknown> {
   return payload;
 }
 
+function entryV2Payload(): Record<string, unknown> {
+  return {
+    schema_version: "2.0",
+    strategy_id: "rd_liquidity_sd_5m_v1",
+    strategy_version: "2.0.0-contract2",
+    rule_contract_version: "2.0.0",
+    execution_mode: "OBSERVATION_ONLY",
+    producer_instance_id: "pine-v3-worker",
+    sequence: 1,
+    idempotency_key: "pine-v3-worker:1:incremental:1721808300:0",
+    symbol: "EURUSD",
+    ticker_id: "OANDA:EURUSD",
+    feed: "OANDA",
+    timeframe: "5",
+    tick_size: "0.00001",
+    bar_open_epoch: 1_721_808_000,
+    bar_close_epoch: 1_721_808_300,
+    detector_code_hash: "a".repeat(64),
+    settings_hash: "b".repeat(64),
+    kind: "incremental",
+    chunk_index: 0,
+    chunk_count: 1,
+    eb: [
+      {
+        s: "worker-setup",
+        d: "LONG",
+        f: {
+          zb: 90,
+          zt: 100,
+          ge: 1_721_808_010,
+          iv: false,
+          cf: "EXACT",
+          ak: "INITIAL",
+          et: true,
+          tr: null,
+          te: null,
+          ng: null,
+          b: [
+            {
+              oe: 1_721_808_000,
+              ce: 1_721_808_300,
+              o: 99,
+              h: 105,
+              l: 95,
+              c: 103,
+              gb: false,
+              rr: false,
+            },
+          ],
+          x: [],
+        },
+        c: [],
+        e: [],
+        h: [],
+        q: null,
+      },
+    ],
+  };
+}
+
 function snapshotPayload(): Record<string, unknown> {
   const payload = incrementalPayload();
   delete payload.chunk_index;
@@ -795,6 +855,61 @@ describe("observation edge Worker", () => {
     expect(response.status).toBe(413);
     expect(text).toContain("BODY_TOO_LARGE");
     expect(text).not.toContain(oversized);
+  });
+
+  it("accepts a 34,999-character v2 envelope and rejects 35,000 before D1", async () => {
+    const acceptedDatabase = new FakeD1();
+    const rejectedDatabase = new FakeD1();
+    const envelope = JSON.stringify({
+      credential: CREDENTIAL,
+      payload: entryV2Payload(),
+    });
+    const acceptedText = envelope.padEnd(34_999, " ");
+    const rejectedText = envelope.padEnd(35_000, " ");
+    const request = (text: string) =>
+      new Request(`${BASE_URL}/api/v1/tradingview/observations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: text,
+      });
+
+    const accepted = await handleRequest(
+      request(acceptedText),
+      await environment(acceptedDatabase),
+    );
+    const rejected = await handleRequest(
+      request(rejectedText),
+      await environment(rejectedDatabase),
+    );
+
+    expect(accepted.status).toBe(202);
+    expect(rejected.status).toBe(413);
+    expect(await body(rejected)).toMatchObject({
+      error: { code: "ENTRY_V2_MESSAGE_TOO_LARGE" },
+    });
+    expect(acceptedDatabase.preparedSql.join("\n").toLowerCase()).not.toContain(
+      "paper_trade",
+    );
+    expect(rejectedDatabase.preparedSql).toHaveLength(0);
+  });
+
+  it("fails malformed v2 closed fields before any D1 preparation", async () => {
+    const database = new FakeD1();
+    const value = entryV2Payload();
+    const setup = (value.eb as Record<string, unknown>[])[0]!;
+    const facts = setup.f as Record<string, unknown>;
+    facts.re_entry = true;
+
+    const response = await handleRequest(
+      postBody(value),
+      await environment(database),
+    );
+
+    expect(response.status).toBe(422);
+    expect(await body(response)).toMatchObject({
+      error: { code: "INVALID_OBSERVATION" },
+    });
+    expect(database.preparedSql).toHaveLength(0);
   });
 
   it.each([

@@ -15,6 +15,7 @@ import {
   validatePaperTradeIntent,
   validatePaperTradeSettlement,
 } from "./paper-simulator-contract";
+import { validateEntryV2Payload } from "./rd-entry-wire";
 
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const MAX_OBSERVATIONS_PER_MESSAGE = 1_024;
@@ -1004,14 +1005,26 @@ function validatePayload(value: StrictJsonValue): {
   return fail();
 }
 
-export function validateObservationEnvelope(
+export async function validateObservationEnvelope(
   value: StrictJsonValue,
-): ValidatedObservation {
+): Promise<ValidatedObservation> {
   const envelope = asObject(value);
   exactKeys(envelope, ["credential", "payload"]);
   const credential = asString(field(envelope, "credential"), 1, 1_024);
-  const payload = validatePayload(field(envelope, "payload"));
+  const payloadValue = field(envelope, "payload");
+  const payloadObject = asObject(payloadValue);
+  if (field(payloadObject, "schema_version") === "2.0") {
+    const payload = await validateEntryV2Payload(payloadValue);
+    return {
+      version: "entry-v2",
+      credential,
+      ...payload,
+      paperCommands: [],
+    };
+  }
+  const payload = validatePayload(payloadValue);
   return {
+    version: "legacy",
     credential,
     canonicalPayload: payload.canonical,
     metadata: payload.metadata,

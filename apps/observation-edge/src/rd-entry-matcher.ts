@@ -799,7 +799,15 @@ async function appendHtfGroup(
         proof.fidelity,
       ),
       passedRuleIds: proofExact ? ["ENTRY_HTF_FLIP"] : [],
-      failedRuleIds: proofExact ? [] : ["ENTRY_HTF_FLIP"],
+      failedRuleIds: proofExact
+        ? []
+        : [
+            "ENTRY_HTF_FLIP",
+            ...(proof.destination_seen_before_contact &&
+              !proof.coverage_gap_detected
+              ? ["ENTRY_HTF_ZONE_SIDE_FIRST"]
+              : []),
+          ],
       sourceClaimIds: uniqueClaims(
         SOURCE_CLAIMS.HTF_FLIP,
         normalized ? SOURCE_CLAIMS.LEGACY_BREAK_CANDLE : [],

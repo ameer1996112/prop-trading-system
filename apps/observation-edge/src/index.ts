@@ -96,6 +96,11 @@ import {
   ObservationValidationError,
   validateObservationEnvelope,
 } from "./validation";
+import {
+  EntryV2MessageTooLargeError,
+  EntryV2ValidationError,
+  validateEntryV2BodySize,
+} from "./rd-entry-wire";
 import { RD_ENTRY_PROMOTION_BINDING } from "./generated/rd-entry-promotion-binding";
 
 const DEFAULT_MAX_BODY_BYTES = 262_144;
@@ -1074,10 +1079,19 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
 
   let observation;
   try {
-    observation = validateObservationEnvelope(parseStrictJson(body));
+    validateEntryV2BodySize(body);
+    observation = await validateObservationEnvelope(parseStrictJson(body));
   } catch (error) {
+    if (error instanceof EntryV2MessageTooLargeError) {
+      return errorResponse(
+        error.status,
+        error.code,
+        "Schema 2.0 observation body exceeds the compact wire limit",
+      );
+    }
     if (
       error instanceof ObservationValidationError ||
+      error instanceof EntryV2ValidationError ||
       error instanceof Error
     ) {
       return errorResponse(
