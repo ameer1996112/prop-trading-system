@@ -15,7 +15,10 @@ import {
   validatePaperTradeIntent,
   validatePaperTradeSettlement,
 } from "./paper-simulator-contract";
-import { validateEntryV2Payload } from "./rd-entry-wire";
+import {
+  validateEntryV2BodySize,
+  validateEntryV2Payload,
+} from "./rd-entry-wire";
 
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const MAX_OBSERVATIONS_PER_MESSAGE = 1_024;
@@ -1007,6 +1010,7 @@ function validatePayload(value: StrictJsonValue): {
 
 export async function validateObservationEnvelope(
   value: StrictJsonValue,
+  rawBody?: Uint8Array,
 ): Promise<ValidatedObservation> {
   const envelope = asObject(value);
   exactKeys(envelope, ["credential", "payload"]);
@@ -1014,6 +1018,9 @@ export async function validateObservationEnvelope(
   const payloadValue = field(envelope, "payload");
   const payloadObject = asObject(payloadValue);
   if (field(payloadObject, "schema_version") === "2.0") {
+    if (rawBody !== undefined) {
+      validateEntryV2BodySize(rawBody);
+    }
     const payload = await validateEntryV2Payload(payloadValue);
     return {
       version: "entry-v2",

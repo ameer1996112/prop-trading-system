@@ -355,7 +355,6 @@ const ENTRY_MODELS = new Set<string>([
   "LEGACY_BREAK_CANDLE",
   "LEGACY_REJECTION_RESPECT",
 ]);
-const ACTIVE_MODELS = new Set<string>(["DIR_CLOSE", "HTF_FLIP"]);
 const CANDIDATE_STATES = new Set<string>([
   "MATCHED",
   "BLOCKED",
@@ -1012,7 +1011,8 @@ function parseCandidate(value: StrictJsonValue): ProducerCandidateWire {
     field(object, "sc"),
     "ENTRY_DIAGNOSTIC_SOURCE_CLAIMS",
   );
-  if (!sameValues(sourceClaims, sourceClaimsForModel(model))) {
+  const expectedSourceClaims = sourceClaimsForModel(model);
+  if (!sameValues(sourceClaims, expectedSourceClaims)) {
     fail("ENTRY_DIAGNOSTIC_SOURCE_CLAIMS");
   }
   return {
@@ -1032,7 +1032,7 @@ function parseCandidate(value: StrictJsonValue): ProducerCandidateWire {
     ),
     o: ordinal,
     n: normalizedFrom,
-    sc: sourceClaims,
+    sc: expectedSourceClaims,
   };
 }
 
@@ -1076,24 +1076,23 @@ function expectedConfirmedRule(model: EntryModelV2): string {
   }
 }
 
-function validHtfSourceClaims(
+function canonicalHtfSourceClaims(
   values: readonly string[],
   candidate: ProducerCandidateWire,
-): boolean {
-  const required = [
+): readonly string[] {
+  const modelClaims = [
     ...SOURCE_CLAIMS.HTF_FLIP,
     ...(candidate.n === "LEGACY_BREAK_CANDLE"
       ? SOURCE_CLAIMS.LEGACY_BREAK_CANDLE
       : []),
   ];
-  const allowed = new Set<string>([
-    ...required,
+  const boundaryClaims = [
+    ...modelClaims,
     ...SOURCE_CLAIMS.HTF_BOUNDARY,
-  ]);
-  return (
-    required.every((item) => values.includes(item)) &&
-    values.every((item) => allowed.has(item))
-  );
+  ];
+  if (sameValues(values, modelClaims)) return modelClaims;
+  if (sameValues(values, boundaryClaims)) return boundaryClaims;
+  return fail("ENTRY_DIAGNOSTIC_SOURCE_CLAIMS");
 }
 
 function parseEvidence(
@@ -1180,12 +1179,13 @@ function parseEvidence(
   if (passedRules.some((item) => failedRules.includes(item))) {
     fail("ENTRY_DIAGNOSTIC_RULES");
   }
-  const sourceClaims = parseSourceClaims(
+  let sourceClaims = parseSourceClaims(
     field(object, "sc"),
     "ENTRY_DIAGNOSTIC_SOURCE_CLAIMS",
   );
 
   if (proofPlane === "REALTIME_TICK") {
+    const expectedSourceClaims = sourceClaimsForModel(candidate.m);
     if (
       triggerEpoch === null ||
       triggerTicks === null ||
@@ -1197,10 +1197,11 @@ function parseEvidence(
         "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE",
       ]) ||
       contexts.length !== 0 ||
-      !sameValues(sourceClaims, sourceClaimsForModel(candidate.m))
+      !sameValues(sourceClaims, expectedSourceClaims)
     ) {
       fail("ENTRY_REALTIME_EVIDENCE");
     }
+    sourceClaims = expectedSourceClaims;
   } else {
     if (
       resolution === 0 ||
@@ -1214,35 +1215,41 @@ function parseEvidence(
     if (proofPlane === "CONFIRMED_5M") {
       const rule = expectedConfirmedRule(candidate.m);
       const active = candidate.m === "DIR_CLOSE";
+      const expectedSourceClaims = sourceClaimsForModel(candidate.m);
       if (
         resolution !== 300 ||
         coverageEnd - coverageStart !== 300 ||
         contexts.length !== 0 ||
         ambiguityCodes.length !== 0 ||
-        !sameValues(sourceClaims, sourceClaimsForModel(candidate.m)) ||
+        !sameValues(sourceClaims, expectedSourceClaims) ||
         !sameValues(passedRules, active ? [rule] : []) ||
         !sameValues(failedRules, active ? [] : [rule])
       ) {
         fail("ENTRY_DIAGNOSTIC_CONFIRMED_EVIDENCE");
       }
-    } else if (
-      candidate.m !== "HTF_FLIP" ||
-      resolution !== 60 ||
-      contexts.length === 0 ||
-      !validHtfSourceClaims(sourceClaims, candidate) ||
-      !(
-        (sameValues(passedRules, ["ENTRY_HTF_FLIP"]) &&
-          failedRules.every((item) => item === "ENTRY_HTF_ZONE_SIDE_FIRST")) ||
-        (passedRules.length === 0 &&
-          failedRules.includes("ENTRY_HTF_FLIP") &&
-          failedRules.every(
-            (item) =>
-              item === "ENTRY_HTF_FLIP" ||
-              item === "ENTRY_HTF_ZONE_SIDE_FIRST",
-          ))
-      )
-    ) {
-      fail("ENTRY_DIAGNOSTIC_HTF_EVIDENCE");
+      sourceClaims = expectedSourceClaims;
+    } else {
+      if (
+        candidate.m !== "HTF_FLIP" ||
+        resolution !== 60 ||
+        contexts.length === 0 ||
+        !(
+          (sameValues(passedRules, ["ENTRY_HTF_FLIP"]) &&
+            failedRules.every(
+              (item) => item === "ENTRY_HTF_ZONE_SIDE_FIRST",
+            )) ||
+          (passedRules.length === 0 &&
+            failedRules.includes("ENTRY_HTF_FLIP") &&
+            failedRules.every(
+              (item) =>
+                item === "ENTRY_HTF_FLIP" ||
+                item === "ENTRY_HTF_ZONE_SIDE_FIRST",
+            ))
+        )
+      ) {
+        fail("ENTRY_DIAGNOSTIC_HTF_EVIDENCE");
+      }
+      sourceClaims = canonicalHtfSourceClaims(sourceClaims, candidate);
     }
   }
 
@@ -1324,7 +1331,8 @@ function parseHandling(
     field(object, "sc"),
     "ENTRY_DIAGNOSTIC_SOURCE_CLAIMS",
   );
-  if (!sameValues(sourceClaims, expectedHandlingClaims(mode, candidate))) {
+  const expectedSourceClaims = expectedHandlingClaims(mode, candidate);
+  if (!sameValues(sourceClaims, expectedSourceClaims)) {
     fail("ENTRY_DIAGNOSTIC_SOURCE_CLAIMS");
   }
   if (
@@ -1359,7 +1367,7 @@ function parseHandling(
       FIDELITIES,
       "ENTRY_DIAGNOSTIC_FIDELITY",
     ),
-    sc: sourceClaims,
+    sc: expectedSourceClaims,
   };
 }
 
@@ -1732,6 +1740,29 @@ function directionalClose(request: EntryMatchRequest): boolean {
         bar.close_ticks < setup.zone_bottom_ticks;
 }
 
+function isEngagedRequest(request: EntryMatchRequest): boolean {
+  return (
+    request.setup.zone_engaged_epoch !== null &&
+    request.setup.zone_engaged_epoch <= request.confirmed_bar.close_epoch
+  );
+}
+
+function authoritativeActiveModels(
+  requests: readonly EntryMatchRequest[],
+): ReadonlySet<"DIR_CLOSE" | "HTF_FLIP"> {
+  const active = new Set<"DIR_CLOSE" | "HTF_FLIP">();
+  for (const request of requests) {
+    if (!isEngagedRequest(request)) continue;
+    if (directionalClose(request)) {
+      active.add("DIR_CLOSE");
+    }
+    if (request.htf_proofs.some((proof) => proof.matched)) {
+      active.add("HTF_FLIP");
+    }
+  }
+  return active;
+}
+
 function wrapRequestShape(request: EntryMatchRequest): void {
   try {
     validateEntryRequestShape(request);
@@ -1792,41 +1823,26 @@ async function projectRequests(
   ) {
     fail("ENTRY_ZONE_ENGAGEMENT_CHRONOLOGY");
   }
-  if (
-    bundle.facts.tr === "INVALIDATED" &&
-    bundle.facts.iv &&
-    requests
-      .slice(0, -1)
-      .some(
-        (request) =>
-          directionalClose(request) ||
-          request.htf_proofs.some((proof) => proof.matched),
-      )
-  ) {
-    fail("ENTRY_INVALIDATED_FACT");
-  }
-  if (
-    bundle.facts.tr === "INVALIDATED" &&
-    bundle.facts.iv &&
-    bundle.candidates.some((candidate) => ACTIVE_MODELS.has(candidate.m))
-  ) {
-    fail("ENTRY_INVALIDATED_FACT");
+  if (bundle.facts.tr === "INVALIDATED") {
+    const activeBeforeInvalidation = authoritativeActiveModels(
+      requests.slice(0, -1),
+    );
+    if (bundle.facts.iv !== (activeBeforeInvalidation.size === 0)) {
+      fail("ENTRY_INVALIDATED_FACT");
+    }
   }
 
   const current = requests[requests.length - 1]!;
   const events: EntryMatchRequest[] = [current];
   if (bundle.facts.ng !== null) {
     const earlier = requests.slice(0, -1);
-    const htfSeenEarlier = earlier.some((request) =>
-      request.htf_proofs.some((proof) => proof.matched)
-    );
-    const closeSeenEarlier = earlier.some(directionalClose);
-    const htfSeenCurrent = current.htf_proofs.some((proof) => proof.matched);
+    const earlierActive = authoritativeActiveModels(earlier);
+    const currentActive = authoritativeActiveModels([current]);
     if (
-      !htfSeenEarlier ||
-      closeSeenEarlier ||
-      htfSeenCurrent ||
-      !directionalClose(current)
+      !earlierActive.has("HTF_FLIP") ||
+      earlierActive.has("DIR_CLOSE") ||
+      currentActive.has("HTF_FLIP") ||
+      !currentActive.has("DIR_CLOSE")
     ) {
       fail("ENTRY_TERMINAL_GRACE_TRANSITION");
     }
@@ -1905,10 +1921,7 @@ async function localDiagnosticViews(
   const evidence: LocalEvidenceView[] = [];
   const handling: LocalHandlingView[] = [];
   for (const request of requests) {
-    if (
-      request.setup.zone_engaged_epoch !== null &&
-      request.setup.zone_engaged_epoch > request.confirmed_bar.close_epoch
-    ) {
+    if (!isEngagedRequest(request)) {
       continue;
     }
     let result;

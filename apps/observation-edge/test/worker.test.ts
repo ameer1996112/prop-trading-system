@@ -893,6 +893,31 @@ describe("observation edge Worker", () => {
     expect(rejectedDatabase.preparedSql).toHaveLength(0);
   });
 
+  it("preserves a valid 35,000-character legacy 1.0 envelope", async () => {
+    const database = new FakeD1();
+    const envelope = JSON.stringify({
+      credential: CREDENTIAL,
+      payload: incrementalPayload(),
+    });
+    const padded = envelope.padEnd(35_000, " ");
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/tradingview/observations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: padded,
+      }),
+      await environment(database),
+    );
+
+    expect(padded).toHaveLength(35_000);
+    expect(response.status).toBe(202);
+    expect(await body(response)).toMatchObject({
+      schema_version: "1.0",
+      status: "RECEIVED",
+    });
+    expect(database.records).toHaveLength(1);
+  });
+
   it("fails malformed v2 closed fields before any D1 preparation", async () => {
     const database = new FakeD1();
     const value = entryV2Payload();

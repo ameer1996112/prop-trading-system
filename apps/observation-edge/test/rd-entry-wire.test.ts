@@ -257,6 +257,78 @@ function addRealtimeDiagnostic(value: Record<string, unknown>): void {
   ];
 }
 
+function addBlockedRealtimeDirCloseDiagnostic(
+  value: Record<string, unknown>,
+): void {
+  const setupBundle = bundle(value);
+  setupBundle.c = [
+    {
+      i: 0,
+      m: "DIR_CLOSE",
+      st: "BLOCKED",
+      a: 1_721_808_000,
+      o: 1,
+      n: null,
+      sc: [...SOURCE_CLAIMS.DIR_CLOSE],
+    },
+  ];
+  setupBundle.e = [
+    {
+      i: 0,
+      ci: 0,
+      t: 1_721_808_250,
+      px: 101,
+      h: [],
+      f: "UNRESOLVED",
+      p: "REALTIME_TICK",
+      r: 0,
+      cs: 1_721_808_250,
+      ce: 1_721_808_250,
+      ac: ["SHADOW_REALTIME_ONLY_NOT_REPLAYABLE"],
+      pr: [],
+      fr: ["ENTRY_DIR_CLOSE"],
+      sc: [...SOURCE_CLAIMS.DIR_CLOSE],
+    },
+  ];
+  setupBundle.h = [];
+  setupBundle.q = null;
+}
+
+function addUnbackedHtfDiagnostic(value: Record<string, unknown>): void {
+  const setupBundle = bundle(value);
+  setupBundle.c = [
+    {
+      i: 0,
+      m: "HTF_FLIP",
+      st: "BLOCKED",
+      a: 1_721_807_100,
+      o: 1,
+      n: null,
+      sc: [...SOURCE_CLAIMS.HTF_FLIP],
+    },
+  ];
+  setupBundle.e = [
+    {
+      i: 0,
+      ci: 0,
+      t: null,
+      px: null,
+      h: [15],
+      f: "UNRESOLVED",
+      p: "LOWER_TIMEFRAME_REPLAY",
+      r: 60,
+      cs: 1_721_807_100,
+      ce: 1_721_808_000,
+      ac: [],
+      pr: [],
+      fr: ["ENTRY_HTF_FLIP"],
+      sc: [...SOURCE_CLAIMS.HTF_FLIP],
+    },
+  ];
+  setupBundle.h = [];
+  setupBundle.q = null;
+}
+
 function addTerminalGrace(value: Record<string, unknown>): void {
   addPreviousBar(value);
   facts(value).x = [matchedTranscript()];
@@ -875,6 +947,35 @@ describe("schema 2.0 producer diagnostics", () => {
     });
   });
 
+  it("requires the server-owned HTF source-claim tuple order", async () => {
+    const value = payload();
+    addUnbackedHtfDiagnostic(value);
+    const evidence = (bundle(value).e as Record<string, unknown>[])[0]!;
+    evidence.sc = [...SOURCE_CLAIMS.HTF_FLIP].reverse();
+
+    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
+      "ENTRY_DIAGNOSTIC_SOURCE_CLAIMS",
+    );
+  });
+
+  it("rejects duplicate evidence hidden behind source-claim permutations", async () => {
+    const value = payload();
+    addUnbackedHtfDiagnostic(value);
+    const evidence = (bundle(value).e as Record<string, unknown>[])[0]!;
+    bundle(value).e = [
+      evidence,
+      {
+        ...evidence,
+        i: 1,
+        sc: [...SOURCE_CLAIMS.HTF_FLIP].reverse(),
+      },
+    ];
+
+    await expect(validateEntryV2Payload(strict(value))).rejects.toBeInstanceOf(
+      EntryV2ValidationError,
+    );
+  });
+
   it.each([
     ["missing ambiguity", (row: Record<string, unknown>) => { row.ac = []; }],
     ["nullable epoch", (row: Record<string, unknown>) => { row.t = null; }],
@@ -966,6 +1067,47 @@ describe("schema 2.0 terminal grace", () => {
         observed_epoch: 1_721_808_600,
         observed_ticks: 98,
       }),
+    );
+  });
+
+  it("rejects retained pre-engagement HTF proof as BOTH/grace authority", async () => {
+    const value = payload();
+    addTerminalGrace(value);
+    facts(value).ge = 1_721_808_010;
+
+    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
+      "ENTRY_TERMINAL_GRACE_TRANSITION",
+    );
+  });
+
+  it("ignores realtime BLOCKED diagnostics when iv=true has no prior authority", async () => {
+    const value = payload();
+    facts(value).tr = "INVALIDATED";
+    facts(value).te = 1_721_808_300;
+    facts(value).iv = true;
+    addBlockedRealtimeDirCloseDiagnostic(value);
+
+    await expect(validateEntryV2Payload(strict(value))).resolves.toBeDefined();
+
+    facts(value).iv = false;
+    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
+      "ENTRY_INVALIDATED_FACT",
+    );
+  });
+
+  it("requires iv=false exactly when prior raw facts contain an active model", async () => {
+    const value = payload();
+    addPreviousBar(value);
+    facts(value).x = [matchedTranscript()];
+    facts(value).tr = "INVALIDATED";
+    facts(value).te = 1_721_808_300;
+    facts(value).iv = false;
+
+    await expect(validateEntryV2Payload(strict(value))).resolves.toBeDefined();
+
+    facts(value).iv = true;
+    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
+      "ENTRY_INVALIDATED_FACT",
     );
   });
 

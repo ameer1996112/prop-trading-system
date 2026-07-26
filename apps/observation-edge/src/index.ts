@@ -99,7 +99,6 @@ import {
 import {
   EntryV2MessageTooLargeError,
   EntryV2ValidationError,
-  validateEntryV2BodySize,
 } from "./rd-entry-wire";
 import { RD_ENTRY_PROMOTION_BINDING } from "./generated/rd-entry-promotion-binding";
 
@@ -1079,8 +1078,10 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
 
   let observation;
   try {
-    validateEntryV2BodySize(body);
-    observation = await validateObservationEnvelope(parseStrictJson(body));
+    observation = await validateObservationEnvelope(
+      parseStrictJson(body),
+      body,
+    );
   } catch (error) {
     if (error instanceof EntryV2MessageTooLargeError) {
       return errorResponse(
