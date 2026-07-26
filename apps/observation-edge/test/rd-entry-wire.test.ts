@@ -976,6 +976,41 @@ describe("schema 2.0 producer diagnostics", () => {
     );
   });
 
+  it("requires the canonical HTF failed-rule tuple order", async () => {
+    const value = payload();
+    addUnbackedHtfDiagnostic(value);
+    const evidence = (bundle(value).e as Record<string, unknown>[])[0]!;
+    evidence.fr = [
+      "ENTRY_HTF_ZONE_SIDE_FIRST",
+      "ENTRY_HTF_FLIP",
+    ];
+
+    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
+      "ENTRY_DIAGNOSTIC_HTF_EVIDENCE",
+    );
+  });
+
+  it("rejects duplicate evidence hidden behind failed-rule permutations", async () => {
+    const value = payload();
+    addUnbackedHtfDiagnostic(value);
+    const evidence = (bundle(value).e as Record<string, unknown>[])[0]!;
+    bundle(value).e = [
+      {
+        ...evidence,
+        fr: ["ENTRY_HTF_FLIP", "ENTRY_HTF_ZONE_SIDE_FIRST"],
+      },
+      {
+        ...evidence,
+        i: 1,
+        fr: ["ENTRY_HTF_ZONE_SIDE_FIRST", "ENTRY_HTF_FLIP"],
+      },
+    ];
+
+    await expect(validateEntryV2Payload(strict(value))).rejects.toBeInstanceOf(
+      EntryV2ValidationError,
+    );
+  });
+
   it.each([
     ["missing ambiguity", (row: Record<string, unknown>) => { row.ac = []; }],
     ["nullable epoch", (row: Record<string, unknown>) => { row.t = null; }],
@@ -1070,17 +1105,18 @@ describe("schema 2.0 terminal grace", () => {
     );
   });
 
-  it("rejects retained pre-engagement HTF proof as BOTH/grace authority", async () => {
+  it("treats retained pre-engagement HTF as provisional non-authority", async () => {
     const value = payload();
     addTerminalGrace(value);
     facts(value).ge = 1_721_808_010;
 
-    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
-      "ENTRY_TERMINAL_GRACE_TRANSITION",
-    );
+    const parsed = await validateEntryV2Payload(strict(value));
+
+    expect(parsed.entryBatches[0]!.retainedContext).toHaveLength(1);
+    expect(parsed.entryBatches[0]!.events).toHaveLength(2);
   });
 
-  it("ignores realtime BLOCKED diagnostics when iv=true has no prior authority", async () => {
+  it("treats local absence as provisional for either iv claim", async () => {
     const value = payload();
     facts(value).tr = "INVALIDATED";
     facts(value).te = 1_721_808_300;
@@ -1090,12 +1126,10 @@ describe("schema 2.0 terminal grace", () => {
     await expect(validateEntryV2Payload(strict(value))).resolves.toBeDefined();
 
     facts(value).iv = false;
-    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
-      "ENTRY_INVALIDATED_FACT",
-    );
+    await expect(validateEntryV2Payload(strict(value))).resolves.toBeDefined();
   });
 
-  it("requires iv=false exactly when prior raw facts contain an active model", async () => {
+  it("rejects iv=true when local raw facts contain an active model", async () => {
     const value = payload();
     addPreviousBar(value);
     facts(value).x = [matchedTranscript()];
@@ -1108,6 +1142,85 @@ describe("schema 2.0 terminal grace", () => {
     facts(value).iv = true;
     await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
       "ENTRY_INVALIDATED_FACT",
+    );
+  });
+
+  it("allows rolled-out DIR_CLOSE history to provisionally explain iv=false", async () => {
+    const value = payload();
+    facts(value).ge = 1_721_807_100;
+    facts(value).b = Array.from({ length: 4 }, (_unused, index) => ({
+      oe: 1_721_807_100 + index * 300,
+      ce: 1_721_807_400 + index * 300,
+      o: 99,
+      h: 100,
+      l: 95,
+      c: 99,
+      gb: false,
+      rr: false,
+    }));
+    facts(value).tr = "INVALIDATED";
+    facts(value).te = 1_721_808_300;
+    facts(value).iv = false;
+
+    await expect(validateEntryV2Payload(strict(value))).resolves.toBeDefined();
+  });
+
+  it("allows rolled-out HTF history to provisionally explain BOTH/grace", async () => {
+    const value = payload();
+    facts(value).ge = 1_721_807_100;
+    facts(value).b = Array.from({ length: 4 }, (_unused, index) => ({
+      oe: 1_721_807_100 + index * 300,
+      ce: 1_721_807_400 + index * 300,
+      o: 99,
+      h: index === 3 ? 105 : 100,
+      l: 95,
+      c: index === 3 ? 103 : 99,
+      gb: false,
+      rr: false,
+    }));
+    facts(value).tr = "BOTH_ACTIVE_MODELS_OBSERVED";
+    facts(value).te = 1_721_808_300;
+    facts(value).ng = {
+      oe: 1_721_808_300,
+      ce: 1_721_808_600,
+      o: 103,
+      h: 104,
+      l: 98,
+      c: 102,
+      ak: "INITIAL",
+    };
+
+    const parsed = await validateEntryV2Payload(strict(value));
+
+    expect(parsed.entryBatches[0]!.retainedContext).toHaveLength(3);
+    expect(parsed.entryBatches[0]!.events).toHaveLength(2);
+  });
+
+  it("rejects same-event BOTH even without a grace bar", async () => {
+    const value = payload();
+    const currentProof = matchedTranscript(1_721_808_300);
+    currentProof.cc = {
+      oe: 1_721_808_000,
+      ce: 1_721_808_060,
+      o: 95,
+      h: 98,
+      l: 89,
+      c: 96,
+    };
+    currentProof.rc = {
+      oe: 1_721_808_060,
+      ce: 1_721_808_120,
+      o: 96,
+      h: 101,
+      l: 94,
+      c: 100,
+    };
+    facts(value).x = [currentProof];
+    facts(value).tr = "BOTH_ACTIVE_MODELS_OBSERVED";
+    facts(value).te = 1_721_808_300;
+
+    await expect(validateEntryV2Payload(strict(value))).rejects.toThrow(
+      "ENTRY_TERMINAL_GRACE_TRANSITION",
     );
   });
 

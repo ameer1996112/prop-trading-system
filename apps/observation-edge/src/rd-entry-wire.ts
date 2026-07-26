@@ -1095,6 +1095,38 @@ function canonicalHtfSourceClaims(
   return fail("ENTRY_DIAGNOSTIC_SOURCE_CLAIMS");
 }
 
+function canonicalHtfRuleOutcome(
+  passedRules: readonly string[],
+  failedRules: readonly string[],
+): {
+  readonly passedRules: readonly string[];
+  readonly failedRules: readonly string[];
+} {
+  const outcomes = [
+    {
+      passedRules: ["ENTRY_HTF_FLIP"],
+      failedRules: [],
+    },
+    {
+      passedRules: [],
+      failedRules: ["ENTRY_HTF_FLIP"],
+    },
+    {
+      passedRules: [],
+      failedRules: [
+        "ENTRY_HTF_FLIP",
+        "ENTRY_HTF_ZONE_SIDE_FIRST",
+      ],
+    },
+  ] as const;
+  const outcome = outcomes.find(
+    (item) =>
+      sameValues(passedRules, item.passedRules) &&
+      sameValues(failedRules, item.failedRules),
+  );
+  return outcome ?? fail("ENTRY_DIAGNOSTIC_HTF_EVIDENCE");
+}
+
 function parseEvidence(
   value: StrictJsonValue,
   candidates: readonly ProducerCandidateWire[],
@@ -1164,13 +1196,13 @@ function parseEvidence(
     AMBIGUITY_CODES,
     "ENTRY_DIAGNOSTIC_AMBIGUITY",
   ) as readonly AmbiguityCode[];
-  const passedRules = uniqueClosedStrings(
+  let passedRules = uniqueClosedStrings(
     field(object, "pr"),
     RULE_IDS.size,
     RULE_IDS,
     "ENTRY_DIAGNOSTIC_RULES",
   );
-  const failedRules = uniqueClosedStrings(
+  let failedRules = uniqueClosedStrings(
     field(object, "fr"),
     RULE_IDS.size,
     RULE_IDS,
@@ -1232,23 +1264,16 @@ function parseEvidence(
       if (
         candidate.m !== "HTF_FLIP" ||
         resolution !== 60 ||
-        contexts.length === 0 ||
-        !(
-          (sameValues(passedRules, ["ENTRY_HTF_FLIP"]) &&
-            failedRules.every(
-              (item) => item === "ENTRY_HTF_ZONE_SIDE_FIRST",
-            )) ||
-          (passedRules.length === 0 &&
-            failedRules.includes("ENTRY_HTF_FLIP") &&
-            failedRules.every(
-              (item) =>
-                item === "ENTRY_HTF_FLIP" ||
-                item === "ENTRY_HTF_ZONE_SIDE_FIRST",
-            ))
-        )
+        contexts.length === 0
       ) {
         fail("ENTRY_DIAGNOSTIC_HTF_EVIDENCE");
       }
+      const ruleOutcome = canonicalHtfRuleOutcome(
+        passedRules,
+        failedRules,
+      );
+      passedRules = ruleOutcome.passedRules;
+      failedRules = ruleOutcome.failedRules;
       sourceClaims = canonicalHtfSourceClaims(sourceClaims, candidate);
     }
   }
@@ -1823,29 +1848,29 @@ async function projectRequests(
   ) {
     fail("ENTRY_ZONE_ENGAGEMENT_CHRONOLOGY");
   }
-  if (bundle.facts.tr === "INVALIDATED") {
-    const activeBeforeInvalidation = authoritativeActiveModels(
-      requests.slice(0, -1),
-    );
-    if (bundle.facts.iv !== (activeBeforeInvalidation.size === 0)) {
-      fail("ENTRY_INVALIDATED_FACT");
-    }
-  }
 
   const current = requests[requests.length - 1]!;
+  const earlier = requests.slice(0, -1);
+  const earlierActive = authoritativeActiveModels(earlier);
+  const currentActive = authoritativeActiveModels([current]);
+  if (
+    bundle.facts.tr === "INVALIDATED" &&
+    bundle.facts.iv &&
+    earlierActive.size > 0
+  ) {
+    fail("ENTRY_INVALIDATED_FACT");
+  }
+  if (
+    bundle.facts.tr === "BOTH_ACTIVE_MODELS_OBSERVED" &&
+    (earlierActive.has("DIR_CLOSE") ||
+      currentActive.has("HTF_FLIP") ||
+      !currentActive.has("DIR_CLOSE"))
+  ) {
+    fail("ENTRY_TERMINAL_GRACE_TRANSITION");
+  }
+
   const events: EntryMatchRequest[] = [current];
   if (bundle.facts.ng !== null) {
-    const earlier = requests.slice(0, -1);
-    const earlierActive = authoritativeActiveModels(earlier);
-    const currentActive = authoritativeActiveModels([current]);
-    if (
-      !earlierActive.has("HTF_FLIP") ||
-      earlierActive.has("DIR_CLOSE") ||
-      currentActive.has("HTF_FLIP") ||
-      !currentActive.has("DIR_CLOSE")
-    ) {
-      fail("ENTRY_TERMINAL_GRACE_TRANSITION");
-    }
     const grace = bundle.facts.ng;
     const graceRequest: EntryMatchRequest = {
       setup: current.setup,
