@@ -2153,6 +2153,187 @@ describe("deployment contract", () => {
     ).toThrow(/CHECK constraint failed/u);
   });
 
+  it("binds each batch to its first authenticated v3 receipt", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+
+    const matchingReceiptId = "receipt-batch-provenance-matching";
+    insertEntryStorageReceipt(database, {
+      receiptId: matchingReceiptId,
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "batch-provenance-producer",
+      sequence: 7,
+    });
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-batch-provenance-unrelated",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "unrelated-producer",
+      sequence: 99,
+      symbol: "GBPUSD",
+      tickerId: "VANTAGE:GBPUSD",
+      feed: "OTHER",
+      kind: "incremental",
+    });
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-batch-provenance-legacy",
+      schemaVersion: "1.2",
+      strategyVersion: "1.2.0-contract1",
+      producerInstanceId: "batch-provenance-producer",
+      sequence: 7,
+    });
+
+    type BatchFields = {
+      batchId: string;
+      producerInstanceId: string;
+      producerSequence: string | number | null;
+      kind: "incremental" | "snapshot";
+      symbol: string;
+      tickerId: string;
+      feed: string;
+      barOpenEpoch: number;
+      barCloseEpoch: number;
+      firstReceiptId: string | number | null;
+    };
+    const baseBatch: BatchFields = {
+      batchId: "8".repeat(64),
+      producerInstanceId: "batch-provenance-producer",
+      producerSequence: 7,
+      kind: "snapshot",
+      symbol: "EURUSD",
+      tickerId: "VANTAGE:EURUSD",
+      feed: "VANTAGE",
+      barOpenEpoch: 1721810100,
+      barCloseEpoch: 1721810400,
+      firstReceiptId: matchingReceiptId,
+    };
+    const insertBatch = (
+      overrides: Partial<BatchFields> = {},
+    ): void => {
+      const batch = { ...baseBatch, ...overrides };
+      database
+        .prepare(
+          `INSERT INTO observation_entry_batches (
+            batch_id, producer_instance_id, producer_sequence, kind,
+            bar_close_epoch, strategy_id, strategy_version,
+            rule_contract_version, execution_mode, symbol, ticker_id, feed,
+            timeframe, tick_size, bar_open_epoch, detector_code_hash,
+            settings_hash, chunk_count, first_receipt_id, first_seen_at
+          ) VALUES (
+            ?, ?, ?, ?, ?,
+            'rd_liquidity_sd_5m_v1', '2.0.0-contract2', '2.0.0',
+            'OBSERVATION_ONLY', ?, ?, ?, '5', '0.00001', ?,
+            ?, ?, 1, ?, '2026-07-24T10:00:00Z'
+          )`,
+        )
+        .run(
+          batch.batchId,
+          batch.producerInstanceId,
+          batch.producerSequence,
+          batch.kind,
+          batch.barCloseEpoch,
+          batch.symbol,
+          batch.tickerId,
+          batch.feed,
+          batch.barOpenEpoch,
+          "3".repeat(64),
+          "4".repeat(64),
+          batch.firstReceiptId,
+        );
+    };
+
+    expect(() =>
+      insertBatch({
+        firstReceiptId: "receipt-batch-provenance-unrelated",
+      }),
+    ).toThrow(/batch first receipt provenance mismatch/u);
+    expect(() =>
+      insertBatch({
+        firstReceiptId: "receipt-batch-provenance-legacy",
+      }),
+    ).toThrow(/batch first receipt provenance mismatch/u);
+    expect(() => insertBatch({ firstReceiptId: null })).toThrow(
+      /batch first receipt provenance mismatch/u,
+    );
+    expect(() => insertBatch({ firstReceiptId: 123 })).toThrow(
+      /batch first receipt provenance mismatch/u,
+    );
+    expect(() => insertBatch({ producerSequence: 7.5 })).toThrow(
+      /cannot store REAL value in INTEGER column/u,
+    );
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM observation_market_bar_heartbeats
+           WHERE receipt_id = ?`,
+        )
+        .get(matchingReceiptId),
+    ).toEqual({ count: 0 });
+
+    expect(() => insertBatch()).not.toThrow();
+    database
+      .prepare(
+        `INSERT INTO observation_market_bar_heartbeats (
+          receipt_id, batch_id, schema_version, producer_role,
+          producer_instance_id, producer_sequence, strategy_version,
+          symbol, ticker_id, feed, timeframe, bar_open_epoch, bar_close_epoch,
+          detector_code_hash, settings_hash, recorded_at
+        ) VALUES (
+          ?, ?, '2.0', 'ENTRY_V3_CANARY',
+          'batch-provenance-producer', 7, '2.0.0-contract2',
+          'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5',
+          1721810100, 1721810400, ?, ?, '2026-07-24T10:00:00Z'
+        )`,
+      )
+      .run(
+        matchingReceiptId,
+        baseBatch.batchId,
+        "3".repeat(64),
+        "4".repeat(64),
+      );
+    expect(
+      database
+        .prepare(
+          `SELECT batch_id
+           FROM observation_market_bar_heartbeats
+           WHERE receipt_id = ?`,
+        )
+        .get(matchingReceiptId),
+    ).toEqual({ batch_id: baseBatch.batchId });
+
+    const coercibleReceiptId = "receipt-batch-provenance-coercible";
+    insertEntryStorageReceipt(database, {
+      receiptId: coercibleReceiptId,
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "batch-provenance-coercible",
+      sequence: 8,
+    });
+    expect(() =>
+      insertBatch({
+        batchId: "7".repeat(64),
+        producerInstanceId: "batch-provenance-coercible",
+        producerSequence: "8",
+        barOpenEpoch: 1721810400,
+        barCloseEpoch: 1721810700,
+        firstReceiptId: coercibleReceiptId,
+      }),
+    ).not.toThrow();
+    expect(
+      database
+        .prepare(
+          `SELECT producer_sequence, typeof(producer_sequence) AS storage_type
+           FROM observation_entry_batches
+           WHERE batch_id = ?`,
+        )
+        .get("7".repeat(64)),
+    ).toEqual({ producer_sequence: 8, storage_type: "integer" });
+  });
+
   it("binds heartbeat provenance to its receipt and v3 batch", () => {
     const root = fileURLToPath(new URL("..", import.meta.url));
     const database = new DatabaseSync(":memory:");
@@ -2638,6 +2819,13 @@ describe("deployment contract", () => {
     database.exec("PRAGMA foreign_keys = ON");
     applyObservationMigrationsThrough(database, root, 23);
     seedEntryStorage(database);
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-negative-open-batch",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "negative-open-producer",
+      sequence: 99,
+    });
 
     expect(() =>
       database
@@ -2653,7 +2841,8 @@ describe("deployment contract", () => {
             200, strategy_id, strategy_version,
             rule_contract_version, execution_mode, symbol, ticker_id, feed,
             timeframe, tick_size, -100, detector_code_hash,
-            settings_hash, chunk_count, first_receipt_id, first_seen_at
+            settings_hash, chunk_count, 'receipt-negative-open-batch',
+            first_seen_at
           FROM observation_entry_batches
           WHERE batch_id = ?`,
         )
@@ -3303,6 +3492,20 @@ describe("deployment contract", () => {
       expectSnapshot(beforePrimaryReplacements);
     }
 
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-replace-alternate-batch",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "alternate-key-producer",
+      sequence: 5,
+    });
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-replace-close-conflict",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "entry-v3-canary-producer",
+      sequence: 11,
+    });
     database.exec(`
       INSERT INTO observation_entry_batches (
         batch_id, producer_instance_id, producer_sequence, kind,
@@ -3316,7 +3519,7 @@ describe("deployment contract", () => {
         bar_close_epoch + 300, strategy_id, strategy_version,
         rule_contract_version, execution_mode, symbol, ticker_id, feed,
         timeframe, tick_size, bar_open_epoch + 300, detector_code_hash,
-        settings_hash, 1, first_receipt_id, first_seen_at
+        settings_hash, 1, 'receipt-replace-alternate-batch', first_seen_at
       FROM observation_entry_batches
       WHERE batch_id = '${ENTRY_STORAGE_IDS.batch}'
     `);
@@ -3334,8 +3537,8 @@ describe("deployment contract", () => {
          producer_sequence + 10, kind, bar_close_epoch, strategy_id,
          strategy_version, rule_contract_version, execution_mode, symbol,
          ticker_id, feed, timeframe, tick_size, bar_open_epoch,
-         detector_code_hash, settings_hash, chunk_count, first_receipt_id,
-         first_seen_at
+         detector_code_hash, settings_hash, chunk_count,
+         'receipt-replace-close-conflict', first_seen_at
        FROM observation_entry_batches
        WHERE batch_id = '${ENTRY_STORAGE_IDS.batch}'`,
       `INSERT OR REPLACE INTO observation_entry_chunks
@@ -3569,6 +3772,13 @@ describe("deployment contract", () => {
     applyObservationMigrationsThrough(database, root, 23);
     seedEntryStorage(database);
     seedAlternateEntryOwnership(database);
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-parity-other-batch",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "parity-other-producer",
+      sequence: 2,
+    });
     database.exec(`
       INSERT INTO observation_entry_batches (
         batch_id, producer_instance_id, producer_sequence, kind,
@@ -3582,7 +3792,7 @@ describe("deployment contract", () => {
         bar_close_epoch + 300, strategy_id, strategy_version,
         rule_contract_version, execution_mode, symbol, ticker_id, feed,
         timeframe, tick_size, bar_open_epoch + 300, detector_code_hash,
-        settings_hash, 1, first_receipt_id, first_seen_at
+        settings_hash, 1, 'receipt-parity-other-batch', first_seen_at
       FROM observation_entry_batches
       WHERE batch_id = '${ENTRY_STORAGE_IDS.batch}'
     `);
@@ -3684,6 +3894,15 @@ describe("deployment contract", () => {
       producerInstanceId: "entry-query-producer",
       sequence: 1,
     });
+    for (const sequence of [2, 3]) {
+      insertEntryStorageReceipt(database, {
+        receiptId: `receipt-entry-query-v3-${sequence}`,
+        schemaVersion: "2.0",
+        strategyVersion: "2.0.0-contract2",
+        producerInstanceId: "entry-query-producer",
+        sequence,
+      });
+    }
 
     const insertBatch = (
       batchId: string,
@@ -3710,7 +3929,9 @@ describe("deployment contract", () => {
         "3".repeat(64),
         "4".repeat(64),
         1,
-        "receipt-entry-query-v3",
+        sequence === 1
+          ? "receipt-entry-query-v3"
+          : `receipt-entry-query-v3-${sequence}`,
         "2026-07-24T10:00:00Z",
       );
     };

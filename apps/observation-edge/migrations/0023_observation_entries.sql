@@ -877,6 +877,31 @@ BEGIN
     );
 END;
 
+CREATE TRIGGER observation_entry_batches_validate_first_receipt
+BEFORE INSERT ON observation_entry_batches
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM observation_receipts AS receipt
+    WHERE
+        receipt.receipt_id IS NEW.first_receipt_id
+        AND receipt.schema_version IS '2.0'
+        AND receipt.strategy_id IS NEW.strategy_id
+        AND receipt.strategy_version IS NEW.strategy_version
+        AND receipt.producer_instance_id IS NEW.producer_instance_id
+        AND receipt.sequence IS NEW.producer_sequence
+        AND receipt.symbol IS NEW.symbol
+        AND receipt.ticker_id IS NEW.ticker_id
+        AND receipt.feed IS NEW.feed
+        AND receipt.timeframe IS NEW.timeframe
+        AND receipt.kind IS NEW.kind
+        AND typeof(receipt.payload_sha256) = 'text'
+        AND length(receipt.payload_sha256) = 64
+        AND receipt.payload_sha256 NOT GLOB '*[^0-9a-f]*'
+)
+BEGIN
+    SELECT RAISE(ABORT, 'batch first receipt provenance mismatch');
+END;
+
 CREATE TRIGGER observation_market_bar_heartbeats_validate_receipt
 BEFORE INSERT ON observation_market_bar_heartbeats
 WHEN
