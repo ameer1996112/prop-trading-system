@@ -1,6 +1,13 @@
 const MAX_DEPTH = 64;
 const MAX_NODES = 20_000;
 const JSON_NUMBER = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/;
+const STRICT_JSON_NUMBER_TOKENS = new WeakSet<object>();
+const STRICT_JSON_NUMBER_KEYS = [
+  "type",
+  "raw",
+  "value",
+  "isIntegerToken",
+] as const;
 
 export interface StrictJsonNumber {
   readonly type: "json-number";
@@ -22,6 +29,21 @@ export class StrictJsonError extends Error {
     super(message);
     this.name = "StrictJsonError";
   }
+}
+
+function createStrictJsonNumber(
+  raw: string,
+  value: number,
+  isIntegerToken: boolean,
+): StrictJsonNumber {
+  const token = Object.freeze({
+    type: "json-number" as const,
+    raw,
+    value,
+    isIntegerToken,
+  });
+  STRICT_JSON_NUMBER_TOKENS.add(token);
+  return token;
 }
 
 function hasUnpairedSurrogate(value: string): boolean {
@@ -219,15 +241,18 @@ class Parser {
     if (!Number.isFinite(numeric)) {
       throw new StrictJsonError("non-finite JSON number");
     }
-    const isIntegerToken = !raw.includes(".") && !raw.includes("e") && !raw.includes("E");
+    const isIntegerToken = !raw.includes(".") && !raw.includes("e") &&
+      !raw.includes("E");
     if (isIntegerToken && !Number.isSafeInteger(numeric)) {
       throw new StrictJsonError("unsafe JSON integer");
     }
-    return { type: "json-number", raw, value: numeric, isIntegerToken };
+    return createStrictJsonNumber(raw, numeric, isIntegerToken);
   }
 
   private consumeLiteral(literal: string): boolean {
-    if (this.source.slice(this.index, this.index + literal.length) !== literal) {
+    if (
+      this.source.slice(this.index, this.index + literal.length) !== literal
+    ) {
       return false;
     }
     this.index += literal.length;
@@ -263,12 +288,49 @@ export function parseStrictJson(bytes: Uint8Array): StrictJsonValue {
   return new Parser(source).parse();
 }
 
-export function isStrictJsonNumber(value: StrictJsonValue): value is StrictJsonNumber {
+export function isStrictJsonNumber(value: unknown): value is StrictJsonNumber {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    !STRICT_JSON_NUMBER_TOKENS.has(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype ||
+    !Object.isFrozen(value)
+  ) {
+    return false;
+  }
+
+  const keys = Reflect.ownKeys(value);
+  if (
+    keys.length !== STRICT_JSON_NUMBER_KEYS.length ||
+    !STRICT_JSON_NUMBER_KEYS.every((key) => keys.includes(key))
+  ) {
+    return false;
+  }
+
+  const candidate = value as Record<
+    (typeof STRICT_JSON_NUMBER_KEYS)[number],
+    unknown
+  >;
+  if (
+    candidate.type !== "json-number" ||
+    typeof candidate.raw !== "string" ||
+    typeof candidate.value !== "number" ||
+    typeof candidate.isIntegerToken !== "boolean"
+  ) {
+    return false;
+  }
+
+  const match = JSON_NUMBER.exec(candidate.raw);
+  const numeric = Number(candidate.raw);
+  const isIntegerToken = !candidate.raw.includes(".") &&
+    !candidate.raw.includes("e") &&
+    !candidate.raw.includes("E");
   return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    "type" in value &&
-    value.type === "json-number"
+    match?.[0] === candidate.raw &&
+    Number.isFinite(numeric) &&
+    Object.is(candidate.value, numeric) &&
+    candidate.isIntegerToken === isIntegerToken &&
+    (!isIntegerToken || Number.isSafeInteger(numeric))
   );
 }

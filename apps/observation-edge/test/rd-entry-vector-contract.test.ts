@@ -128,6 +128,27 @@ describe("strict RD entry vector trust boundary", () => {
     });
   });
 
+  it("rejects a forged numeric token in an unused post-recross raw child", async () => {
+    await rejectMutation("htf-flip-15m", (vector) => {
+      const event = inputEvent(vector, "input");
+      const scan = objectValue(
+        arrayValue(event.htf_scan_requests, "htf_scan_requests")[0],
+        "htf_scan_requests[0]",
+      );
+      const children = arrayValue(scan.children, "children");
+      const postRecrossChild = objectValue(
+        children[children.length - 1],
+        "children[last]",
+      );
+      postRecrossChild.close_ticks = {
+        type: "json-number",
+        raw: "99",
+        value: 99,
+        isIntegerToken: true,
+      };
+    });
+  });
+
   it("requires Edge proofs to be the canonical expansion of raw scans", async () => {
     await rejectMutation("htf-flip-15m", (vector) => {
       const event = inputEvent(vector, "input");
