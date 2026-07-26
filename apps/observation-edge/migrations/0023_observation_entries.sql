@@ -17,8 +17,10 @@ CREATE TABLE observation_entry_batches (
     feed TEXT NOT NULL,
     timeframe TEXT NOT NULL CHECK (timeframe = '5'),
     tick_size TEXT NOT NULL,
-    bar_open_epoch INTEGER NOT NULL
-        CHECK (bar_close_epoch = bar_open_epoch + 300),
+    bar_open_epoch INTEGER NOT NULL CHECK (
+        bar_open_epoch >= 0
+        AND bar_close_epoch = bar_open_epoch + 300
+    ),
     detector_code_hash TEXT NOT NULL CHECK (
         length(detector_code_hash) = 64
         AND detector_code_hash NOT GLOB '*[^0-9a-f]*'
@@ -76,6 +78,8 @@ CREATE TABLE observation_market_bar_heartbeats (
         OR (
             length(detector_code_hash) = 64
             AND detector_code_hash NOT GLOB '*[^0-9a-f]*'
+            AND detector_code_hash <>
+                '0000000000000000000000000000000000000000000000000000000000000000'
         )
     ),
     settings_hash TEXT CHECK (
@@ -83,6 +87,8 @@ CREATE TABLE observation_market_bar_heartbeats (
         OR (
             length(settings_hash) = 64
             AND settings_hash NOT GLOB '*[^0-9a-f]*'
+            AND settings_hash <>
+                '0000000000000000000000000000000000000000000000000000000000000000'
         )
     ),
     recorded_at TEXT NOT NULL,
@@ -527,8 +533,17 @@ CREATE TABLE observation_entry_quarantine (
         )
     ),
     object_id TEXT NOT NULL,
-    existing_sha256 TEXT,
-    presented_sha256 TEXT NOT NULL,
+    existing_sha256 TEXT CHECK (
+        existing_sha256 IS NULL
+        OR (
+            length(existing_sha256) = 64
+            AND existing_sha256 NOT GLOB '*[^0-9a-f]*'
+        )
+    ),
+    presented_sha256 TEXT NOT NULL CHECK (
+        length(presented_sha256) = 64
+        AND presented_sha256 NOT GLOB '*[^0-9a-f]*'
+    ),
     reason TEXT NOT NULL CHECK (
         reason IN (
             'IMMUTABLE_ID_CONFLICT',
@@ -600,6 +615,666 @@ CREATE INDEX idx_entry_setup_events_stream
         event_id
     );
 
+-- INSERT conflict guards run before SQLite applies REPLACE conflict handling.
+-- This closes the implicit-delete path even when recursive_triggers is disabled.
+CREATE TRIGGER observation_entry_batches_no_conflict
+BEFORE INSERT ON observation_entry_batches
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_batches
+    WHERE
+        batch_id = NEW.batch_id
+        OR (
+            producer_instance_id = NEW.producer_instance_id
+            AND producer_sequence = NEW.producer_sequence
+        )
+        OR (
+            producer_instance_id = NEW.producer_instance_id
+            AND bar_close_epoch = NEW.bar_close_epoch
+        )
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_batches immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_market_bar_heartbeats_no_conflict
+BEFORE INSERT ON observation_market_bar_heartbeats
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_market_bar_heartbeats
+    WHERE receipt_id = NEW.receipt_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_market_bar_heartbeats immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_chunks_no_conflict
+BEFORE INSERT ON observation_entry_chunks
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_chunks
+    WHERE
+        (
+            batch_id = NEW.batch_id
+            AND chunk_index = NEW.chunk_index
+        )
+        OR receipt_id = NEW.receipt_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_chunks immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_completions_no_conflict
+BEFORE INSERT ON observation_entry_batch_completions
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_batch_completions
+    WHERE
+        completion_id = NEW.completion_id
+        OR batch_id = NEW.batch_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_batch_completions immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_setup_events_no_conflict
+BEFORE INSERT ON observation_entry_setup_events
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_setup_events
+    WHERE
+        event_id = NEW.event_id
+        OR (
+            setup_id = NEW.setup_id
+            AND confirmed_bar_close_epoch = NEW.confirmed_bar_close_epoch
+        )
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_setup_events immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_terminals_no_conflict
+BEFORE INSERT ON observation_entry_setup_terminals
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_setup_terminals
+    WHERE setup_id = NEW.setup_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_setup_terminals immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_source_claims_no_conflict
+BEFORE INSERT ON observation_entry_source_claims
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_source_claims
+    WHERE claim_id = NEW.claim_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_source_claims immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_source_relationships_no_conflict
+BEFORE INSERT ON observation_entry_source_claim_relationships
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_source_claim_relationships
+    WHERE claim_id = NEW.claim_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_source_claim_relationships immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_candidates_no_conflict
+BEFORE INSERT ON observation_entry_candidates
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_candidates
+    WHERE
+        candidate_id = NEW.candidate_id
+        OR identity_sha256 = NEW.identity_sha256
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_candidates immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_evidence_no_conflict
+BEFORE INSERT ON observation_entry_candidate_evidence
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_candidate_evidence
+    WHERE
+        evidence_id = NEW.evidence_id
+        OR identity_sha256 = NEW.identity_sha256
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_candidate_evidence immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_handling_no_conflict
+BEFORE INSERT ON observation_entry_handling
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_handling
+    WHERE
+        handling_id = NEW.handling_id
+        OR identity_sha256 = NEW.identity_sha256
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_handling immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_diagnostics_no_conflict
+BEFORE INSERT ON observation_entry_producer_diagnostics
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_producer_diagnostics
+    WHERE diagnostic_id = NEW.diagnostic_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_producer_diagnostics immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_selections_no_conflict
+BEFORE INSERT ON observation_entry_selections
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_selections
+    WHERE
+        selection_id = NEW.selection_id
+        OR (
+            setup_id = NEW.setup_id
+            AND policy_version = NEW.policy_version
+            AND revision = NEW.revision
+        )
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_selections immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_evaluation_members_no_conflict
+BEFORE INSERT ON observation_entry_evaluation_members
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_evaluation_members
+    WHERE
+        selection_id = NEW.selection_id
+        AND object_kind = NEW.object_kind
+        AND object_id = NEW.object_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_evaluation_members immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_parity_no_conflict
+BEFORE INSERT ON observation_entry_parity
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_parity
+    WHERE parity_id = NEW.parity_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_parity immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_quarantine_no_conflict
+BEFORE INSERT ON observation_entry_quarantine
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_quarantine
+    WHERE quarantine_id = NEW.quarantine_id
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_quarantine immutable insert conflict'
+    );
+END;
+
+CREATE TRIGGER observation_market_bar_heartbeats_validate_receipt
+BEFORE INSERT ON observation_market_bar_heartbeats
+WHEN
+    EXISTS (
+        SELECT 1
+        FROM observation_receipts
+        WHERE receipt_id = NEW.receipt_id
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM observation_receipts
+        WHERE
+            receipt_id = NEW.receipt_id
+            AND schema_version = NEW.schema_version
+            AND strategy_version = NEW.strategy_version
+            AND producer_instance_id = NEW.producer_instance_id
+            AND sequence = NEW.producer_sequence
+            AND symbol = NEW.symbol
+            AND ticker_id = NEW.ticker_id
+            AND feed = NEW.feed
+            AND timeframe = NEW.timeframe
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'heartbeat receipt provenance mismatch');
+END;
+
+CREATE TRIGGER observation_market_bar_heartbeats_validate_batch
+BEFORE INSERT ON observation_market_bar_heartbeats
+WHEN
+    NEW.schema_version = '2.0'
+    AND NOT EXISTS (
+        SELECT 1
+        FROM observation_entry_batches AS batch
+        JOIN observation_receipts AS receipt
+          ON receipt.receipt_id = NEW.receipt_id
+        WHERE
+            batch.batch_id = NEW.batch_id
+            AND batch.producer_instance_id = NEW.producer_instance_id
+            AND batch.producer_sequence = NEW.producer_sequence
+            AND batch.strategy_version = NEW.strategy_version
+            AND batch.symbol = NEW.symbol
+            AND batch.ticker_id = NEW.ticker_id
+            AND batch.feed = NEW.feed
+            AND batch.timeframe = NEW.timeframe
+            AND batch.bar_open_epoch = NEW.bar_open_epoch
+            AND batch.bar_close_epoch = NEW.bar_close_epoch
+            AND batch.detector_code_hash = NEW.detector_code_hash
+            AND batch.settings_hash = NEW.settings_hash
+            AND batch.kind = receipt.kind
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'heartbeat batch provenance mismatch');
+END;
+
+CREATE TRIGGER observation_entry_candidates_validate_source_claims
+BEFORE INSERT ON observation_entry_candidates
+WHEN
+    EXISTS (
+        SELECT 1
+        FROM json_each(NEW.source_claim_ids_json)
+        WHERE type <> 'text'
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.source_claim_ids_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.source_claim_ids_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.source_claim_ids_json) AS source_claim
+        LEFT JOIN observation_entry_source_claims AS catalog
+          ON catalog.claim_id = source_claim.value
+        WHERE catalog.claim_id IS NULL
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'entry source claims invalid');
+END;
+
+CREATE TRIGGER observation_entry_evidence_validate_source_claims
+BEFORE INSERT ON observation_entry_candidate_evidence
+WHEN
+    EXISTS (
+        SELECT 1
+        FROM json_each(NEW.source_claim_ids_json)
+        WHERE type <> 'text'
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.source_claim_ids_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.source_claim_ids_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.source_claim_ids_json) AS source_claim
+        LEFT JOIN observation_entry_source_claims AS catalog
+          ON catalog.claim_id = source_claim.value
+        WHERE catalog.claim_id IS NULL
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'entry source claims invalid');
+END;
+
+CREATE TRIGGER observation_entry_handling_validate_source_claims
+BEFORE INSERT ON observation_entry_handling
+WHEN
+    EXISTS (
+        SELECT 1
+        FROM json_each(NEW.source_claim_ids_json)
+        WHERE type <> 'text'
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.source_claim_ids_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.source_claim_ids_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.source_claim_ids_json) AS source_claim
+        LEFT JOIN observation_entry_source_claims AS catalog
+          ON catalog.claim_id = source_claim.value
+        WHERE catalog.claim_id IS NULL
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'entry source claims invalid');
+END;
+
+CREATE TRIGGER observation_entry_evidence_validate_arrays
+BEFORE INSERT ON observation_entry_candidate_evidence
+WHEN
+    EXISTS (
+        SELECT 1
+        FROM json_each(NEW.htf_context_minutes_json)
+        WHERE
+            type <> 'integer'
+            OR value NOT IN (15, 30, 60)
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.htf_context_minutes_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.htf_context_minutes_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.htf_context_minutes_json) AS previous
+        JOIN json_each(NEW.htf_context_minutes_json) AS following
+          ON CAST(following.key AS INTEGER) =
+             CAST(previous.key AS INTEGER) + 1
+        WHERE following.value <= previous.value
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.ambiguity_codes_json)
+        WHERE
+            type <> 'text'
+            OR value NOT IN (
+                'SHADOW_SAME_CHILD_BAR_ORDER',
+                'SHADOW_MISSING_INTRABAR_COVERAGE',
+                'SHADOW_REALTIME_ONLY_NOT_REPLAYABLE'
+            )
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.ambiguity_codes_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.ambiguity_codes_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.passed_rule_ids_json)
+        WHERE
+            type <> 'text'
+            OR value NOT IN (
+                'ENTRY_DIR_CLOSE',
+                'ENTRY_BREAK_CANDLE_NORMALIZATION',
+                'ENTRY_REJECTION_RESPECT_DISABLED',
+                'ENTRY_HTF_FLIP',
+                'ENTRY_HTF_ZONE_SIDE_FIRST'
+            )
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.passed_rule_ids_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.passed_rule_ids_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.failed_rule_ids_json)
+        WHERE
+            type <> 'text'
+            OR value NOT IN (
+                'ENTRY_DIR_CLOSE',
+                'ENTRY_BREAK_CANDLE_NORMALIZATION',
+                'ENTRY_REJECTION_RESPECT_DISABLED',
+                'ENTRY_HTF_FLIP',
+                'ENTRY_HTF_ZONE_SIDE_FIRST'
+            )
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.failed_rule_ids_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.failed_rule_ids_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.passed_rule_ids_json) AS passed
+        JOIN json_each(NEW.failed_rule_ids_json) AS failed
+          ON failed.value = passed.value
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'entry evidence arrays invalid');
+END;
+
+CREATE TRIGGER observation_entry_source_relationships_validate_semantics
+BEFORE INSERT ON observation_entry_source_claim_relationships
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM observation_entry_source_claims AS source
+    JOIN observation_entry_source_claims AS target
+      ON target.claim_id = NEW.target_claim_id
+    WHERE
+        source.claim_id = NEW.claim_id
+        AND source.relationship IN ('NARROWS', 'SUPERSEDES')
+        AND target.published_date <= source.published_date
+)
+BEGIN
+    SELECT RAISE(ABORT, 'source relationship invalid');
+END;
+
+CREATE TRIGGER observation_entry_handling_validate_ownership
+BEFORE INSERT ON observation_entry_handling
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM observation_entry_candidate_evidence AS evidence
+    WHERE
+        evidence.evidence_id = NEW.evidence_id
+        AND evidence.candidate_id = NEW.candidate_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'handling evidence ownership mismatch');
+END;
+
+CREATE TRIGGER observation_entry_selections_validate_ownership
+BEFORE INSERT ON observation_entry_selections
+WHEN
+    NEW.canonical_candidate_id IS NOT NULL
+    AND NEW.canonical_model IN ('DIR_CLOSE', 'HTF_FLIP')
+    AND NOT EXISTS (
+        SELECT 1
+        FROM observation_entry_candidates AS candidate
+        JOIN observation_entry_candidate_evidence AS evidence
+          ON evidence.candidate_id = candidate.candidate_id
+        WHERE
+            candidate.candidate_id = NEW.canonical_candidate_id
+            AND candidate.setup_id = NEW.setup_id
+            AND candidate.model = NEW.canonical_model
+            AND evidence.evidence_id = NEW.canonical_evidence_id
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'selection ownership mismatch');
+END;
+
+CREATE TRIGGER observation_entry_selections_validate_candidates
+BEFORE INSERT ON observation_entry_selections
+WHEN
+    json_type(NEW.candidate_ids_considered_json) <> 'array'
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.candidate_ids_considered_json) AS considered
+        WHERE considered.type <> 'text'
+    )
+    OR (
+        SELECT COUNT(*)
+        FROM json_each(NEW.candidate_ids_considered_json)
+    ) <> (
+        SELECT COUNT(DISTINCT value)
+        FROM json_each(NEW.candidate_ids_considered_json)
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM json_each(NEW.candidate_ids_considered_json) AS considered
+        LEFT JOIN observation_entry_candidates AS candidate
+          ON candidate.candidate_id = considered.value
+         AND candidate.setup_id = NEW.setup_id
+        WHERE candidate.candidate_id IS NULL
+    )
+    OR (
+        NEW.canonical_candidate_id IS NOT NULL
+        AND NOT EXISTS (
+            SELECT 1
+            FROM json_each(NEW.candidate_ids_considered_json)
+            WHERE
+                type = 'text'
+                AND value = NEW.canonical_candidate_id
+        )
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'selection candidates considered invalid');
+END;
+
+CREATE TRIGGER observation_entry_evaluation_members_validate_ownership
+BEFORE INSERT ON observation_entry_evaluation_members
+WHEN
+    CASE NEW.object_kind
+        WHEN 'CANDIDATE' THEN NOT EXISTS (
+            SELECT 1
+            FROM observation_entry_selections AS selection
+            JOIN observation_entry_candidates AS candidate
+              ON candidate.candidate_id = NEW.object_id
+             AND candidate.setup_id = selection.setup_id
+            WHERE
+                selection.selection_id = NEW.selection_id
+                AND EXISTS (
+                    SELECT 1
+                    FROM json_each(
+                        selection.candidate_ids_considered_json
+                    ) AS considered
+                    WHERE
+                        considered.type = 'text'
+                        AND considered.value = candidate.candidate_id
+                )
+        )
+        WHEN 'EVIDENCE' THEN NOT EXISTS (
+            SELECT 1
+            FROM observation_entry_selections AS selection
+            JOIN observation_entry_candidate_evidence AS evidence
+              ON evidence.evidence_id = NEW.object_id
+            JOIN observation_entry_candidates AS candidate
+              ON candidate.candidate_id = evidence.candidate_id
+             AND candidate.setup_id = selection.setup_id
+            WHERE
+                selection.selection_id = NEW.selection_id
+                AND EXISTS (
+                    SELECT 1
+                    FROM json_each(
+                        selection.candidate_ids_considered_json
+                    ) AS considered
+                    WHERE
+                        considered.type = 'text'
+                        AND considered.value = candidate.candidate_id
+                )
+        )
+        WHEN 'HANDLING' THEN NOT EXISTS (
+            SELECT 1
+            FROM observation_entry_selections AS selection
+            JOIN observation_entry_handling AS handling
+              ON handling.handling_id = NEW.object_id
+            JOIN observation_entry_candidates AS candidate
+              ON candidate.candidate_id = handling.candidate_id
+             AND candidate.setup_id = selection.setup_id
+            WHERE
+                selection.selection_id = NEW.selection_id
+                AND EXISTS (
+                    SELECT 1
+                    FROM json_each(
+                        selection.candidate_ids_considered_json
+                    ) AS considered
+                    WHERE
+                        considered.type = 'text'
+                        AND considered.value = candidate.candidate_id
+                )
+        )
+        ELSE 1
+    END
+BEGIN
+    SELECT RAISE(ABORT, 'evaluation member ownership mismatch');
+END;
+
+CREATE TRIGGER observation_entry_parity_validate_ownership
+BEFORE INSERT ON observation_entry_parity
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM observation_entry_producer_diagnostics AS diagnostic
+    JOIN observation_entry_selections AS selection
+      ON selection.selection_id = NEW.selection_id
+    WHERE
+        diagnostic.diagnostic_id = NEW.producer_diagnostic_id
+        AND diagnostic.batch_id = NEW.batch_id
+        AND diagnostic.setup_id = NEW.setup_id
+        AND selection.batch_id = NEW.batch_id
+        AND selection.setup_id = NEW.setup_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'parity ownership mismatch');
+END;
+
 CREATE TRIGGER observation_entry_diagnostics_validate_reference_shapes
 BEFORE INSERT ON observation_entry_producer_diagnostics
 WHEN
@@ -627,55 +1302,98 @@ BEGIN
     SELECT RAISE(ABORT, 'diagnostic references must be JSON objects');
 END;
 
+CREATE TRIGGER observation_entry_diagnostics_validate_evidence_planes
+BEFORE INSERT ON observation_entry_producer_diagnostics
+WHEN EXISTS (
+    SELECT 1
+    FROM json_each(NEW.evidence_refs_json) AS evidence
+    WHERE
+        (
+            SELECT COUNT(*)
+            FROM json_each(evidence.value) AS field
+            WHERE field.key = 'proof_plane'
+        ) <> 1
+        OR COALESCE(
+            (
+                SELECT field.type
+                FROM json_each(evidence.value) AS field
+                WHERE field.key = 'proof_plane'
+                LIMIT 1
+            ),
+            ''
+        ) <> 'text'
+        OR COALESCE(
+            (
+                SELECT field.value
+                FROM json_each(evidence.value) AS field
+                WHERE field.key = 'proof_plane'
+                LIMIT 1
+            ),
+            ''
+        ) NOT IN (
+            'CONFIRMED_5M',
+            'LOWER_TIMEFRAME_REPLAY',
+            'EXTERNAL_ARCHIVED_TICK'
+        )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'diagnostic evidence proof planes invalid');
+END;
+
 CREATE TRIGGER observation_entry_diagnostics_validate_realtime
 BEFORE INSERT ON observation_entry_producer_diagnostics
 WHEN
     EXISTS (
         SELECT 1
-        FROM json_each(NEW.evidence_refs_json) AS evidence
-        WHERE json_extract(evidence.value, '$.proof_plane') = 'REALTIME_TICK'
-    )
-    OR EXISTS (
-        SELECT 1
         FROM json_each(NEW.realtime_evidence_refs_json) AS realtime
         WHERE
-            COALESCE(
-                json_type(realtime.value, '$.proof_plane') = 'text',
-                0
-            ) = 0
+            (
+                SELECT COUNT(DISTINCT field.key)
+                FROM json_each(realtime.value) AS field
+                WHERE field.key IN (
+                    'proof_plane',
+                    'proof_resolution_seconds',
+                    'observed_trigger_epoch',
+                    'coverage_start_epoch',
+                    'coverage_end_epoch'
+                )
+            ) <> 5
+            OR EXISTS (
+                SELECT 1
+                FROM json_each(realtime.value) AS field
+                WHERE field.key IN (
+                    'proof_plane',
+                    'proof_resolution_seconds',
+                    'observed_trigger_epoch',
+                    'coverage_start_epoch',
+                    'coverage_end_epoch'
+                )
+                GROUP BY field.key
+                HAVING COUNT(*) <> 1
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM json_each(realtime.value) AS field
+                WHERE
+                    (
+                        field.key = 'proof_plane'
+                        AND field.type <> 'text'
+                    )
+                    OR (
+                        field.key IN (
+                            'proof_resolution_seconds',
+                            'observed_trigger_epoch',
+                            'coverage_start_epoch',
+                            'coverage_end_epoch'
+                        )
+                        AND field.type <> 'integer'
+                    )
+            )
             OR json_extract(realtime.value, '$.proof_plane') <> 'REALTIME_TICK'
-            OR COALESCE(
-                json_type(
-                    realtime.value,
-                    '$.proof_resolution_seconds'
-                ) = 'integer',
-                0
-            ) = 0
             OR json_extract(
                 realtime.value,
                 '$.proof_resolution_seconds'
             ) <> 0
-            OR COALESCE(
-                json_type(
-                    realtime.value,
-                    '$.observed_trigger_epoch'
-                ) = 'integer',
-                0
-            ) = 0
-            OR COALESCE(
-                json_type(
-                    realtime.value,
-                    '$.coverage_start_epoch'
-                ) = 'integer',
-                0
-            ) = 0
-            OR COALESCE(
-                json_type(
-                    realtime.value,
-                    '$.coverage_end_epoch'
-                ) = 'integer',
-                0
-            ) = 0
             OR json_extract(
                 realtime.value,
                 '$.coverage_start_epoch'

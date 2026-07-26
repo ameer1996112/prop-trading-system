@@ -137,8 +137,11 @@ FROM observation_entry_handling
 WHERE handling_id IN (SELECT value FROM json_each(?))
 `;
 
+// Task 6 ingestion must preflight immutable identities and catalog rows, then
+// submit only absent rows. These statements intentionally abort as a unit on
+// any invalid or conflicting element so a bulk payload cannot persist partly.
 export const INSERT_ENTRY_CANDIDATES_SQL = `
-INSERT OR IGNORE INTO observation_entry_candidates (
+INSERT INTO observation_entry_candidates (
   candidate_id, setup_id, model, state, event_anchor_epoch, trigger_ordinal,
   direction, source_claim_ids_json, normalized_from, identity_sha256,
   first_receipt_id, observed_at_epoch
@@ -160,7 +163,7 @@ FROM json_each(?)
 `;
 
 export const INSERT_ENTRY_EVIDENCE_SQL = `
-INSERT OR IGNORE INTO observation_entry_candidate_evidence (
+INSERT INTO observation_entry_candidate_evidence (
   evidence_id, candidate_id, receipt_id, observed_trigger_epoch,
   observed_trigger_ticks, htf_context_minutes_json, fidelity, proof_plane,
   proof_resolution_seconds, coverage_start_epoch, coverage_end_epoch,
@@ -190,7 +193,7 @@ FROM json_each(?)
 `;
 
 export const INSERT_ENTRY_HANDLING_SQL = `
-INSERT OR IGNORE INTO observation_entry_handling (
+INSERT INTO observation_entry_handling (
   handling_id, candidate_id, evidence_id, receipt_id, handling_mode,
   attempt_kind, observed_epoch, observed_ticks, fidelity,
   source_claim_ids_json, identity_sha256
@@ -254,7 +257,7 @@ INSERT INTO observation_entry_quarantine (
 `;
 
 export const INSERT_ENTRY_SOURCE_CLAIM_SQL = `
-INSERT OR IGNORE INTO observation_entry_source_claims (
+INSERT INTO observation_entry_source_claims (
   claim_id, contract_version, source_id, youtube_video_id, published_date,
   title_snapshot, channel_id, channel_handle, timestamp_start_seconds,
   timestamp_end_seconds, relationship, summary
@@ -262,7 +265,7 @@ INSERT OR IGNORE INTO observation_entry_source_claims (
 `;
 
 export const INSERT_ENTRY_SOURCE_RELATIONSHIP_SQL = `
-INSERT OR IGNORE INTO observation_entry_source_claim_relationships (
+INSERT INTO observation_entry_source_claim_relationships (
   claim_id, target_claim_id
 ) VALUES (?, ?)
 `;
