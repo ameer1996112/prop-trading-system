@@ -1000,13 +1000,15 @@ export function validateEntryEvaluationV3(
     if (evidence.fidelity !== "EXACT") continue;
     if (
       candidate.model === "DIR_CLOSE" &&
-      (evidence.coverage_end_epoch - evidence.coverage_start_epoch !== 300 ||
+      (candidate.event_anchor_epoch !== evidence.coverage_start_epoch ||
+        evidence.coverage_end_epoch - evidence.coverage_start_epoch !== 300 ||
         evidence.observed_trigger_epoch !== evidence.coverage_end_epoch)
     ) {
       fail("exact close evidence must cover one five-minute bar");
     }
     if (candidate.model === "BOC") {
       if (
+        candidate.reference_candle_open_epoch === null ||
         evidence.reference_candle_open_epoch === null ||
         evidence.observed_trigger_epoch === null
       ) {
@@ -1015,6 +1017,11 @@ export function validateEntryEvaluationV3(
       const triggerOpen =
         Math.floor(evidence.observed_trigger_epoch / 300) * 300;
       if (
+        candidate.event_anchor_epoch !==
+          candidate.reference_candle_open_epoch ||
+        candidate.reference_candle_open_epoch % 300 !== 0 ||
+        evidence.reference_candle_open_epoch !==
+          candidate.reference_candle_open_epoch ||
         evidence.reference_candle_open_epoch + 300 > triggerOpen ||
         evidence.htf_context_minutes.length === 0 ||
         evidence.htf_context_minutes.some(

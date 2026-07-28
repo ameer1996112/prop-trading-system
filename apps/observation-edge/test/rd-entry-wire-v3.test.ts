@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  candidateIdV3,
   evidenceIdV3,
   evidencePayloadSha256V3,
   selectionIdV3,
@@ -238,6 +239,39 @@ async function rehashEvidenceAndSelection(
   );
 }
 
+async function rehashCandidateGraph(
+  value: Record<string, unknown>,
+  candidateIndex: number,
+): Promise<void> {
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const candidates = bundle.candidates as Array<Record<string, unknown>>;
+  const candidate = candidates[candidateIndex]!;
+  const previousCandidateId = candidate.candidate_id;
+  candidate.candidate_id = await candidateIdV3(
+    candidate as unknown as Parameters<typeof candidateIdV3>[0],
+  );
+  const selection = bundle.selection_proposal as Record<string, unknown>;
+  const considered = selection.candidate_ids_considered as string[];
+  selection.candidate_ids_considered = considered
+    .map((id) =>
+      id === previousCandidateId ? (candidate.candidate_id as string) : id,
+    )
+    .sort();
+  if (selection.canonical_candidate_id === previousCandidateId) {
+    selection.canonical_candidate_id = candidate.candidate_id;
+  }
+  const evidence = bundle.evidence as Array<Record<string, unknown>>;
+  for (let index = 0; index < evidence.length; index += 1) {
+    const item = evidence[index]!;
+    if (item.candidate_id !== previousCandidateId) continue;
+    item.candidate_id = candidate.candidate_id;
+    await rehashEvidenceAndSelection(value, index);
+  }
+  selection.selection_id = await selectionIdV3(
+    selection as unknown as EntrySelectionV3,
+  );
+}
+
 describe("RD entry v3 wire", () => {
   it("accepts an exact strict BOC bundle", async () => {
     const result = await validateEntryV3Payload(
@@ -357,6 +391,49 @@ describe("RD entry v3 wire", () => {
     const contact = flipEvidence.contact_candle as { high_ticks: number };
     setup.zone_bottom_ticks = contact.high_ticks + 1;
     setup.zone_top_ticks = contact.high_ticks + 10;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects a rehashed BOC candidate whose event anchor differs from its reference", async () => {
+    const value = payload();
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const candidate = (bundle.candidates as Array<Record<string, unknown>>)[0]!;
+    candidate.event_anchor_epoch =
+      (candidate.reference_candle_open_epoch as number) + 300;
+    await rehashCandidateGraph(value, 0);
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects a fully rehashed BOC reference that is not five-minute aligned", async () => {
+    const value = payload();
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const candidate = (bundle.candidates as Array<Record<string, unknown>>)[0]!;
+    const evidence = (bundle.evidence as Array<Record<string, unknown>>)[0]!;
+    candidate.event_anchor_epoch = 901;
+    candidate.reference_candle_open_epoch = 901;
+    evidence.reference_candle_open_epoch = 901;
+    await rehashCandidateGraph(value, 0);
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects a rehashed directional-close anchor that differs from the confirmed bar", async () => {
+    const value = payloadFor("opened_selection_is_frozen");
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const candidate = (bundle.candidates as Array<Record<string, unknown>>)[0]!;
+    candidate.event_anchor_epoch =
+      ((value.market_event as {
+        confirmed_bar: { open_epoch: number };
+      }).confirmed_bar.open_epoch as number) + 1;
+    await rehashCandidateGraph(value, 0);
 
     await expect(
       validateEntryV3Payload(strict(value), reviewedHashes),

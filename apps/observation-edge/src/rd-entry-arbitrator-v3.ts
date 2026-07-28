@@ -62,7 +62,10 @@ export function exactEligibleV3(
   if (candidate.model === "BOC") {
     if (
       candidate.boc_tier !== "HTF_TIMED" ||
-      evidence.reference_candle_open_epoch === null
+      candidate.reference_candle_open_epoch === null ||
+      evidence.reference_candle_open_epoch === null ||
+      candidate.event_anchor_epoch !== candidate.reference_candle_open_epoch ||
+      candidate.reference_candle_open_epoch % 300 !== 0
     ) {
       return false;
     }
@@ -79,6 +82,7 @@ export function exactEligibleV3(
     }
   } else if (candidate.model === "DIR_CLOSE") {
     if (
+      candidate.event_anchor_epoch !== evidence.coverage_start_epoch ||
       evidence.coverage_end_epoch - evidence.coverage_start_epoch !== 300 ||
       evidence.observed_trigger_epoch !== evidence.coverage_end_epoch
     ) {

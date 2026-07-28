@@ -749,6 +749,12 @@ function validateAuthoritativePaperFacts(
   for (const { candidate, evidence } of pairs) {
     if (candidate.model === "BOC") {
       if (
+        candidate.reference_candle_open_epoch === null ||
+        candidate.event_anchor_epoch !==
+          candidate.reference_candle_open_epoch ||
+        candidate.reference_candle_open_epoch % 300 !== 0 ||
+        evidence.reference_candle_open_epoch !==
+          candidate.reference_candle_open_epoch ||
         evidence.reference_candle_high_ticks === null ||
         evidence.reference_candle_low_ticks === null ||
         evidence.observed_trigger_ticks === null ||
@@ -767,6 +773,7 @@ function validateAuthoritativePaperFacts(
       if (
         !marketEvent.barstate_isconfirmed ||
         bar === null ||
+        candidate.event_anchor_epoch !== bar.open_epoch ||
         bar.open_epoch !== evidence.coverage_start_epoch ||
         bar.close_epoch !== evidence.coverage_end_epoch ||
         evidence.observed_trigger_epoch !== bar.close_epoch ||
