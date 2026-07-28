@@ -182,15 +182,63 @@ const ambiguityCodes = new Set<EntryDecisionEvidence["ambiguityCodes"][number]>(
   "SHADOW_MISSING_INTRABAR_COVERAGE",
   "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE",
 ]);
-const evidenceRuleIds = new Set([
-  "ENTRY_BOC_HTF_TIMED",
-  "ENTRY_DIR_CLOSE",
-  "ENTRY_HTF_FLIP",
-  "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED",
-  "BOC_WRONG_DIRECTION",
+const commonFailedRuleIds = [
+  "COMMON_SETUP_NOT_EXACT",
   "ENTRY_BEFORE_ZONE_ENGAGEMENT",
-  "REALTIME_EVIDENCE_NOT_LIVE",
   "SETUP_INVALIDATED",
+  "HISTORICAL_ORDER_UNPROVEN",
+] as const;
+const failedRuleIdsByModel = new Map<EntryModel, ReadonlySet<string>>([
+  [
+    "BOC",
+    new Set([
+      ...commonFailedRuleIds,
+      "MODEL_EVIDENCE_NOT_EXACT",
+      "EVIDENCE_REPLAYABILITY_MISMATCH",
+      "REALTIME_EVIDENCE_NOT_LIVE",
+      "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED",
+      "BOC_WRONG_DIRECTION",
+      "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE",
+      "REALTIME_FIRST_CROSS_UNPROVEN",
+    ]),
+  ],
+  [
+    "DIR_CLOSE",
+    new Set([...commonFailedRuleIds, "DIR_CLOSE_NOT_CONFIRMED_5M"]),
+  ],
+  [
+    "HTF_FLIP",
+    new Set([
+      ...commonFailedRuleIds,
+      "MODEL_EVIDENCE_NOT_EXACT",
+      "EVIDENCE_REPLAYABILITY_MISMATCH",
+      "REALTIME_EVIDENCE_NOT_LIVE",
+      "HTF_FLIP_INCOMPLETE_LIFECYCLE",
+      "HTF_FLIP_COVERAGE_GAP",
+      "HTF_FLIP_ORDER_UNPROVEN",
+      "HTF_FLIP_DESTINATION_BEFORE_CONTACT",
+      "HTF_FLIP_AMBIGUOUS",
+      "HTF_FLIP_ANCHOR_AFTER_CONTACT",
+      "HTF_FLIP_TRIGGER_OUTSIDE_CONTEXT",
+      "HTF_FLIP_CONTACT_OUTSIDE_ZONE",
+      "HTF_FLIP_CONTACT_ALREADY_RECROSSED",
+      "HTF_FLIP_OPEN_NOT_RECROSSED",
+      "HTF_FLIP_CONTEXT_MISALIGNED",
+      "HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE",
+      "HTF_FLIP_INCOMPATIBLE_CONTEXTS",
+      "HTF_FLIP_MISSING_INTRABAR_COVERAGE",
+      "HTF_FLIP_LIFECYCLE_UNRESOLVED",
+    ]),
+  ],
+]);
+const passedRuleByModel = new Map<EntryModel, string>([
+  ["BOC", "ENTRY_BOC_HTF_TIMED"],
+  ["DIR_CLOSE", "ENTRY_DIR_CLOSE"],
+  ["HTF_FLIP", "ENTRY_HTF_FLIP"],
+]);
+const evidenceRuleIds = new Set([
+  ...passedRuleByModel.values(),
+  ...[...failedRuleIdsByModel.values()].flatMap((ruleIds) => [...ruleIds]),
 ]);
 const parityStatuses = new Set(["MATCH", "MISMATCH", "NOT_PROVIDED"] as const);
 const parityReasons = new Set([
@@ -363,12 +411,24 @@ function parseEvidence(value: unknown): EntryDecisionEvidence {
   const proofPlane = enumValue(value.proof_plane, proofPlanes);
   const replayability = enumValue(value.replayability, replayabilities);
   const fidelity = enumValue(value.fidelity, fidelities);
+  const parsedAmbiguityCodes = uniqueStrings(
+    value.ambiguity_codes,
+    3,
+    ambiguityCodes,
+  ) as EntryDecisionEvidence["ambiguityCodes"];
+  const passedRuleIds = uniqueStrings(value.passed_rule_ids, 4, evidenceRuleIds);
+  const failedRuleIds = uniqueStrings(value.failed_rule_ids, 8, evidenceRuleIds);
   if (
-    fidelity === "EXACT" &&
-    replayability !==
-      (proofPlane === "REALTIME_TICK"
-        ? "LIVE_EXACT_NON_REPLAYABLE"
-        : "REPLAYABLE")
+    passedRuleIds.some((ruleId) => failedRuleIds.includes(ruleId)) ||
+    (fidelity === "EXACT" &&
+      (replayability !==
+        (proofPlane === "REALTIME_TICK"
+          ? "LIVE_EXACT_NON_REPLAYABLE"
+          : "REPLAYABLE") ||
+        passedRuleIds.length === 0 ||
+        failedRuleIds.length !== 0 ||
+        parsedAmbiguityCodes.length !== 0 ||
+        observedTriggerEpoch === null))
   ) {
     fail();
   }
@@ -384,9 +444,9 @@ function parseEvidence(value: unknown): EntryDecisionEvidence {
     htfContextMinutes: contexts,
     coverageStartEpoch,
     coverageEndEpoch,
-    ambiguityCodes: uniqueStrings(value.ambiguity_codes, 3, ambiguityCodes) as EntryDecisionEvidence["ambiguityCodes"],
-    passedRuleIds: uniqueStrings(value.passed_rule_ids, 4, evidenceRuleIds),
-    failedRuleIds: uniqueStrings(value.failed_rule_ids, 8, evidenceRuleIds),
+    ambiguityCodes: parsedAmbiguityCodes,
+    passedRuleIds,
+    failedRuleIds,
     referenceCandle: parseCandle(value.reference_candle, true),
     contactCandle: parseCandle(value.contact_candle),
     recrossCandle: parseCandle(value.recross_candle),
@@ -422,28 +482,80 @@ function parseCandidate(value: unknown): EntryDecisionCandidate {
   }
   const evidence = parseEvidence(value.evidence);
   const candidateId = stringValue(value.candidate_id);
+  const state = enumValue(value.state, candidateStates);
+  const expectedPassedRule = passedRuleByModel.get(model)!;
+  const allowedFailedRuleIds = failedRuleIdsByModel.get(model)!;
+  const failedRuleId = evidence.failedRuleIds[0] ?? null;
+  const exactMatched =
+    state === "MATCHED" &&
+    evidence.fidelity === "EXACT" &&
+    evidence.passedRuleIds.length === 1 &&
+    evidence.passedRuleIds[0] === expectedPassedRule &&
+    evidence.failedRuleIds.length === 0;
+  const discretionaryBoc =
+    model === "BOC" &&
+    state === "MATCHED" &&
+    bocTier === "DISCRETIONARY_5M" &&
+    evidence.fidelity === "DISCRETIONARY" &&
+    evidence.passedRuleIds.length === 0 &&
+    evidence.failedRuleIds.length === 1 &&
+    evidence.failedRuleIds[0] ===
+      "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED";
+  const retainedFailure =
+    ((state === "BLOCKED" &&
+      failedRuleId !== "BOC_WRONG_DIRECTION" &&
+      failedRuleId !== "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED") ||
+      (state === "REJECTED" &&
+        model === "BOC" &&
+        failedRuleId === "BOC_WRONG_DIRECTION")) &&
+    evidence.passedRuleIds.length === 0 &&
+    evidence.failedRuleIds.length === 1 &&
+    failedRuleId !== null &&
+    allowedFailedRuleIds.has(failedRuleId) &&
+    (evidence.fidelity === "UNRESOLVED" ||
+      (model === "BOC" && evidence.fidelity !== "EXACT"));
+  const hasCompleteFlipLifecycle =
+    evidence.contactCandle !== null && evidence.recrossCandle !== null;
+  const hasPartialFlipLifecycle =
+    (evidence.contactCandle === null) !== (evidence.recrossCandle === null);
+  const flipChronologyInvalid =
+    hasCompleteFlipLifecycle &&
+    (evidence.contactCandle!.closeEpoch === null ||
+      evidence.recrossCandle!.closeEpoch === null ||
+      evidence.contactCandle!.closeEpoch! >
+        evidence.recrossCandle!.openEpoch ||
+      evidence.observedTriggerEpoch !== evidence.recrossCandle!.closeEpoch ||
+      evidence.observedTriggerTicks !== evidence.recrossCandle!.closeTicks);
   if (
     evidence.candidateId !== candidateId ||
+    (!exactMatched && !discretionaryBoc && !retainedFailure) ||
     (model === "BOC") !== (evidence.referenceCandle !== null) ||
     (model === "BOC" &&
       (evidence.referenceCandle?.openEpoch !== referenceCandleOpenEpoch ||
         evidence.contactCandle !== null ||
-        evidence.recrossCandle !== null)) ||
+        evidence.recrossCandle !== null ||
+        (evidence.fidelity === "EXACT" &&
+          (bocTier !== "HTF_TIMED" ||
+            evidence.htfContextMinutes.length === 0)))) ||
     (model === "DIR_CLOSE" &&
       (evidence.htfContextMinutes.length !== 0 ||
         evidence.contactCandle !== null ||
-        evidence.recrossCandle !== null)) ||
+        evidence.recrossCandle !== null ||
+        evidence.proofPlane !== "CONFIRMED_5M" ||
+        evidence.replayability !== "REPLAYABLE")) ||
     (model === "HTF_FLIP" &&
-      (evidence.htfContextMinutes.length === 0 ||
-        evidence.contactCandle === null ||
-        evidence.recrossCandle === null))
+      (hasPartialFlipLifecycle ||
+        flipChronologyInvalid ||
+        (evidence.fidelity === "EXACT" &&
+          (evidence.htfContextMinutes.length === 0 ||
+            !hasCompleteFlipLifecycle))))
   ) {
     fail();
   }
   return {
     candidateId,
     model,
-    state: enumValue(value.state, candidateStates),
+    state,
     direction:
       value.direction === "LONG" || value.direction === "SHORT"
         ? value.direction

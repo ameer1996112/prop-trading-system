@@ -29,8 +29,32 @@ const REASON_LABELS: Readonly<Record<string, string>> = {
   BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED:
     "Context is not mechanically quantified",
   BOC_WRONG_DIRECTION: "Break direction does not match the setup",
+  COMMON_SETUP_NOT_EXACT: "Common setup evidence is not exact",
+  MODEL_EVIDENCE_NOT_EXACT: "Model evidence is not exact",
+  EVIDENCE_REPLAYABILITY_MISMATCH: "Evidence replayability does not match its proof plane",
+  DIR_CLOSE_NOT_CONFIRMED_5M: "Directional close is not a confirmed five-minute candle",
   ENTRY_BEFORE_ZONE_ENGAGEMENT: "Trigger preceded zone engagement",
   REALTIME_EVIDENCE_NOT_LIVE: "Realtime evidence was not observed live",
+  HTF_FLIP_INCOMPLETE_LIFECYCLE: "HTF flip lifecycle is incomplete",
+  HTF_FLIP_COVERAGE_GAP: "HTF flip evidence has a coverage gap",
+  HTF_FLIP_ORDER_UNPROVEN: "HTF flip lifecycle order is unproven",
+  HTF_FLIP_DESTINATION_BEFORE_CONTACT: "Destination appeared before zone contact",
+  HTF_FLIP_AMBIGUOUS: "HTF flip evidence is ambiguous",
+  HTF_FLIP_ANCHOR_AFTER_CONTACT: "HTF anchor occurred after zone contact",
+  HTF_FLIP_TRIGGER_OUTSIDE_CONTEXT: "HTF flip trigger is outside its context window",
+  HTF_FLIP_CONTACT_OUTSIDE_ZONE: "HTF flip contact is outside the zone",
+  HTF_FLIP_CONTACT_ALREADY_RECROSSED: "Contact candle had already recrossed the HTF open",
+  HTF_FLIP_OPEN_NOT_RECROSSED: "HTF open was not recrossed on the actual close",
+  HTF_FLIP_CONTEXT_MISALIGNED: "HTF contexts are not mechanically aligned",
+  REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE: "Realtime trigger epoch is not representable",
+  REALTIME_FIRST_CROSS_UNPROVEN: "Realtime first cross is unproven",
+  HISTORICAL_ORDER_UNPROVEN: "Historical intrabar order is unproven",
+  HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE:
+    "HTF flip causal epoch is not representable",
+  HTF_FLIP_INCOMPATIBLE_CONTEXTS: "HTF flip contexts are incompatible",
+  HTF_FLIP_MISSING_INTRABAR_COVERAGE:
+    "HTF flip is missing intrabar coverage",
+  HTF_FLIP_LIFECYCLE_UNRESOLVED: "HTF flip lifecycle remains unresolved",
 };
 
 function titleCaseReason(value: string): string {
@@ -153,13 +177,14 @@ function CandidateRow({
             <div>
               <dt>Lifecycle</dt>
               <dd>
-                {candidate.evidence.contactCandle === null
-                  ? "Contact not retained"
-                  : `Contact ${candidate.evidence.contactCandle.openEpoch}`}
-                {" · "}
-                {candidate.evidence.recrossCandle === null
-                  ? "Recross not retained"
-                  : `Recross ${candidate.evidence.recrossCandle.closeEpoch}`}
+                {candidate.evidence.contactCandle === null &&
+                candidate.evidence.recrossCandle === null
+                  ? "No retained lifecycle"
+                  : `Contact ${
+                      candidate.evidence.contactCandle?.openEpoch ?? "?"
+                    } · Recross ${
+                      candidate.evidence.recrossCandle?.closeEpoch ?? "?"
+                    }`}
               </dd>
             </div>
           </>

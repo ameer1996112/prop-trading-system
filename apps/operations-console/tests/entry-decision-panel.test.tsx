@@ -225,6 +225,46 @@ describe("EntryDecisionPanel", () => {
     );
   });
 
+  it("explains a context-misaligned blocked flip with no retained lifecycle", () => {
+    const contextBlocked = structuredClone(discretionarySnapshot);
+    contextBlocked.items[0]!.candidates.push({
+      candidateId: "candidate-flip-context-blocked",
+      model: "HTF_FLIP",
+      state: "BLOCKED",
+      direction: "LONG",
+      eventAnchorEpoch: 1_800,
+      triggerOrdinal: 1,
+      bocTier: null,
+      referenceCandleOpenEpoch: null,
+      sourceClaimIds: ["htf-flip-2024-03"],
+      evidence: {
+        evidenceId: "evidence-flip-context-blocked",
+        candidateId: "candidate-flip-context-blocked",
+        observedTriggerEpoch: 2_101,
+        triggerSequence: 4,
+        observedTriggerTicks: 111,
+        fidelity: "UNRESOLVED",
+        proofPlane: "REALTIME_TICK",
+        replayability: "LIVE_EXACT_NON_REPLAYABLE",
+        htfContextMinutes: [],
+        coverageStartEpoch: 900,
+        coverageEndEpoch: 2_400,
+        ambiguityCodes: [],
+        passedRuleIds: [],
+        failedRuleIds: ["HTF_FLIP_CONTEXT_MISALIGNED"],
+        referenceCandle: null,
+        contactCandle: null,
+        recrossCandle: null,
+      },
+    });
+
+    render(<EntryDecisionPanel initialSnapshot={contextBlocked} />);
+
+    expect(screen.getByText("HTF flip blocked")).toBeInTheDocument();
+    expect(screen.getByText("HTF contexts are not mechanically aligned")).toBeInTheDocument();
+    expect(screen.getByText("No retained lifecycle")).toBeInTheDocument();
+  });
+
   it("renders explicit empty and error states accessibly", () => {
     const { rerender } = render(
       <EntryDecisionPanel

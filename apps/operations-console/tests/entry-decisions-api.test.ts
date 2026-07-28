@@ -162,6 +162,137 @@ const payload = {
   ],
 };
 
+type BackendFailedRuleCase = {
+  readonly code: string;
+  readonly model: "BOC" | "DIR_CLOSE" | "HTF_FLIP";
+  readonly state?: "BLOCKED" | "MATCHED" | "REJECTED";
+  readonly fidelity?:
+    | "UNRESOLVED"
+    | "CALIBRATED"
+    | "DISCRETIONARY";
+};
+
+const backendFailedRuleCases: readonly BackendFailedRuleCase[] = [
+  { code: "COMMON_SETUP_NOT_EXACT", model: "BOC" },
+  { code: "COMMON_SETUP_NOT_EXACT", model: "DIR_CLOSE" },
+  { code: "COMMON_SETUP_NOT_EXACT", model: "HTF_FLIP" },
+  { code: "SETUP_INVALIDATED", model: "BOC" },
+  { code: "SETUP_INVALIDATED", model: "DIR_CLOSE" },
+  { code: "SETUP_INVALIDATED", model: "HTF_FLIP" },
+  { code: "ENTRY_BEFORE_ZONE_ENGAGEMENT", model: "BOC" },
+  { code: "ENTRY_BEFORE_ZONE_ENGAGEMENT", model: "DIR_CLOSE" },
+  { code: "ENTRY_BEFORE_ZONE_ENGAGEMENT", model: "HTF_FLIP" },
+  { code: "MODEL_EVIDENCE_NOT_EXACT", model: "BOC" },
+  {
+    code: "MODEL_EVIDENCE_NOT_EXACT",
+    model: "BOC",
+    fidelity: "CALIBRATED",
+  },
+  {
+    code: "MODEL_EVIDENCE_NOT_EXACT",
+    model: "BOC",
+    fidelity: "DISCRETIONARY",
+  },
+  { code: "MODEL_EVIDENCE_NOT_EXACT", model: "HTF_FLIP" },
+  { code: "EVIDENCE_REPLAYABILITY_MISMATCH", model: "BOC" },
+  { code: "EVIDENCE_REPLAYABILITY_MISMATCH", model: "HTF_FLIP" },
+  { code: "REALTIME_EVIDENCE_NOT_LIVE", model: "BOC" },
+  { code: "REALTIME_EVIDENCE_NOT_LIVE", model: "HTF_FLIP" },
+  { code: "BOC_WRONG_DIRECTION", model: "BOC", state: "REJECTED" },
+  {
+    code: "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED",
+    model: "BOC",
+    state: "MATCHED",
+    fidelity: "DISCRETIONARY",
+  },
+  { code: "DIR_CLOSE_NOT_CONFIRMED_5M", model: "DIR_CLOSE" },
+  { code: "HTF_FLIP_INCOMPLETE_LIFECYCLE", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_COVERAGE_GAP", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_ORDER_UNPROVEN", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_DESTINATION_BEFORE_CONTACT", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_AMBIGUOUS", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_ANCHOR_AFTER_CONTACT", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_TRIGGER_OUTSIDE_CONTEXT", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_CONTACT_OUTSIDE_ZONE", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_CONTACT_ALREADY_RECROSSED", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_OPEN_NOT_RECROSSED", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_CONTEXT_MISALIGNED", model: "HTF_FLIP" },
+  { code: "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE", model: "BOC" },
+  { code: "REALTIME_FIRST_CROSS_UNPROVEN", model: "BOC" },
+  { code: "HISTORICAL_ORDER_UNPROVEN", model: "BOC" },
+  { code: "HISTORICAL_ORDER_UNPROVEN", model: "DIR_CLOSE" },
+  { code: "HISTORICAL_ORDER_UNPROVEN", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_INCOMPATIBLE_CONTEXTS", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_MISSING_INTRABAR_COVERAGE", model: "HTF_FLIP" },
+  { code: "HTF_FLIP_LIFECYCLE_UNRESOLVED", model: "HTF_FLIP" },
+];
+
+function reportWithSingleFailedCandidate(
+  model: "BOC" | "DIR_CLOSE" | "HTF_FLIP",
+  code: string,
+  state: "BLOCKED" | "MATCHED" | "REJECTED" = "BLOCKED",
+  fidelity:
+    | "UNRESOLVED"
+    | "CALIBRATED"
+    | "DISCRETIONARY" = "UNRESOLVED",
+) {
+  const source = structuredClone(payload.items[0]!);
+  const candidate = source.candidates.find((item) => item.model === model)!;
+  const emptyFlipFacts =
+    model === "HTF_FLIP" &&
+    (code === "HTF_FLIP_CONTEXT_MISALIGNED" ||
+      code === "HTF_FLIP_INCOMPLETE_LIFECYCLE" ||
+      code === "HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE" ||
+      code === "HTF_FLIP_INCOMPATIBLE_CONTEXTS" ||
+      code === "HTF_FLIP_MISSING_INTRABAR_COVERAGE" ||
+      code === "HTF_FLIP_LIFECYCLE_UNRESOLVED" ||
+      code === "HISTORICAL_ORDER_UNPROVEN");
+  const failedCandidate = {
+    ...candidate,
+    state,
+    boc_tier:
+      model === "BOC" && fidelity === "DISCRETIONARY"
+        ? "DISCRETIONARY_5M"
+        : candidate.boc_tier,
+    evidence: {
+      ...candidate.evidence,
+      fidelity,
+      htf_context_minutes: emptyFlipFacts ? [] : candidate.evidence.htf_context_minutes,
+      passed_rule_ids: [],
+      failed_rule_ids: [code],
+      contact_candle: emptyFlipFacts ? null : candidate.evidence.contact_candle,
+      recross_candle: emptyFlipFacts ? null : candidate.evidence.recross_candle,
+    },
+  };
+  return {
+    ...payload,
+    items: [
+      {
+        ...source,
+        selection: {
+          ...source.selection,
+          candidate_ids_considered: [candidate.candidate_id],
+          canonical_candidate_id: null,
+          canonical_evidence_id: null,
+          canonical_model: null,
+          reason: "NO_EXACT_CANDIDATE",
+          fidelity: null,
+          policy_action: "SHADOW_ONLY",
+          action: "SHADOW_ONLY",
+          effective_action_reason: null,
+          co_triggered_models: [],
+          selected_trigger_epoch: null,
+          selected_trigger_sequence: null,
+        },
+        candidates: [failedCandidate],
+        paper_intent_id: null,
+        trade: null,
+      },
+    ],
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -224,6 +355,163 @@ describe("loadEntryDecisions", () => {
       "stored-selection-a",
       "stored-selection-b",
     ]);
+  });
+
+  it.each(backendFailedRuleCases)(
+    "accepts backend-emitted $model failed rule $code",
+    async ({ code, fidelity, model, state }) => {
+      const response = reportWithSingleFailedCandidate(
+        model,
+        code,
+        state,
+        fidelity,
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(response), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(loadEntryDecisions("operator-secret")).resolves.toMatchObject({
+        state: "READY",
+        items: [
+          {
+            candidates: [
+              {
+                model,
+                state: state ?? "BLOCKED",
+                evidence: { failedRuleIds: [code] },
+              },
+            ],
+          },
+        ],
+      });
+    },
+  );
+
+  it("accepts all producer ambiguity codes on unresolved evidence", async () => {
+    for (const ambiguityCode of [
+      "SHADOW_SAME_CHILD_BAR_ORDER",
+      "SHADOW_MISSING_INTRABAR_COVERAGE",
+      "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE",
+    ]) {
+      const response = reportWithSingleFailedCandidate(
+        "HTF_FLIP",
+        "HTF_FLIP_AMBIGUOUS",
+      );
+      const evidence = response.items[0]!.candidates[0]!.evidence as unknown as {
+        ambiguity_codes: string[];
+      };
+      evidence.ambiguity_codes = [ambiguityCode];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(response), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      );
+
+      await expect(loadEntryDecisions("operator-secret")).resolves.toMatchObject({
+        state: "READY",
+      });
+    }
+  });
+
+  it.each([
+    {
+      name: "unknown failed rule",
+      response: reportWithSingleFailedCandidate(
+        "HTF_FLIP",
+        "HTF_FLIP_FUTURE_UNKNOWN",
+      ),
+    },
+    {
+      name: "known failed rule on the wrong model",
+      response: reportWithSingleFailedCandidate(
+        "DIR_CLOSE",
+        "HTF_FLIP_COVERAGE_GAP",
+      ),
+    },
+    {
+      name: "exact flip without contexts or lifecycle",
+      response: (() => {
+        const response = structuredClone(payload);
+        const flip = response.items[0]!.candidates.find(
+          (candidate) => candidate.model === "HTF_FLIP",
+        )!;
+        flip.state = "MATCHED";
+        flip.evidence.fidelity = "EXACT";
+        flip.evidence.htf_context_minutes = [];
+        flip.evidence.passed_rule_ids = ["ENTRY_HTF_FLIP"];
+        flip.evidence.failed_rule_ids = [];
+        flip.evidence.contact_candle = null;
+        flip.evidence.recross_candle = null;
+        return response;
+      })(),
+    },
+    {
+      name: "exact evidence with an ambiguity code",
+      response: (() => {
+        const response = structuredClone(payload);
+        const close = response.items[0]!.candidates.find(
+          (candidate) => candidate.model === "DIR_CLOSE",
+        )!;
+        const evidence = close.evidence as unknown as {
+          ambiguity_codes: string[];
+        };
+        evidence.ambiguity_codes = [
+          "SHADOW_MISSING_INTRABAR_COVERAGE",
+        ];
+        return response;
+      })(),
+    },
+    {
+      name: "partial blocked flip lifecycle",
+      response: (() => {
+        const response = reportWithSingleFailedCandidate(
+          "HTF_FLIP",
+          "HTF_FLIP_COVERAGE_GAP",
+        );
+        response.items[0]!.candidates[0]!.evidence.recross_candle = null;
+        return response;
+      })(),
+    },
+    {
+      name: "reversed blocked flip lifecycle chronology",
+      response: (() => {
+        const response = reportWithSingleFailedCandidate(
+          "HTF_FLIP",
+          "HTF_FLIP_ORDER_UNPROVEN",
+        );
+        const evidence = response.items[0]!.candidates[0]!.evidence;
+        evidence.contact_candle = {
+          ...evidence.contact_candle!,
+          close_epoch: 1_802,
+        };
+        return response;
+      })(),
+    },
+  ])("rejects $name", async ({ response }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(response), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    await expect(loadEntryDecisions("operator-secret")).resolves.toMatchObject({
+      state: "ERROR",
+      items: [],
+    });
   });
 
   it("fails closed on unknown keys, enums, bounds, and nullable-field drift", async () => {
