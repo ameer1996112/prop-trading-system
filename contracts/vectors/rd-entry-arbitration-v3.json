@@ -1,0 +1,1948 @@
+{
+  "arbitration_policy_version": "rd-entry-arbitration-v3",
+  "cases": [
+    {
+      "case_id": "strict_long_boc_only",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "006b4602cc01c42edf204728ae558be1ce20daa85470f8bb05dfc8a8780de69e",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-strict-long",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "006b4602cc01c42edf204728ae558be1ce20daa85470f8bb05dfc8a8780de69e",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "5446672dccb5aa686a5b9d242f3eb1d4aa901f04c801267cf15f563df5c15b95",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "ec4b4cec0820097a2effc8af8552f5fb1ff18475905a10c329adb5e5c20cc8a0",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 7
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "006b4602cc01c42edf204728ae558be1ce20daa85470f8bb05dfc8a8780de69e"
+          ],
+          "canonical_candidate_id": "006b4602cc01c42edf204728ae558be1ce20daa85470f8bb05dfc8a8780de69e",
+          "canonical_evidence_id": "5446672dccb5aa686a5b9d242f3eb1d4aa901f04c801267cf15f563df5c15b95",
+          "canonical_model": "BOC",
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 0,
+          "selection_id": "0197ee372fc55086002163c0c3afa19204e5039e122fddff33348e2ec7555cb3",
+          "setup_id": "setup-strict-long"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 7,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-strict-long",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "strict_short_boc_only",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "9c8d2c1ba50f5f95f34da0621651892415d0df0bdca296148af61b66e89e3651",
+            "direction": "SHORT",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-strict-short",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "9c8d2c1ba50f5f95f34da0621651892415d0df0bdca296148af61b66e89e3651",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "515b258c440374c6d122903bb8cd0ded0f6a9430ef698d7f3c938145a27460b7",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 99,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "ac584c8f4031dda1afcea871a9b40c9b1f461737c74cd1bbce6ceecd64c6eb99",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 7
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "9c8d2c1ba50f5f95f34da0621651892415d0df0bdca296148af61b66e89e3651"
+          ],
+          "canonical_candidate_id": "9c8d2c1ba50f5f95f34da0621651892415d0df0bdca296148af61b66e89e3651",
+          "canonical_evidence_id": "515b258c440374c6d122903bb8cd0ded0f6a9430ef698d7f3c938145a27460b7",
+          "canonical_model": "BOC",
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 0,
+          "selection_id": "4418beafa2dc40bcbb24771016a296b28c08a204208e30bec5caa5260be883a9",
+          "setup_id": "setup-strict-short"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 7,
+          "trigger_ticks": 99
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "SHORT",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-strict-short",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "discretionary_boc_shadow",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "DISCRETIONARY_5M",
+            "candidate_id": "70a0d3c58268828eb6e5c410fe07dfc67018d50041629a43e233b96794ec02d9",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-discretionary",
+            "source_claim_ids": [
+              "discretionary-break-2025-11"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "DISCRETIONARY_5M",
+            "candidate_id": "70a0d3c58268828eb6e5c410fe07dfc67018d50041629a43e233b96794ec02d9",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "8d55e92d229c237178c35da18668d83a293474a740ab4d22818452bdbf60b03c",
+            "failed_rule_ids": [
+              "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED"
+            ],
+            "fidelity": "DISCRETIONARY",
+            "htf_context_minutes": [],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 2101,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [],
+            "payload_sha256": "7902b6f71fe9bff06da69954df75c0514781c019e8f606b1ea80fb5305eef75c",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11"
+            ],
+            "trigger_sequence": 4
+          }
+        ],
+        "selection": {
+          "action": "SHADOW_ONLY",
+          "candidate_ids_considered": [
+            "70a0d3c58268828eb6e5c410fe07dfc67018d50041629a43e233b96794ec02d9"
+          ],
+          "canonical_candidate_id": null,
+          "canonical_evidence_id": null,
+          "canonical_model": null,
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": null,
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "NO_EXACT_CANDIDATE",
+          "revision": 0,
+          "selection_id": "f55c7c3d34141223a5fe52e361f3e2bd4e008a9d96eb3edc324132544557d614",
+          "setup_id": "setup-discretionary"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": null,
+          "htf_context_minutes": [],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 2100,
+          "trigger_epoch": 2101,
+          "trigger_sequence": 4,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-discretionary",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "boc_before_close",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "7a2fddf1aa8463ae3597ec949c1d44519705712ffc89a94d624ce70c5c1cee97",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-boc-before-close",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          },
+          {
+            "boc_tier": null,
+            "candidate_id": "cb2ba2c851fc8d786a07d3560dd9eaf7937fa88a08985e2eec206d1bcf0e17ac",
+            "direction": "LONG",
+            "event_anchor_epoch": 1800,
+            "model": "DIR_CLOSE",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": null,
+            "setup_id": "setup-boc-before-close",
+            "source_claim_ids": [
+              "standard-close-2024-03",
+              "closure-or-flip-2025-03",
+              "directional-close-2025-08",
+              "directional-close-required-2026-06",
+              "model-continuation-2026-07"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "7a2fddf1aa8463ae3597ec949c1d44519705712ffc89a94d624ce70c5c1cee97",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "850bfd0a6c27a7bc95811e70f9220c89d4b24b7233426d0b61c139c154af39b9",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "90980f0a16d294f467d77f8656a1aa0e55eb42183c78cf725d3e6e088d8c6713",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 7
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "cb2ba2c851fc8d786a07d3560dd9eaf7937fa88a08985e2eec206d1bcf0e17ac",
+            "coverage_end_epoch": 2100,
+            "coverage_start_epoch": 1800,
+            "evidence_id": "cc5ab20e121dbb747fc1ecacef56f8b2fee72fe05b5aab550070c19ef001ebaa",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 2100,
+            "observed_trigger_ticks": 109,
+            "passed_rule_ids": [
+              "ENTRY_DIR_CLOSE"
+            ],
+            "payload_sha256": "9c0e335af17e62b5ab11e2ce55fd693815400d447636e1e6d85bd2a051999bfb",
+            "proof_plane": "CONFIRMED_5M",
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "REPLAYABLE",
+            "source_claim_ids": [
+              "standard-close-2024-03",
+              "closure-or-flip-2025-03",
+              "directional-close-2025-08",
+              "directional-close-required-2026-06",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 0
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "7a2fddf1aa8463ae3597ec949c1d44519705712ffc89a94d624ce70c5c1cee97",
+            "cb2ba2c851fc8d786a07d3560dd9eaf7937fa88a08985e2eec206d1bcf0e17ac"
+          ],
+          "canonical_candidate_id": "7a2fddf1aa8463ae3597ec949c1d44519705712ffc89a94d624ce70c5c1cee97",
+          "canonical_evidence_id": "850bfd0a6c27a7bc95811e70f9220c89d4b24b7233426d0b61c139c154af39b9",
+          "canonical_model": "BOC",
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "EARLIEST_EXACT_TRIGGER",
+          "revision": 0,
+          "selection_id": "ce5eaf6e23f051a4afc6aa79b181ce4aebf0fbf64c49f9a63aea6a111650bcdc",
+          "setup_id": "setup-boc-before-close"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 7,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": {
+          "close_epoch": 2100,
+          "close_ticks": 109,
+          "high_ticks": 112,
+          "low_ticks": 100,
+          "open_epoch": 1800,
+          "open_ticks": 105
+        },
+        "direction": "LONG",
+        "directional_close": true,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-boc-before-close",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "flip_before_boc",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "0e63ae62e919b1d3292271b38a5a221d9f765929223771ea595aa116c7557cb8",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-flip-before-boc",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          },
+          {
+            "boc_tier": null,
+            "candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
+            "direction": "LONG",
+            "event_anchor_epoch": 1800,
+            "model": "HTF_FLIP",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": null,
+            "setup_id": "setup-flip-before-boc",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "0e63ae62e919b1d3292271b38a5a221d9f765929223771ea595aa116c7557cb8",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "4a4c8b928fb0c02cbfcab3a7069cef1055f17c7f1caf8735a2be1e64fecc0465",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1802,
+            "observed_trigger_ticks": 112,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "6935b9cd208ba0609141de8a318deb52d9fe6f382d13fc620f83840a909e1ba9",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 6
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "ada3d61aa51e29e3db1954f58208801baf62f050449a6e056a92876ca8279fe3",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_HTF_FLIP"
+            ],
+            "payload_sha256": "c503113576b823974814d9e39e72d001c22968a9e4e3e98cfa14e43e6dc1f1b8",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 5
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "0e63ae62e919b1d3292271b38a5a221d9f765929223771ea595aa116c7557cb8",
+            "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26"
+          ],
+          "canonical_candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
+          "canonical_evidence_id": "ada3d61aa51e29e3db1954f58208801baf62f050449a6e056a92876ca8279fe3",
+          "canonical_model": "HTF_FLIP",
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "EARLIEST_EXACT_TRIGGER",
+          "revision": 0,
+          "selection_id": "43dc5082994473fe58d06fcfe518dfb2ff67355a5160c0078cbb76d19f533447",
+          "setup_id": "setup-flip-before-boc"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1802,
+          "trigger_sequence": 6,
+          "trigger_ticks": 112
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "event_anchor_epoch": 1800,
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-flip-before-boc",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "boc_flip_same_event",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": null,
+            "candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
+            "direction": "LONG",
+            "event_anchor_epoch": 1800,
+            "model": "HTF_FLIP",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": null,
+            "setup_id": "setup-boc-flip-same",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          },
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-boc-flip-same",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "7ed545861bc89d6fef16abed6447626f8adde71ef10681e0e15897274f66dd6b",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_HTF_FLIP"
+            ],
+            "payload_sha256": "41b75e313c338086ca97f3898878598cac27c092f1c6f5a2a219936afaf0df88",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 5
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "a84a8d2e018e5ee5c5741c69fed06282d8390e6a3c218c04a2d6c2e5d9546859",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "805b6763b16bb5fe61074f4ee418dfc6c33fdae6714eba8100b4911c090dd7de",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
+            "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a"
+          ],
+          "canonical_candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
+          "canonical_evidence_id": "7ed545861bc89d6fef16abed6447626f8adde71ef10681e0e15897274f66dd6b",
+          "canonical_model": "HTF_FLIP",
+          "co_triggered_models": [
+            "BOC",
+            "HTF_FLIP"
+          ],
+          "evaluated_at_epoch": 2400,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "CO_TRIGGER_SAME_EVENT",
+          "revision": 0,
+          "selection_id": "e70338aefe7299e919d844b57c7a07c86e40dac9a6123741bbfeeedb3186cf09",
+          "setup_id": "setup-boc-flip-same"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "event_anchor_epoch": 1800,
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-boc-flip-same",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "same_event_price_conflict",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "a3f20db91ad489a457bc71b4f58fec293f5a53c903336c1a7665bac005707db6",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-price-conflict",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          },
+          {
+            "boc_tier": null,
+            "candidate_id": "ccbb66fc6948864e19b8d2ada69c2184e127d0755346d469b76b10babd5851ca",
+            "direction": "LONG",
+            "event_anchor_epoch": 1800,
+            "model": "HTF_FLIP",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": null,
+            "setup_id": "setup-price-conflict",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "a3f20db91ad489a457bc71b4f58fec293f5a53c903336c1a7665bac005707db6",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "2375bfa2e9747584de914f3b606d1626ba216ade21cd7c2d9c040eae80f4f36f",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "d24f1474a5129e9a610c3f5809210f43d58febf3507870611eed974b9c439dca",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "ccbb66fc6948864e19b8d2ada69c2184e127d0755346d469b76b10babd5851ca",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "7c146ea70ddebb351477597b44fd21fb3040803965778bb6971a8629b5b1a7b0",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 112,
+            "passed_rule_ids": [
+              "ENTRY_HTF_FLIP"
+            ],
+            "payload_sha256": "7943d482c77582d0426c2e52cdcd277c0482f68ff50e0b6dc29129c989f81e89",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 5
+          }
+        ],
+        "selection": {
+          "action": "SHADOW_ONLY",
+          "candidate_ids_considered": [
+            "a3f20db91ad489a457bc71b4f58fec293f5a53c903336c1a7665bac005707db6",
+            "ccbb66fc6948864e19b8d2ada69c2184e127d0755346d469b76b10babd5851ca"
+          ],
+          "canonical_candidate_id": null,
+          "canonical_evidence_id": null,
+          "canonical_model": null,
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": null,
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "CO_TRIGGER_PRICE_CONFLICT",
+          "revision": 0,
+          "selection_id": "efce2954785ea3554f28b614c5d1c08dc7128ec8ffebdcb46d3c910d62ec1f67",
+          "setup_id": "setup-price-conflict"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "event_anchor_epoch": 1800,
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 112
+        },
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-price-conflict",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "close_fallback_after_blocked_aggressive_models",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": null,
+            "candidate_id": "1d66f8492b0981c710b0b7cbb945de8233e7c45c3533db8ba55c3513ea289335",
+            "direction": "LONG",
+            "event_anchor_epoch": 1800,
+            "model": "DIR_CLOSE",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": null,
+            "setup_id": "setup-close-fallback",
+            "source_claim_ids": [
+              "standard-close-2024-03",
+              "closure-or-flip-2025-03",
+              "directional-close-2025-08",
+              "directional-close-required-2026-06",
+              "model-continuation-2026-07"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          },
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "46a0505a6cf2e496dc132fc449a86e4dd48feb3ccaab3c84ee6122972610e9de",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-close-fallback",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "BLOCKED",
+            "trigger_ordinal": 1
+          },
+          {
+            "boc_tier": null,
+            "candidate_id": "d9480218591f75eee94815f81b112ba48fe047175f5f6dd4e699ddf112f85d71",
+            "direction": "LONG",
+            "event_anchor_epoch": 1800,
+            "model": "HTF_FLIP",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": null,
+            "setup_id": "setup-close-fallback",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "state": "BLOCKED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "d9480218591f75eee94815f81b112ba48fe047175f5f6dd4e699ddf112f85d71",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "4499664a1be2dd5f6e90326ecb36dc6a9841bf66a0e8f6c2a3689e0a51c81aa5",
+            "failed_rule_ids": [
+              "REALTIME_EVIDENCE_NOT_LIVE"
+            ],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1802,
+            "observed_trigger_ticks": 112,
+            "passed_rule_ids": [],
+            "payload_sha256": "cb47336fac0c6742fbf22d8bc6c1675db0a37a4b3f0f264661a2144cefd5cd37",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 6
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "46a0505a6cf2e496dc132fc449a86e4dd48feb3ccaab3c84ee6122972610e9de",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "bcba519fcd3aed09ef5f51ef855c27997ff0cedb7026cffcb8f5436f688fdc79",
+            "failed_rule_ids": [
+              "REALTIME_EVIDENCE_NOT_LIVE"
+            ],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [],
+            "payload_sha256": "9bfd1ed919126d82ad705a0988f248e5e10f484625177c35663cb980a7abc77e",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "1d66f8492b0981c710b0b7cbb945de8233e7c45c3533db8ba55c3513ea289335",
+            "coverage_end_epoch": 2100,
+            "coverage_start_epoch": 1800,
+            "evidence_id": "e09f2b41876fcc96ae4c6eab24fc8073d402c0df7d11233001b1c993a2c38714",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 2100,
+            "observed_trigger_ticks": 109,
+            "passed_rule_ids": [
+              "ENTRY_DIR_CLOSE"
+            ],
+            "payload_sha256": "5f0cd69bb3286223558a4abb6aa78ac12cdab15e4471ea542b94dc75ead2c8b5",
+            "proof_plane": "CONFIRMED_5M",
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "REPLAYABLE",
+            "source_claim_ids": [
+              "standard-close-2024-03",
+              "closure-or-flip-2025-03",
+              "directional-close-2025-08",
+              "directional-close-required-2026-06",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 0
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "1d66f8492b0981c710b0b7cbb945de8233e7c45c3533db8ba55c3513ea289335",
+            "46a0505a6cf2e496dc132fc449a86e4dd48feb3ccaab3c84ee6122972610e9de",
+            "d9480218591f75eee94815f81b112ba48fe047175f5f6dd4e699ddf112f85d71"
+          ],
+          "canonical_candidate_id": "1d66f8492b0981c710b0b7cbb945de8233e7c45c3533db8ba55c3513ea289335",
+          "canonical_evidence_id": "e09f2b41876fcc96ae4c6eab24fc8073d402c0df7d11233001b1c993a2c38714",
+          "canonical_model": "DIR_CLOSE",
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "FALLBACK_TO_CONFIRMED_CLOSE",
+          "revision": 0,
+          "selection_id": "ef5e30a212c0fb2804c77ae31ff4f268d882fe787ee1cf10242241e8e0a3906f",
+          "setup_id": "setup-close-fallback"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": false,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": {
+          "close_epoch": 2100,
+          "close_ticks": 109,
+          "high_ticks": 112,
+          "low_ticks": 100,
+          "open_epoch": 1800,
+          "open_ticks": 105
+        },
+        "direction": "LONG",
+        "directional_close": true,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "event_anchor_epoch": 1800,
+          "fidelity": "EXACT",
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": false,
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_epoch": 1802,
+          "trigger_sequence": 6,
+          "trigger_ticks": 112
+        },
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-close-fallback",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "realtime_claim_not_realtime",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "227e6204e3d1cff6467f40afbddb61ae742dfc98ec0282fd759af2e58fe8703c",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-not-realtime",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "BLOCKED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "227e6204e3d1cff6467f40afbddb61ae742dfc98ec0282fd759af2e58fe8703c",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "c8e4dd8797fe041cd2c2a187eecd7763d6028bf52baafaa73d2aeef9911f15ba",
+            "failed_rule_ids": [
+              "REALTIME_EVIDENCE_NOT_LIVE"
+            ],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [],
+            "payload_sha256": "cd4ee328fe4ff42b60f907bf59cc51db63f0eed8d347af0cd0cbf1dd2c8b6887",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          }
+        ],
+        "selection": {
+          "action": "SHADOW_ONLY",
+          "candidate_ids_considered": [
+            "227e6204e3d1cff6467f40afbddb61ae742dfc98ec0282fd759af2e58fe8703c"
+          ],
+          "canonical_candidate_id": null,
+          "canonical_evidence_id": null,
+          "canonical_model": null,
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": null,
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "NO_EXACT_CANDIDATE",
+          "revision": 0,
+          "selection_id": "f7dfbe051fdcfb10d400efdeb77f7f02c4162b33bb94502f5feb2cef0fb52fc4",
+          "setup_id": "setup-not-realtime"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": false,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-not-realtime",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "boc_wrong_direction",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "8d7d8a62b679c9fea45a0eebc044c525073976bfc0002e52c92bd02eadaa669f",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-wrong-direction",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "REJECTED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "8d7d8a62b679c9fea45a0eebc044c525073976bfc0002e52c92bd02eadaa669f",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "78d0a928dc8a8621541313ad980c2fd9dd2aaae9d7b3138e8c4dc5b65900df4b",
+            "failed_rule_ids": [
+              "BOC_WRONG_DIRECTION"
+            ],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 99,
+            "passed_rule_ids": [],
+            "payload_sha256": "1b7148332e149e0f29f3ed46d63c60ff337f8cb2c23f434e61e8ff16e271abe2",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          }
+        ],
+        "selection": {
+          "action": "SHADOW_ONLY",
+          "candidate_ids_considered": [
+            "8d7d8a62b679c9fea45a0eebc044c525073976bfc0002e52c92bd02eadaa669f"
+          ],
+          "canonical_candidate_id": null,
+          "canonical_evidence_id": null,
+          "canonical_model": null,
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": null,
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "NO_EXACT_CANDIDATE",
+          "revision": 0,
+          "selection_id": "168b948abac0065e4d3403860e7c440f530b58052538060be9ab3e61e60adeb1",
+          "setup_id": "setup-wrong-direction"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 99
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-wrong-direction",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 800
+      }
+    },
+    {
+      "case_id": "boc_before_engagement",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "b30c24a64cab1a11b826646ce1fad84d1cc572334cbdefff62750fc758684421",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-pre-engagement",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "BLOCKED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "b30c24a64cab1a11b826646ce1fad84d1cc572334cbdefff62750fc758684421",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "82eef65ae25822a49488b4935d3d4f8a0e3c45442d21e43cfe712c99571c2dbb",
+            "failed_rule_ids": [
+              "ENTRY_BEFORE_ZONE_ENGAGEMENT"
+            ],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [],
+            "payload_sha256": "b57a15416bd078d5e5855f79588d417c2d2fc99371af64f6d9fc6d047ef598e4",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          }
+        ],
+        "selection": {
+          "action": "SHADOW_ONLY",
+          "candidate_ids_considered": [
+            "b30c24a64cab1a11b826646ce1fad84d1cc572334cbdefff62750fc758684421"
+          ],
+          "canonical_candidate_id": null,
+          "canonical_evidence_id": null,
+          "canonical_model": null,
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": null,
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "NO_EXACT_CANDIDATE",
+          "revision": 0,
+          "selection_id": "b5d7a69ed4e575624ed72e35806b62eaeaaf26b9055bfff652d31834fcd2437f",
+          "setup_id": "setup-pre-engagement"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-pre-engagement",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 1900
+      }
+    },
+    {
+      "case_id": "opened_selection_is_frozen",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "0b5e6ddb5a2e37e5ed920b763f1eacc919ccce469ecab46337992f86fe075f5d",
+            "direction": "LONG",
+            "event_anchor_epoch": 600,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 600,
+            "setup_id": "setup-opened-frozen",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "MATCHED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "0b5e6ddb5a2e37e5ed920b763f1eacc919ccce469ecab46337992f86fe075f5d",
+            "coverage_end_epoch": 1800,
+            "coverage_start_epoch": 600,
+            "evidence_id": "c74cc084606dffea82496f3fb7f7eb775487fb7d123638070dcdad982ff494c2",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 901,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "45f0234e3aa3e484b1e4b208c79f4db2dd6a66d3ff2c2b433a3b0f7ff76a41e3",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 600,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 1
+          }
+        ],
+        "selection": {
+          "action": "PAPER_ELIGIBLE",
+          "candidate_ids_considered": [
+            "5bef8cb74907f23248db2d39eedc09b339b2a5239b7379e1c50c75338dc2b4dd"
+          ],
+          "canonical_candidate_id": "5bef8cb74907f23248db2d39eedc09b339b2a5239b7379e1c50c75338dc2b4dd",
+          "canonical_evidence_id": "f137b80a49c0e7b7235ddb63768280397842ea04db739fed851d1a5f8163f5c3",
+          "canonical_model": "DIR_CLOSE",
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 1600,
+          "fidelity": "EXACT",
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "ONLY_EXACT_TRIGGER",
+          "revision": 1,
+          "selection_id": "26b19e4240dc5585efa2625c2ebf60f5649d726959950279d9ef9deb8c970222",
+          "setup_id": "setup-opened-frozen"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 1800,
+          "coverage_start_epoch": 600,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 900,
+          "htf_context_minutes": [
+            15
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 900,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 600,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 900,
+          "trigger_epoch": 901,
+          "trigger_sequence": 1,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": {
+          "confirmed_bar": {
+            "close_epoch": 1500,
+            "close_ticks": 109,
+            "high_ticks": 112,
+            "low_ticks": 100,
+            "open_epoch": 1200,
+            "open_ticks": 105
+          },
+          "evaluated_at_epoch": 1600,
+          "revision": 1,
+          "trigger_sequence": 0
+        },
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 2,
+        "setup_id": "setup-opened-frozen",
+        "setup_invalidated": false,
+        "zone_engaged_epoch": 500
+      }
+    },
+    {
+      "case_id": "invalidated_setup_none",
+      "expected": {
+        "candidates": [
+          {
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "a6847a389c3a15850a1d97ce9b1da02743a26a3a25d00d6d036d8352d216516a",
+            "direction": "LONG",
+            "event_anchor_epoch": 900,
+            "model": "BOC",
+            "observed_at_epoch": 2400,
+            "reference_candle_open_epoch": 900,
+            "setup_id": "setup-invalidated",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "state": "BLOCKED",
+            "trigger_ordinal": 1
+          }
+        ],
+        "evidence": [
+          {
+            "ambiguity_codes": [],
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "a6847a389c3a15850a1d97ce9b1da02743a26a3a25d00d6d036d8352d216516a",
+            "coverage_end_epoch": 2400,
+            "coverage_start_epoch": 900,
+            "evidence_id": "23ed6fe17d86db3f5938a5a55c7421820ccbadf856e0bf51756a874967537894",
+            "failed_rule_ids": [
+              "SETUP_INVALIDATED"
+            ],
+            "fidelity": "EXACT",
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [],
+            "payload_sha256": "daa7086fc45c1ec981fc8f75d9cf6122bb9032dafd4fc10558fa38af943755fe",
+            "proof_plane": "REALTIME_TICK",
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          }
+        ],
+        "selection": {
+          "action": "NONE",
+          "candidate_ids_considered": [
+            "a6847a389c3a15850a1d97ce9b1da02743a26a3a25d00d6d036d8352d216516a"
+          ],
+          "canonical_candidate_id": null,
+          "canonical_evidence_id": null,
+          "canonical_model": null,
+          "co_triggered_models": [],
+          "evaluated_at_epoch": 2400,
+          "fidelity": null,
+          "policy_version": "rd-entry-arbitration-v3",
+          "reason": "SETUP_INVALIDATED",
+          "revision": 0,
+          "selection_id": "343f571f62e04827f9290d99453d774bd56fb1f3df9b2d0fd6b5448cac7bd79f",
+          "setup_id": "setup-invalidated"
+        }
+      },
+      "input": {
+        "boc_proof": {
+          "coverage_end_epoch": 2400,
+          "coverage_start_epoch": 900,
+          "fidelity": "EXACT",
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [
+            15,
+            30
+          ],
+          "is_realtime": true,
+          "proof_plane": "REALTIME_TICK",
+          "reference_candle": {
+            "close_epoch": 1200,
+            "close_ticks": 102,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 900,
+            "open_ticks": 105
+          },
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111
+        },
+        "close_trigger_sequence": 0,
+        "common_fidelity": "EXACT",
+        "confirmed_bar": null,
+        "direction": "LONG",
+        "directional_close": false,
+        "evaluated_at_epoch": 2400,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "opened_selection_seed": null,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "setup_id": "setup-invalidated",
+        "setup_invalidated": true,
+        "zone_engaged_epoch": 800
+      }
+    }
+  ],
+  "rule_contract_version": "3.0.0",
+  "schema_id": "phase0.rd-entry-arbitration-vectors.v3"
+}

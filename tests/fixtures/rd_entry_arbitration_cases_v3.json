@@ -1,0 +1,612 @@
+{
+  "schema_id": "phase0.rd-entry-arbitration-fixture.v3",
+  "cases": [
+    {
+      "case_id": "strict_long_boc_only",
+      "input": {
+        "setup_id": "setup-strict-long",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 7,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "strict_short_boc_only",
+      "input": {
+        "setup_id": "setup-strict-short",
+        "direction": "SHORT",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 7,
+          "trigger_ticks": 99,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "discretionary_boc_shadow",
+      "input": {
+        "setup_id": "setup-discretionary",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 2100,
+          "trigger_epoch": 2101,
+          "trigger_sequence": 4,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": null,
+          "htf_context_minutes": [],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "boc_before_close",
+      "input": {
+        "setup_id": "setup-boc-before-close",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 7,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": true,
+        "confirmed_bar": {
+          "open_epoch": 1800,
+          "close_epoch": 2100,
+          "open_ticks": 105,
+          "high_ticks": 112,
+          "low_ticks": 100,
+          "close_ticks": 109
+        },
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "flip_before_boc",
+      "input": {
+        "setup_id": "setup-flip-before-boc",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1802,
+          "trigger_sequence": 6,
+          "trigger_ticks": 112,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": {
+          "event_anchor_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "boc_flip_same_event",
+      "input": {
+        "setup_id": "setup-boc-flip-same",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": {
+          "event_anchor_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "same_event_price_conflict",
+      "input": {
+        "setup_id": "setup-price-conflict",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": {
+          "event_anchor_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 112,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "close_fallback_after_blocked_aggressive_models",
+      "input": {
+        "setup_id": "setup-close-fallback",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": false
+        },
+        "directional_close": true,
+        "confirmed_bar": {
+          "open_epoch": 1800,
+          "close_epoch": 2100,
+          "open_ticks": 105,
+          "high_ticks": 112,
+          "low_ticks": 100,
+          "close_ticks": 109
+        },
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": {
+          "event_anchor_epoch": 1800,
+          "trigger_epoch": 1802,
+          "trigger_sequence": 6,
+          "trigger_ticks": 112,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": false
+        },
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "realtime_claim_not_realtime",
+      "input": {
+        "setup_id": "setup-not-realtime",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": false
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "boc_wrong_direction",
+      "input": {
+        "setup_id": "setup-wrong-direction",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 99,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "boc_before_engagement",
+      "input": {
+        "setup_id": "setup-pre-engagement",
+        "direction": "LONG",
+        "zone_engaged_epoch": 1900,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    },
+    {
+      "case_id": "opened_selection_is_frozen",
+      "input": {
+        "setup_id": "setup-opened-frozen",
+        "direction": "LONG",
+        "zone_engaged_epoch": 500,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": false,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 600,
+            "close_epoch": 900,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 900,
+          "trigger_epoch": 901,
+          "trigger_sequence": 1,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 900,
+          "htf_context_minutes": [15],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 600,
+          "coverage_end_epoch": 1800,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 2,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": {
+          "confirmed_bar": {
+            "open_epoch": 1200,
+            "close_epoch": 1500,
+            "open_ticks": 105,
+            "high_ticks": 112,
+            "low_ticks": 100,
+            "close_ticks": 109
+          },
+          "trigger_sequence": 0,
+          "revision": 1,
+          "evaluated_at_epoch": 1600
+        }
+      }
+    },
+    {
+      "case_id": "invalidated_setup_none",
+      "input": {
+        "setup_id": "setup-invalidated",
+        "direction": "LONG",
+        "zone_engaged_epoch": 800,
+        "common_fidelity": "EXACT",
+        "setup_invalidated": true,
+        "boc_proof": {
+          "reference_candle": {
+            "open_epoch": 900,
+            "close_epoch": 1200,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 102
+          },
+          "trigger_candle_open_epoch": 1800,
+          "trigger_epoch": 1801,
+          "trigger_sequence": 5,
+          "trigger_ticks": 111,
+          "htf_boundary_epoch": 1800,
+          "htf_context_minutes": [15, 30],
+          "proof_plane": "REALTIME_TICK",
+          "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+          "fidelity": "EXACT",
+          "coverage_start_epoch": 900,
+          "coverage_end_epoch": 2400,
+          "is_realtime": true
+        },
+        "directional_close": false,
+        "confirmed_bar": null,
+        "close_trigger_sequence": 0,
+        "htf_flip_proof": null,
+        "observed_at_epoch": 2400,
+        "policy_version": "rd-entry-arbitration-v3",
+        "revision": 0,
+        "evaluated_at_epoch": 2400,
+        "opened_selection_seed": null
+      }
+    }
+  ]
+}

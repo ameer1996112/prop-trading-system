@@ -58,6 +58,9 @@ verify-generated: contract-v3-check
 	$(PYTHON) scripts/build_rd_entry_oracle_vectors.py \
 		--fixtures tests/fixtures/rd_entry_arbitration_cases_v2.json \
 		--output contracts/vectors/rd-entry-arbitration-v2.json --check
+	$(PYTHON) scripts/build_rd_entry_oracle_vectors_v3.py \
+		--fixtures tests/fixtures/rd_entry_arbitration_cases_v3.json \
+		--output contracts/vectors/rd-entry-arbitration-v3.json --check
 	$(PYTHON) scripts/build_rd_entry_method_vectors.py \
 		--fixtures tests/fixtures/rd_entry_method_cases_v1.json \
 		--output contracts/vectors/rd-entry-method-v1.json --check
