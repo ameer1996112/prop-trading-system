@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
+
+from scripts.static_boundary_check import RUNTIME_ROOTS
 
 from prop_trading.config import Settings
 
@@ -44,3 +47,29 @@ def test_source_tree_has_no_ai_dependency_or_decision_path() -> None:
     dependency_text = Path("pyproject.toml").read_text(encoding="utf-8").lower()
     for package in ("openai", "anthropic", "langchain", "llamaindex"):
         assert package not in dependency_text
+
+
+def test_contract_v3_has_no_live_execution_surface() -> None:
+    contract = json.loads(
+        Path("config/phase0/rd-strategy-rule-contract-v3.json").read_text(encoding="utf-8")
+    )
+    assert contract["automation_policy"]["paper_only"] is True
+    assert contract["automation_policy"]["real_execution_allowed"] is False
+
+
+def test_v3_files_do_not_contain_broker_actions() -> None:
+    forbidden = {
+        "place_order",
+        "broker_secret",
+        "metatrader_login",
+        "live_order",
+    }
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in Path("apps/observation-edge/src").glob("*v3.ts")
+    ).lower()
+    assert forbidden.isdisjoint(source.split())
+
+
+def test_global_boundary_checker_covers_v3_edge_runtime() -> None:
+    assert Path("apps/observation-edge/src") in RUNTIME_ROOTS

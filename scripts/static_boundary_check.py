@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 from collections.abc import Sequence
 from pathlib import Path
 
 RUNTIME_ROOTS = (
     Path("src/prop_trading"),
+    Path("apps/observation-edge/src"),
     Path("apps/operations-console/src"),
 )
+V3_CONTRACT_PATH = Path("config/phase0/rd-strategy-rule-contract-v3.json")
 FORBIDDEN_IDENTIFIERS = (
     "place" + "_order",
     "create" + "_market_order",
@@ -31,6 +34,21 @@ FORBIDDEN_CONFIGURATION = (
 
 def check(root: Path) -> None:
     failures: list[str] = []
+    contract_path = root / V3_CONTRACT_PATH
+    if not contract_path.is_file():
+        failures.append(f"{contract_path}: required v3 safety contract is missing")
+    else:
+        try:
+            contract = json.loads(contract_path.read_text(encoding="utf-8"))
+            automation_policy = contract["automation_policy"]
+        except (json.JSONDecodeError, KeyError, TypeError) as error:
+            failures.append(f"{contract_path}: invalid v3 safety contract: {error}")
+        else:
+            if automation_policy.get("paper_only") is not True:
+                failures.append(f"{contract_path}: v3 paper_only must be true")
+            if automation_policy.get("real_execution_allowed") is not False:
+                failures.append(f"{contract_path}: v3 real_execution_allowed must be false")
+
     for relative_root in RUNTIME_ROOTS:
         runtime_root = root / relative_root
         if not runtime_root.exists():

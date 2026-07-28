@@ -65,14 +65,19 @@ system is stopped. Manual OPENs receive `423`; automated envelopes remain observ
 blocked OPEN, and still apply valid SETTLE commands from the same envelope. Every control change
 requires a reason and an idempotency key.
 
-The current contract-gated Pine producer is
-[`scripts/pinescript/SND_RD_5M_V2_LAB.pine`](scripts/pinescript/SND_RD_5M_V2_LAB.pine). Its frozen
-rule source is [`docs/rd-strategy-rule-contract.md`](docs/rd-strategy-rule-contract.md). It emits
-one authenticated schema-1.2 envelope on every confirmed five-minute bar. An incremental envelope
-with empty `transitions` is a delivery heartbeat only: it refreshes ingress liveness without
-creating, modifying, or settling a paper intent. V2 exports every frozen OPEN-requirement decision
-and its lifecycle provenance, but it has no paper-command path. Unresolved distance, zone-bound,
-stop/target, and session decisions remain shadow-only.
+The current three-entry Pine producer is
+[`scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`](scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine).
+Its frozen rule source is
+[`docs/rd-strategy-rule-contract-v3.md`](docs/rd-strategy-rule-contract-v3.md). Contract v3 keeps
+`BOC`, `DIR_CLOSE`, and `HTF_FLIP` distinct, evaluates all observed candidates, and lets the edge
+select at most one paper decision by exact event chronology. Strict HTF-timed BOC can be paper
+eligible; discretionary five-minute BOC is always visible but shadow-only. Atomic BOC/flip
+co-triggers retain both model identities and create at most one paper intent.
+
+The v2 producer and contract remain available for immutable historical records. The v3 producer
+uses authenticated schema-3.0 event bundles and never contains a broker command. Reviewed
+detector/settings identity and PAPER_ONLY account/risk configuration are required before the edge
+can create an internal paper intent; missing or inconsistent authority fails closed to audit.
 
 This is simulation bookkeeping, not broker execution. The older schema-1.1 transport can
 atomically create and settle internal simulator intents through authenticated observations, but
@@ -103,4 +108,5 @@ development and recovery path.
 See [docs/development.md](docs/development.md), [docs/architecture.md](docs/architecture.md),
 [docs/threat-model.md](docs/threat-model.md), and
 [docs/runbooks/phase0-to-phase1a.md](docs/runbooks/phase0-to-phase1a.md) for the development,
-safety, and promotion contracts.
+safety, and promotion contracts. The contract-v3 release procedure is
+[docs/runbooks/rd-three-entry-paper-rollout.md](docs/runbooks/rd-three-entry-paper-rollout.md).

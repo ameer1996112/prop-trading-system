@@ -4,7 +4,7 @@ SHELL := /bin/sh
 PYTHON := uv run python
 CONSOLE := apps/operations-console
 EDGE := apps/observation-edge
-DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_cache|node_modules|\.next|dist|out|\.wrangler)(/|$$)|(^|/)(tsconfig\.tsbuildinfo|\.secrets\.baseline)$$
+DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.superpowers|node_modules|\.next|dist|out|\.wrangler)(/|$$)|(^|/)(tsconfig\.tsbuildinfo|\.secrets\.baseline)$$
 
 .PHONY: help bootstrap format format-check lint typecheck backend-tests frontend-checks \
 	edge-checks \
@@ -81,7 +81,7 @@ secret-scan:
 	@set -eu; scan_file=$$(mktemp); trap 'rm -f "$$scan_file"' EXIT HUP INT TERM; \
 		uv run detect-secrets scan --all-files --exclude-files '$(DETECT_SECRETS_EXCLUDE)' . > "$$scan_file"; \
 		$(PYTHON) scripts/assert_secret_baseline.py --baseline .secrets.baseline < "$$scan_file"
-	$(PYTHON) scripts/check_lockfile_credentials.py uv.lock $(CONSOLE)/package-lock.json
+	$(PYTHON) scripts/check_lockfile_credentials.py uv.lock $(CONSOLE)/package-lock.json $(EDGE)/package-lock.json
 
 boundary-check:
 	$(PYTHON) scripts/static_boundary_check.py --root .

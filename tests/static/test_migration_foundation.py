@@ -35,9 +35,9 @@ def test_metadata_contains_only_append_only_evidence_and_observation_receipts() 
 
 
 def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None:
-    migration = Path(
-        "apps/observation-edge/migrations/0024_observation_entries_v3.sql"
-    ).read_text(encoding="utf-8")
+    migration = Path("apps/observation-edge/migrations/0024_observation_entries_v3.sql").read_text(
+        encoding="utf-8"
+    )
     for table in (
         "observation_entry_v3_events",
         "observation_entry_v3_candidates",

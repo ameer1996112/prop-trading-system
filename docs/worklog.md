@@ -1,5 +1,22 @@
 # Worklog
 
+## 2026-07-29 — RD BOC three-entry paper contract
+
+- Restored BOC as a first-class version 3 entry model alongside directional close and HTF flip;
+  BOC is never normalized into flip.
+- Added exact Python/TypeScript parity vectors and a versioned Pine producer that observes all
+  three candidates independently.
+- Added chronology-first arbitration, same-event BOC/flip co-trigger handling, immutable decision
+  freeze, and at-most-one initial paper intent per setup.
+- Added append-only D1 event, candidate, evidence, selection, parity, paper-link, shadow, exit, and
+  conflict facts through migrations 0024 and 0025.
+- Added a bounded decision API and operations-console ledger that always explains all three model
+  rows, selected/competing candidates, blockers, parity, and linked paper state.
+- Extended the global broker/live boundary scan to contract-v3 edge sources and added a
+  reproducible paper-only rollout and rollback runbook.
+- TradingView compile, add-to-chart, and live-tick smoke remain manual deployment checks. No remote
+  D1, Cloudflare, Railway, production, or TradingView state was changed by this implementation.
+
 ## 2026-07-23 — Paper readiness monitor and global stop control
 
 - Added derived `READY`, `DEGRADED`, and `STOPPED` state from schema-1.1 receipt freshness, stale
