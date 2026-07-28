@@ -62,7 +62,7 @@ function bocCandidate(setupId: string, state: "MATCHED" | "BLOCKED") {
     boc_tier: "HTF_TIMED",
     reference_candle_open_epoch: 900,
     source_claim_ids: bocClaims,
-    observed_at_epoch: 2400,
+    observed_at_epoch: 2702,
   };
 }
 
@@ -71,15 +71,15 @@ function exactBocEvidence(setupId: string) {
   return {
     evidence_id: "EDGE_DERIVED:BOC",
     candidate_id: "EDGE_DERIVED:BOC",
-    observed_trigger_epoch: 1802,
+    observed_trigger_epoch: 2702,
     trigger_sequence: 5,
     observed_trigger_ticks: 111,
-    htf_context_minutes: [15, 30],
+    htf_context_minutes: [15],
     fidelity: "EXACT",
     proof_plane: "REALTIME_TICK",
     replayability: "LIVE_EXACT_NON_REPLAYABLE",
-    coverage_start_epoch: 900,
-    coverage_end_epoch: 2400,
+    coverage_start_epoch: 2700,
+    coverage_end_epoch: 2702,
     ambiguity_codes: [],
     boc_tier: "HTF_TIMED",
     reference_candle_open_epoch: 900,
@@ -97,7 +97,7 @@ function exactBocEvidence(setupId: string) {
     failed_rule_ids: [],
     source_claim_ids: bocClaims,
     payload_sha256: "EDGE_DERIVED",
-    observed_at_epoch: 2400,
+    observed_at_epoch: 2702,
   };
 }
 
@@ -113,7 +113,7 @@ function flipCandidate(setupId: string) {
     boc_tier: null,
     reference_candle_open_epoch: null,
     source_claim_ids: flipClaims,
-    observed_at_epoch: 2400,
+    observed_at_epoch: 2702,
   };
 }
 
@@ -121,15 +121,15 @@ function exactFlipEvidence() {
   return {
     evidence_id: "EDGE_DERIVED:HTF_FLIP",
     candidate_id: "EDGE_DERIVED:HTF_FLIP",
-    observed_trigger_epoch: 1802,
+    observed_trigger_epoch: 2702,
     trigger_sequence: 5,
     observed_trigger_ticks: 111,
-    htf_context_minutes: [15, 30],
+    htf_context_minutes: [30],
     fidelity: "EXACT",
     proof_plane: "REALTIME_TICK",
     replayability: "LIVE_EXACT_NON_REPLAYABLE",
-    coverage_start_epoch: 900,
-    coverage_end_epoch: 2400,
+    coverage_start_epoch: 1800,
+    coverage_end_epoch: 2702,
     ambiguity_codes: [],
     boc_tier: null,
     reference_candle_open_epoch: null,
@@ -139,16 +139,16 @@ function exactFlipEvidence() {
     reference_candle_close_ticks: null,
     htf_open_ticks: 111,
     contact_candle: {
-      open_epoch: 1800,
-      close_epoch: 1801,
+      open_epoch: 2100,
+      close_epoch: 2400,
       open_ticks: 105,
       high_ticks: 110,
       low_ticks: 100,
       close_ticks: 105,
     },
     recross_candle: {
-      open_epoch: 1801,
-      close_epoch: 1802,
+      open_epoch: 2701,
+      close_epoch: 2702,
       open_ticks: 110,
       high_ticks: 112,
       low_ticks: 109,
@@ -161,7 +161,7 @@ function exactFlipEvidence() {
     failed_rule_ids: [],
     source_claim_ids: flipClaims,
     payload_sha256: "EDGE_DERIVED",
-    observed_at_epoch: 2400,
+    observed_at_epoch: 2702,
   };
 }
 
@@ -178,8 +178,11 @@ function payloadEnvelope(
     isRealtime?: boolean;
     marketEvent?: Record<string, unknown>;
     exitEvents?: Array<Record<string, unknown>>;
+    observedAtEpoch?: number;
+    entryTicks?: number;
   } = {},
 ) {
+  const entryTicks = options.entryTicks ?? 111;
   return {
     schema_version: "3.0",
     strategy_id: "rd_liquidity_sd_5m_v1",
@@ -198,11 +201,11 @@ function payloadEnvelope(
     detector_code_hash:
       options.detectorHash ?? reviewedHashes.detector_code_hash,
     settings_hash: options.settingsHash ?? reviewedHashes.settings_hash,
-    observed_at_epoch: 2400,
+    observed_at_epoch: options.observedAtEpoch ?? 2702,
     market_event: options.marketEvent ?? {
-      epoch: 1802,
+      epoch: 2702,
       sequence: 5,
-      tick_price_ticks: 111,
+      tick_price_ticks: entryTicks,
       barstate_isconfirmed: false,
       confirmed_bar: null,
     },
@@ -224,9 +227,9 @@ function payloadEnvelope(
         selection_proposal: selection,
         trade_plan: {
           direction: "LONG",
-          entry_ticks: 111,
-          stop_ticks: 101,
-          target_ticks: 131,
+          entry_ticks: entryTicks,
+          stop_ticks: entryTicks - 10,
+          target_ticks: entryTicks + 20,
         },
       },
     ],
@@ -249,14 +252,14 @@ describe("RD Pine v3 independent raw payload parity", () => {
           "EDGE_DERIVED:BOC",
           "EDGE_DERIVED:HTF_FLIP",
         ],
-        canonical_candidate_id: "EDGE_DERIVED:HTF_FLIP",
-        canonical_evidence_id: "EDGE_DERIVED:HTF_FLIP",
-        canonical_model: "HTF_FLIP",
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+        canonical_model: null,
         reason: "CO_TRIGGER_SAME_EVENT",
-        fidelity: "EXACT",
-        action: "PAPER_ELIGIBLE",
+        fidelity: null,
+        action: "OBSERVE",
         co_triggered_models: ["BOC", "HTF_FLIP"],
-        evaluated_at_epoch: 2400,
+        evaluated_at_epoch: 2702,
       },
     );
 
@@ -276,7 +279,19 @@ describe("RD Pine v3 independent raw payload parity", () => {
             candidate.model === "HTF_FLIP",
         ),
       )!.htf_context_minutes,
-    ).toEqual([15, 30]);
+    ).toEqual([30]);
+    const rawSelection = (
+      (payload.setups as Array<Record<string, unknown>>)[0]!
+        .selection_proposal as Record<string, unknown>
+    );
+    expect(rawSelection).toMatchObject({
+      canonical_candidate_id: null,
+      canonical_evidence_id: null,
+      canonical_model: null,
+      reason: "CO_TRIGGER_SAME_EVENT",
+      fidelity: null,
+      action: "OBSERVE",
+    });
     expect(JSON.stringify(parsed.canonicalPayload)).not.toContain(
       "EDGE_DERIVED",
     );
@@ -301,7 +316,7 @@ describe("RD Pine v3 independent raw payload parity", () => {
         fidelity: "EXACT",
         action: "PAPER_ELIGIBLE",
         co_triggered_models: [],
-        evaluated_at_epoch: 2400,
+        evaluated_at_epoch: 2702,
       },
     );
 
@@ -350,7 +365,7 @@ describe("RD Pine v3 independent raw payload parity", () => {
         fidelity: null,
         action: "SHADOW_ONLY",
         co_triggered_models: [],
-        evaluated_at_epoch: 2400,
+        evaluated_at_epoch: 2702,
       },
       {
         detectorHash: "UNREVIEWED",
@@ -410,18 +425,19 @@ describe("RD Pine v3 independent raw payload parity", () => {
         fidelity: null,
         action: "SHADOW_ONLY",
         co_triggered_models: [],
-        evaluated_at_epoch: 2400,
+        evaluated_at_epoch: 3000,
       },
       {
         isRealtime: false,
+        observedAtEpoch: 3000,
         marketEvent: {
-          epoch: 2400,
+          epoch: 3000,
           sequence: 6,
           tick_price_ticks: 115,
           barstate_isconfirmed: true,
           confirmed_bar: {
-            open_epoch: 2100,
-            close_epoch: 2400,
+            open_epoch: 2700,
+            close_epoch: 3000,
             open_ticks: 112,
             high_ticks: 140,
             low_ticks: 90,
@@ -433,7 +449,7 @@ describe("RD Pine v3 independent raw payload parity", () => {
             event_id: `${setupId}:exit:AMBIGUOUS_SAME_BAR_EXIT:6`,
             setup_id: setupId,
             exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
-            epoch: 2400,
+            epoch: 3000,
             sequence: 6,
             price_ticks: 115,
           },
@@ -448,5 +464,352 @@ describe("RD Pine v3 independent raw payload parity", () => {
       "AMBIGUOUS_SAME_BAR_EXIT",
     );
     expect(parsed.entryBundles[0]!.selectionProposal.action).toBe("SHADOW_ONLY");
+  });
+
+  it("accepts a same-second BOC as nullable blocked evidence after the next actual second", async () => {
+    const setupId = "setup-pine-same-second-boc";
+    const payload = payloadEnvelope(
+      setupId,
+      [
+        {
+          candidate_id: "EDGE_DERIVED:BOC",
+          setup_id: setupId,
+          model: "BOC",
+          state: "BLOCKED",
+          direction: "LONG",
+          event_anchor_epoch: 900,
+          trigger_ordinal: 1,
+          boc_tier: "HTF_TIMED",
+          reference_candle_open_epoch: 900,
+          source_claim_ids: bocClaims,
+          observed_at_epoch: 2701,
+        },
+      ],
+      [
+        {
+          evidence_id: "EDGE_DERIVED:BOC",
+          candidate_id: "EDGE_DERIVED:BOC",
+          observed_trigger_epoch: null,
+          trigger_sequence: 5,
+          observed_trigger_ticks: null,
+          htf_context_minutes: [15],
+          fidelity: "UNRESOLVED",
+          proof_plane: "REALTIME_TICK",
+          replayability: "LIVE_EXACT_NON_REPLAYABLE",
+          coverage_start_epoch: 2700,
+          coverage_end_epoch: 2701,
+          ambiguity_codes: ["SHADOW_MISSING_INTRABAR_COVERAGE"],
+          boc_tier: "HTF_TIMED",
+          reference_candle_open_epoch: 900,
+          reference_candle_open_ticks: 105,
+          reference_candle_high_ticks: 110,
+          reference_candle_low_ticks: 100,
+          reference_candle_close_ticks: 102,
+          htf_open_ticks: null,
+          contact_candle: null,
+          recross_candle: null,
+          coverage_gap_detected: null,
+          full_lifecycle_ordered: null,
+          destination_seen_before_contact: null,
+          passed_rule_ids: [],
+          failed_rule_ids: ["REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE"],
+          source_claim_ids: bocClaims,
+          payload_sha256: "EDGE_DERIVED",
+          observed_at_epoch: 2701,
+        },
+      ],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+        canonical_model: null,
+        reason: "NO_EXACT_CANDIDATE",
+        fidelity: null,
+        action: "SHADOW_ONLY",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2701,
+      },
+      {
+        observedAtEpoch: 2701,
+        marketEvent: {
+          epoch: 2700,
+          sequence: 5,
+          tick_price_ticks: 111,
+          barstate_isconfirmed: false,
+          confirmed_bar: null,
+        },
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+    const bundle = parsed.entryBundles[0]!;
+
+    expect(bundle.candidates[0]!.state).toBe("BLOCKED");
+    expect(bundle.evidence[0]).toMatchObject({
+      observed_trigger_epoch: null,
+      observed_trigger_ticks: null,
+      coverage_start_epoch: 2700,
+      coverage_end_epoch: 2701,
+      fidelity: "UNRESOLVED",
+      failed_rule_ids: ["REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE"],
+    });
+  });
+
+  it("accepts a same-second flip with the entire lifecycle tuple null", async () => {
+    const setupId = "setup-pine-same-second-flip";
+    const payload = payloadEnvelope(
+      setupId,
+      [
+        {
+          candidate_id: "EDGE_DERIVED:HTF_FLIP",
+          setup_id: setupId,
+          model: "HTF_FLIP",
+          state: "BLOCKED",
+          direction: "LONG",
+          event_anchor_epoch: 1800,
+          trigger_ordinal: 1,
+          boc_tier: null,
+          reference_candle_open_epoch: null,
+          source_claim_ids: flipClaims,
+          observed_at_epoch: 2701,
+        },
+      ],
+      [
+        {
+          evidence_id: "EDGE_DERIVED:HTF_FLIP",
+          candidate_id: "EDGE_DERIVED:HTF_FLIP",
+          observed_trigger_epoch: null,
+          trigger_sequence: 5,
+          observed_trigger_ticks: null,
+          htf_context_minutes: [30],
+          fidelity: "UNRESOLVED",
+          proof_plane: "REALTIME_TICK",
+          replayability: "LIVE_EXACT_NON_REPLAYABLE",
+          coverage_start_epoch: 1800,
+          coverage_end_epoch: 2701,
+          ambiguity_codes: ["SHADOW_MISSING_INTRABAR_COVERAGE"],
+          boc_tier: null,
+          reference_candle_open_epoch: null,
+          reference_candle_open_ticks: null,
+          reference_candle_high_ticks: null,
+          reference_candle_low_ticks: null,
+          reference_candle_close_ticks: null,
+          htf_open_ticks: null,
+          contact_candle: null,
+          recross_candle: null,
+          coverage_gap_detected: null,
+          full_lifecycle_ordered: null,
+          destination_seen_before_contact: null,
+          passed_rule_ids: [],
+          failed_rule_ids: ["HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE"],
+          source_claim_ids: flipClaims,
+          payload_sha256: "EDGE_DERIVED",
+          observed_at_epoch: 2701,
+        },
+      ],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:HTF_FLIP"],
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+        canonical_model: null,
+        reason: "NO_EXACT_CANDIDATE",
+        fidelity: null,
+        action: "SHADOW_ONLY",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2701,
+      },
+      {
+        observedAtEpoch: 2701,
+        marketEvent: {
+          epoch: 2700,
+          sequence: 5,
+          tick_price_ticks: 111,
+          barstate_isconfirmed: false,
+          confirmed_bar: null,
+        },
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+    const evidence = parsed.entryBundles[0]!.evidence[0]!;
+
+    expect(evidence).toMatchObject({
+      observed_trigger_epoch: null,
+      observed_trigger_ticks: null,
+      htf_open_ticks: null,
+      contact_candle: null,
+      recross_candle: null,
+      coverage_gap_detected: null,
+      full_lifecycle_ordered: null,
+      destination_seen_before_contact: null,
+    });
+  });
+
+  it("uses the confirmed event epoch for every historical observation clock", async () => {
+    const setupId = "setup-pine-historical-boc";
+    const payload = payloadEnvelope(
+      setupId,
+      [
+        {
+          candidate_id: "EDGE_DERIVED:BOC",
+          setup_id: setupId,
+          model: "BOC",
+          state: "BLOCKED",
+          direction: "LONG",
+          event_anchor_epoch: 900,
+          trigger_ordinal: 1,
+          boc_tier: "HTF_TIMED",
+          reference_candle_open_epoch: 900,
+          source_claim_ids: bocClaims,
+          observed_at_epoch: 3000,
+        },
+      ],
+      [
+        {
+          evidence_id: "EDGE_DERIVED:BOC",
+          candidate_id: "EDGE_DERIVED:BOC",
+          observed_trigger_epoch: 3000,
+          trigger_sequence: 0,
+          observed_trigger_ticks: 111,
+          htf_context_minutes: [15],
+          fidelity: "UNRESOLVED",
+          proof_plane: "CONFIRMED_5M",
+          replayability: "REPLAYABLE",
+          coverage_start_epoch: 900,
+          coverage_end_epoch: 3000,
+          ambiguity_codes: ["SHADOW_SAME_CHILD_BAR_ORDER"],
+          boc_tier: "HTF_TIMED",
+          reference_candle_open_epoch: 900,
+          reference_candle_open_ticks: 105,
+          reference_candle_high_ticks: 110,
+          reference_candle_low_ticks: 100,
+          reference_candle_close_ticks: 102,
+          htf_open_ticks: null,
+          contact_candle: null,
+          recross_candle: null,
+          coverage_gap_detected: null,
+          full_lifecycle_ordered: null,
+          destination_seen_before_contact: null,
+          passed_rule_ids: [],
+          failed_rule_ids: ["HISTORICAL_ORDER_UNPROVEN"],
+          source_claim_ids: bocClaims,
+          payload_sha256: "EDGE_DERIVED",
+          observed_at_epoch: 3000,
+        },
+      ],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 0,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+        canonical_model: null,
+        reason: "NO_EXACT_CANDIDATE",
+        fidelity: null,
+        action: "SHADOW_ONLY",
+        co_triggered_models: [],
+        evaluated_at_epoch: 3000,
+      },
+      {
+        isRealtime: false,
+        observedAtEpoch: 3000,
+        marketEvent: {
+          epoch: 3000,
+          sequence: 0,
+          tick_price_ticks: 111,
+          barstate_isconfirmed: true,
+          confirmed_bar: {
+            open_epoch: 2700,
+            close_epoch: 3000,
+            open_ticks: 105,
+            high_ticks: 112,
+            low_ticks: 100,
+            close_ticks: 111,
+          },
+        },
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+    const bundle = parsed.entryBundles[0]!;
+
+    expect(
+      (parsed.canonicalPayload as Record<string, unknown>).observed_at_epoch,
+    ).toBe(3000);
+    expect(bundle.candidates[0]!.observed_at_epoch).toBe(3000);
+    expect(bundle.evidence[0]!.observed_at_epoch).toBe(3000);
+    expect(bundle.selectionProposal.evaluated_at_epoch).toBe(3000);
+  });
+
+  it("validates an actual later exact-paper ambiguity as EXIT_FOLLOWUP", async () => {
+    const setupId = "setup-pine-exact-paper-ambiguity";
+    const payload = payloadEnvelope(
+      setupId,
+      [bocCandidate(setupId, "MATCHED")],
+      [exactBocEvidence(setupId)],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 6,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: "EDGE_DERIVED:BOC",
+        canonical_evidence_id: "EDGE_DERIVED:BOC",
+        canonical_model: "BOC",
+        reason: "ONLY_EXACT_TRIGGER",
+        fidelity: "EXACT",
+        action: "PAPER_ELIGIBLE",
+        co_triggered_models: [],
+        evaluated_at_epoch: 3000,
+      },
+      {
+        isRealtime: false,
+        observedAtEpoch: 3000,
+        marketEvent: {
+          epoch: 3000,
+          sequence: 0,
+          tick_price_ticks: 111,
+          barstate_isconfirmed: true,
+          confirmed_bar: {
+            open_epoch: 2700,
+            close_epoch: 3000,
+            open_ticks: 111,
+            high_ticks: 140,
+            low_ticks: 90,
+            close_ticks: 111,
+          },
+        },
+        exitEvents: [
+          {
+            event_id: `${setupId}:exit:AMBIGUOUS_SAME_BAR_EXIT:0`,
+            setup_id: setupId,
+            exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
+            epoch: 3000,
+            sequence: 0,
+            price_ticks: 111,
+          },
+        ],
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+
+    expect(parsed.eventRole).toBe("EXIT_FOLLOWUP");
+    expect(parsed.entryBundles[0]!.selectionProposal.action).toBe(
+      "PAPER_ELIGIBLE",
+    );
+    expect(parsed.exitEvents[0]!.exit_reason).toBe(
+      "AMBIGUOUS_SAME_BAR_EXIT",
+    );
   });
 });

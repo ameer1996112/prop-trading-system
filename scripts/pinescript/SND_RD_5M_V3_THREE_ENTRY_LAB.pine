@@ -22,6 +22,7 @@ const string ENTRY_REPLAYABLE = "REPLAYABLE"
 const string BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED = "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED"
 const string AMBIGUOUS_SAME_BAR_EXIT = "AMBIGUOUS_SAME_BAR_EXIT"
 const int ENTRY_MAX_PAYLOAD_CHARS = 35000
+const int ENTRY_MAX_ATTEMPTS = 120
 
 const string DIRECTION_DEMAND = "DEMAND"
 const string DIRECTION_SUPPLY = "SUPPLY"
@@ -78,7 +79,7 @@ const string SHADOW_AMBIGUOUS_SAME_BAR_ORDER = "SHADOW_AMBIGUOUS_SAME_BAR_ORDER"
 const string SHADOW_AMBIGUOUS_SAME_BAR_ROUTE = "SHADOW_AMBIGUOUS_SAME_BAR_ROUTE"
 const string SHADOW_LIQUIDITY_PRIMARY_REPLACED = "SHADOW_LIQUIDITY_PRIMARY_REPLACED"
 
-maxZones = input.int(120, "Maximum zones", minval = 10, maxval = 200, group = "Display")
+maxZones = input.int(120, "Maximum zones", minval = 10, maxval = ENTRY_MAX_ATTEMPTS, group = "Display")
 projectionBars = input.int(120, "Fresh-zone projection bars", minval = 1, maxval = 500, group = "Display")
 displayMode = input.string(DISPLAY_CLEAN, "View", options = [DISPLAY_CLEAN, DISPLAY_QUALIFIED_ONLY, DISPLAY_SETUPS_ONLY, DISPLAY_RAW_AUDIT], group = "Display")
 premiumVisuals = input.bool(true, "Premium visuals", group = "Display")
@@ -277,6 +278,7 @@ type EntryAttempt
     bool targetEventEmitted
     bool ambiguousExitEmitted
     bool exitTerminal
+    bool retentionBlocked
     int bocEventEpoch
     int bocEventSequence
     int bocEventTicks
@@ -289,8 +291,13 @@ type EntryAttempt
     bool bocPreviousNonBrokenSide
     int bocLastTickSequence
     int bocCoverageStartEpoch
+    int bocCoverageEndEpoch
     bool bocCoverageGapDetected
     string bocAmbiguityCode
+    bool bocTriggerCausal
+    bool bocAuditPending
+    int bocObservedAtEpoch
+    string bocFailureCode
     int closeEventEpoch
     int closeEventSequence
     int closeEventTicks
@@ -299,6 +306,7 @@ type EntryAttempt
     int closeHighTicks
     int closeLowTicks
     int closeCloseTicks
+    int closeObservedAtEpoch
     int flipEventEpoch
     int flipEventSequence
     int flipEventTicks
@@ -310,9 +318,15 @@ type EntryAttempt
     string flipProofPlane
     string flipReplayability
     int flipCoverageStartEpoch
+    int flipCoverageEndEpoch
     bool flipCoverageGapDetected
+    bool flipFullLifecycleOrdered
     string flipAmbiguityCode
     string flipFailureCode
+    bool flipTriggerCausal
+    bool flipLifecycleCausal
+    bool flipAuditPending
+    int flipObservedAtEpoch
     int flipContactOpenEpoch
     int flipContactCloseEpoch
     int flipContactOpenTicks
@@ -1689,6 +1703,7 @@ newEntryAttempt(RawZone zone) =>
     attempt.targetEventEmitted := false
     attempt.ambiguousExitEmitted := false
     attempt.exitTerminal := false
+    attempt.retentionBlocked := false
     attempt.bocEventEpoch := na
     attempt.bocEventSequence := na
     attempt.bocEventTicks := na
@@ -1701,8 +1716,13 @@ newEntryAttempt(RawZone zone) =>
     attempt.bocPreviousNonBrokenSide := false
     attempt.bocLastTickSequence := na
     attempt.bocCoverageStartEpoch := na
+    attempt.bocCoverageEndEpoch := na
     attempt.bocCoverageGapDetected := false
     attempt.bocAmbiguityCode := "SHADOW_SAME_CHILD_BAR_ORDER"
+    attempt.bocTriggerCausal := false
+    attempt.bocAuditPending := false
+    attempt.bocObservedAtEpoch := na
+    attempt.bocFailureCode := "HISTORICAL_ORDER_UNPROVEN"
     attempt.closeEventEpoch := na
     attempt.closeEventSequence := na
     attempt.closeEventTicks := na
@@ -1711,6 +1731,7 @@ newEntryAttempt(RawZone zone) =>
     attempt.closeHighTicks := na
     attempt.closeLowTicks := na
     attempt.closeCloseTicks := na
+    attempt.closeObservedAtEpoch := na
     attempt.flipEventEpoch := na
     attempt.flipEventSequence := na
     attempt.flipEventTicks := na
@@ -1722,9 +1743,15 @@ newEntryAttempt(RawZone zone) =>
     attempt.flipProofPlane := ENTRY_CONFIRMED_PLANE
     attempt.flipReplayability := ENTRY_REPLAYABLE
     attempt.flipCoverageStartEpoch := na
+    attempt.flipCoverageEndEpoch := na
     attempt.flipCoverageGapDetected := false
+    attempt.flipFullLifecycleOrdered := false
     attempt.flipAmbiguityCode := "SHADOW_SAME_CHILD_BAR_ORDER"
     attempt.flipFailureCode := "HISTORICAL_ORDER_UNPROVEN"
+    attempt.flipTriggerCausal := false
+    attempt.flipLifecycleCausal := false
+    attempt.flipAuditPending := false
+    attempt.flipObservedAtEpoch := na
     attempt.flipContactOpenEpoch := na
     attempt.flipContactCloseEpoch := na
     attempt.flipContactOpenTicks := na
@@ -1802,9 +1829,12 @@ newEntryAttempt(RawZone zone) =>
 ensureEntryAttempt(RawZone zone) =>
     int attemptIndex = entryAttemptIndex(zone.id)
     if na(attemptIndex) and zone.state == STATE_TAPPED and zone.setupState == SETUP_ARMED
-        EntryAttempt attempt = newEntryAttempt(zone)
-        array.push(entryAttempts, attempt)
-        attemptIndex := array.size(entryAttempts) - 1
+        if array.size(entryAttempts) < ENTRY_MAX_ATTEMPTS
+            EntryAttempt attempt = newEntryAttempt(zone)
+            array.push(entryAttempts, attempt)
+            attemptIndex := array.size(entryAttempts) - 1
+        else
+            log.error("ENTRY_ATTEMPT_HARD_CAP_REACHED")
     attemptIndex
 
 commonRuleResultsPayload(EntryAttempt attempt) =>
@@ -1847,6 +1877,7 @@ entryFailedRules(EntryAttempt attempt, string model, string bocTier, bool exact,
     exact ? "[]" :
      not commonExact ? "[\"COMMON_SETUP_NOT_EXACT\"]" :
      model == ENTRY_MODEL_BOC and bocTier == BOC_TIER_DISCRETIONARY and attempt.bocFidelity == "DISCRETIONARY" ? "[\"" + BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED + "\"]" :
+     model == ENTRY_MODEL_BOC ? "[\"" + attempt.bocFailureCode + "\"]" :
      model == ENTRY_MODEL_FLIP ? "[\"" + attempt.flipFailureCode + "\"]" :
      "[\"HISTORICAL_ORDER_UNPROVEN\"]"
 
@@ -1859,17 +1890,29 @@ entryHtfContexts(int mask) =>
 orderedCandlePayload(int openEpoch, int closeEpoch, int openTicks, int highTicks, int lowTicks, int closeTicks) =>
     "{\"open_epoch\":" + str.tostring(openEpoch) + ",\"close_epoch\":" + str.tostring(closeEpoch) + ",\"open_ticks\":" + str.tostring(openTicks) + ",\"high_ticks\":" + str.tostring(highTicks) + ",\"low_ticks\":" + str.tostring(lowTicks) + ",\"close_ticks\":" + str.tostring(closeTicks) + "}"
 
+nullableEntryInt(bool present, int value) =>
+    present and not na(value) ? str.tostring(value) : "null"
+
+nullableEntryBool(bool present, bool value) =>
+    present ? str.tostring(value) : "null"
+
+nullableOrderedCandlePayload(bool present, int openEpoch, int closeEpoch, int openTicks, int highTicks, int lowTicks, int closeTicks) =>
+    present ? orderedCandlePayload(openEpoch, closeEpoch, openTicks, highTicks, lowTicks, closeTicks) : "null"
+
+entryClockEpoch() =>
+    barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)
+
 entryObservedEpoch(EntryAttempt attempt, string model) =>
-    model == ENTRY_MODEL_BOC ? attempt.bocEventEpoch : model == ENTRY_MODEL_CLOSE ? attempt.closeEventEpoch : attempt.flipEventEpoch
+    model == ENTRY_MODEL_BOC ? attempt.bocObservedAtEpoch : model == ENTRY_MODEL_CLOSE ? attempt.closeObservedAtEpoch : attempt.flipObservedAtEpoch
 
 entryEvaluationEpoch(EntryAttempt attempt) =>
-    int result = epochSeconds(timenow)
-    if attempt.bocEmitted
-        result := math.max(result, attempt.bocEventEpoch)
-    if attempt.closeEmitted
-        result := math.max(result, attempt.closeEventEpoch)
-    if attempt.flipEmitted
-        result := math.max(result, attempt.flipEventEpoch)
+    int result = entryClockEpoch()
+    if attempt.bocEmitted and not na(attempt.bocObservedAtEpoch)
+        result := math.max(result, attempt.bocObservedAtEpoch)
+    if attempt.closeEmitted and not na(attempt.closeObservedAtEpoch)
+        result := math.max(result, attempt.closeObservedAtEpoch)
+    if attempt.flipEmitted and not na(attempt.flipObservedAtEpoch)
+        result := math.max(result, attempt.flipObservedAtEpoch)
     result
 
 entryCandidatePayload(EntryAttempt attempt, RawZone zone, string model) =>
@@ -1878,7 +1921,7 @@ entryCandidatePayload(EntryAttempt attempt, RawZone zone, string model) =>
     string tier = isBoc ? jsonString(attempt.bocTier) : "null"
     string referenceEpoch = isBoc ? str.tostring(attempt.referenceOpenEpoch) : "null"
     bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool exact = model == ENTRY_MODEL_BOC ? attempt.bocFidelity == "EXACT" and commonExact : model == ENTRY_MODEL_CLOSE ? commonExact : attempt.flipFidelity == "EXACT" and commonExact
+    bool exact = model == ENTRY_MODEL_BOC ? attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact : model == ENTRY_MODEL_CLOSE ? commonExact : attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
     string state = commonExact and (exact or (isBoc and attempt.bocTier == BOC_TIER_DISCRETIONARY and attempt.bocFidelity == "DISCRETIONARY")) ? "MATCHED" : "BLOCKED"
     "{" +
      "\"candidate_id\":" + jsonString(entryCandidateId(model)) + "," +
@@ -1897,7 +1940,9 @@ entryEvidencePayload(EntryAttempt attempt, RawZone zone, string model) =>
     bool isBoc = model == ENTRY_MODEL_BOC
     bool isClose = model == ENTRY_MODEL_CLOSE
     bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool exact = isBoc ? attempt.bocFidelity == "EXACT" and commonExact : isClose ? commonExact : attempt.flipFidelity == "EXACT" and commonExact
+    bool triggerCausal = isBoc ? attempt.bocTriggerCausal : isClose ? true : attempt.flipTriggerCausal
+    bool lifecycleCausal = model == ENTRY_MODEL_FLIP and attempt.flipLifecycleCausal
+    bool exact = isBoc ? attempt.bocFidelity == "EXACT" and triggerCausal and commonExact : isClose ? commonExact : attempt.flipFidelity == "EXACT" and triggerCausal and lifecycleCausal and commonExact
     int triggerEpoch = isBoc ? attempt.bocEventEpoch : isClose ? attempt.closeEventEpoch : attempt.flipEventEpoch
     int triggerSequence = isBoc ? attempt.bocEventSequence : isClose ? attempt.closeEventSequence : attempt.flipEventSequence
     int triggerTicks = isBoc ? attempt.bocEventTicks : isClose ? attempt.closeEventTicks : attempt.flipEventTicks
@@ -1905,32 +1950,34 @@ entryEvidencePayload(EntryAttempt attempt, RawZone zone, string model) =>
     string proofPlane = isClose ? ENTRY_CONFIRMED_PLANE : isBoc ? attempt.bocProofPlane : attempt.flipProofPlane
     string replayability = isClose ? ENTRY_REPLAYABLE : isBoc ? attempt.bocReplayability : attempt.flipReplayability
     int coverageStart = isBoc ? attempt.bocCoverageStartEpoch : isClose ? attempt.closeOpenEpoch : attempt.flipCoverageStartEpoch
-    int coverageEnd = isClose ? attempt.closeEventEpoch : triggerEpoch
+    int coverageEnd = isBoc ? attempt.bocCoverageEndEpoch : isClose ? attempt.closeEventEpoch : attempt.flipCoverageEndEpoch
     string contexts = isBoc ? entryHtfContexts(attempt.bocContextMask) : isClose ? "[]" : entryHtfContexts(attempt.flipContextMask)
     string referenceOpenEpoch = isBoc ? str.tostring(attempt.referenceOpenEpoch) : "null"
     string referenceOpenTicks = isBoc ? str.tostring(attempt.referenceOpenTicks) : "null"
     string referenceHighTicks = isBoc ? str.tostring(attempt.referenceHighTicks) : "null"
     string referenceLowTicks = isBoc ? str.tostring(attempt.referenceLowTicks) : "null"
     string referenceCloseTicks = isBoc ? str.tostring(attempt.referenceCloseTicks) : "null"
-    string htfOpenTicks = model == ENTRY_MODEL_FLIP ? str.tostring(attempt.flipOpenTicks) : "null"
-    string contactCandle = model == ENTRY_MODEL_FLIP ? orderedCandlePayload(attempt.flipContactOpenEpoch, attempt.flipContactCloseEpoch, attempt.flipContactOpenTicks, attempt.flipContactHighTicks, attempt.flipContactLowTicks, attempt.flipContactCloseTicks) : "null"
-    string recrossCandle = model == ENTRY_MODEL_FLIP ? orderedCandlePayload(attempt.flipRecrossOpenEpoch, attempt.flipRecrossCloseEpoch, attempt.flipRecrossOpenTicks, attempt.flipRecrossHighTicks, attempt.flipRecrossLowTicks, attempt.flipRecrossCloseTicks) : "null"
-    string lifecycleFlag = model == ENTRY_MODEL_FLIP ? str.tostring(attempt.flipCoverageGapDetected) : "null"
-    string lifecycleOrdered = model == ENTRY_MODEL_FLIP ? str.tostring(not attempt.flipCoverageGapDetected and attempt.flipFidelity == "EXACT") : "null"
+    string htfOpenTicks = model == ENTRY_MODEL_FLIP ? nullableEntryInt(lifecycleCausal, attempt.flipOpenTicks) : "null"
+    string contactCandle = model == ENTRY_MODEL_FLIP ? nullableOrderedCandlePayload(lifecycleCausal, attempt.flipContactOpenEpoch, attempt.flipContactCloseEpoch, attempt.flipContactOpenTicks, attempt.flipContactHighTicks, attempt.flipContactLowTicks, attempt.flipContactCloseTicks) : "null"
+    string recrossCandle = model == ENTRY_MODEL_FLIP ? nullableOrderedCandlePayload(lifecycleCausal, attempt.flipRecrossOpenEpoch, attempt.flipRecrossCloseEpoch, attempt.flipRecrossOpenTicks, attempt.flipRecrossHighTicks, attempt.flipRecrossLowTicks, attempt.flipRecrossCloseTicks) : "null"
+    string lifecycleFlag = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, attempt.flipCoverageGapDetected) : "null"
+    string lifecycleOrdered = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, attempt.flipFullLifecycleOrdered) : "null"
+    string destinationBeforeContact = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, false) : "null"
+    string ambiguities = exact or isClose ? "[]" : model == ENTRY_MODEL_FLIP and attempt.flipFailureCode == "HTF_FLIP_INCOMPATIBLE_CONTEXTS" ? "[]" : "[\"" + (isBoc ? attempt.bocAmbiguityCode : attempt.flipAmbiguityCode) + "\"]"
     string payloadSha = "EDGE_DERIVED"
     "{" +
      "\"evidence_id\":" + jsonString(entryEvidenceId(model)) + "," +
      "\"candidate_id\":" + jsonString(entryCandidateId(model)) + "," +
-     "\"observed_trigger_epoch\":" + str.tostring(triggerEpoch) + "," +
+     "\"observed_trigger_epoch\":" + nullableEntryInt(triggerCausal, triggerEpoch) + "," +
      "\"trigger_sequence\":" + str.tostring(triggerSequence) + "," +
-     "\"observed_trigger_ticks\":" + str.tostring(triggerTicks) + "," +
+     "\"observed_trigger_ticks\":" + nullableEntryInt(triggerCausal, triggerTicks) + "," +
      "\"htf_context_minutes\":" + contexts + "," +
      "\"fidelity\":" + jsonString(fidelity) + "," +
      "\"proof_plane\":" + jsonString(proofPlane) + "," +
      "\"replayability\":" + jsonString(replayability) + "," +
      "\"coverage_start_epoch\":" + str.tostring(coverageStart) + "," +
      "\"coverage_end_epoch\":" + str.tostring(coverageEnd) + "," +
-     "\"ambiguity_codes\":" + (exact or isClose ? "[]" : "[\"" + (isBoc ? attempt.bocAmbiguityCode : attempt.flipAmbiguityCode) + "\"]") + "," +
+     "\"ambiguity_codes\":" + ambiguities + "," +
      "\"boc_tier\":" + (isBoc ? jsonString(attempt.bocTier) : "null") + "," +
      "\"reference_candle_open_epoch\":" + referenceOpenEpoch + "," +
      "\"reference_candle_open_ticks\":" + referenceOpenTicks + "," +
@@ -1942,7 +1989,7 @@ entryEvidencePayload(EntryAttempt attempt, RawZone zone, string model) =>
      "\"recross_candle\":" + recrossCandle + "," +
      "\"coverage_gap_detected\":" + lifecycleFlag + "," +
      "\"full_lifecycle_ordered\":" + lifecycleOrdered + "," +
-     "\"destination_seen_before_contact\":" + (model == ENTRY_MODEL_FLIP ? "false" : "null") + "," +
+     "\"destination_seen_before_contact\":" + destinationBeforeContact + "," +
      "\"passed_rule_ids\":" + entryPassedRules(model, exact) + "," +
      "\"failed_rule_ids\":" + entryFailedRules(attempt, model, attempt.bocTier, exact, commonExact) + "," +
      "\"source_claim_ids\":" + entrySourceClaims(model, attempt.bocTier) + "," +
@@ -1987,9 +2034,9 @@ entryCandidateIds(EntryAttempt attempt) =>
 
 entrySelectionPayload(EntryAttempt attempt) =>
     bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and commonExact
+    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact
     bool closeExact = attempt.closeEmitted and commonExact
-    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and commonExact
+    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
     int exactCount = (bocExact ? 1 : 0) + (closeExact ? 1 : 0) + (flipExact ? 1 : 0)
     int selectedEpoch = na
     int selectedSequence = na
@@ -2015,16 +2062,18 @@ entrySelectionPayload(EntryAttempt attempt) =>
     bool flipSameEvent = flipExact and attempt.flipEventEpoch == selectedEpoch and attempt.flipEventSequence == selectedSequence
     int sameEventCount = (bocSameEvent ? 1 : 0) + (closeSameEvent ? 1 : 0) + (flipSameEvent ? 1 : 0)
     bool priceConflict = (bocSameEvent and attempt.bocEventTicks != selectedTicks) or (closeSameEvent and attempt.closeEventTicks != selectedTicks) or (flipSameEvent and attempt.flipEventTicks != selectedTicks)
+    bool blockedAggressive = closeExact and (attempt.bocEmitted and not bocExact or attempt.flipEmitted and not flipExact)
+    bool canonicalUnknown = sameEventCount > 1 and not priceConflict
     string reason = exactCount == 0 ? (attempt.bocEmitted or attempt.closeEmitted or attempt.flipEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE") :
      priceConflict ? "CO_TRIGGER_PRICE_CONFLICT" :
      sameEventCount > 1 ? "CO_TRIGGER_SAME_EVENT" :
-     exactCount == 1 and selectedModel == ENTRY_MODEL_CLOSE ? "FALLBACK_TO_CONFIRMED_CLOSE" :
+     exactCount == 1 and selectedModel == ENTRY_MODEL_CLOSE ? (blockedAggressive ? "FALLBACK_TO_CONFIRMED_CLOSE" : "ONLY_EXACT_TRIGGER") :
      exactCount == 1 ? "ONLY_EXACT_TRIGGER" : "EARLIEST_EXACT_TRIGGER"
-    string action = exactCount == 0 ? (attempt.bocEmitted or attempt.closeEmitted or attempt.flipEmitted ? "SHADOW_ONLY" : "NONE") : priceConflict ? "SHADOW_ONLY" : "PAPER_ELIGIBLE"
-    string candidateId = str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(entryCandidateId(selectedModel))
-    string evidenceId = str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(entryEvidenceId(selectedModel))
-    string model = str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(selectedModel)
-    string fidelity = str.length(selectedModel) == 0 or priceConflict ? "null" : "\"EXACT\""
+    string action = canonicalUnknown ? "OBSERVE" : exactCount == 0 ? (attempt.bocEmitted or attempt.closeEmitted or attempt.flipEmitted ? "SHADOW_ONLY" : "NONE") : priceConflict ? "SHADOW_ONLY" : "PAPER_ELIGIBLE"
+    string candidateId = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(entryCandidateId(selectedModel))
+    string evidenceId = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(entryEvidenceId(selectedModel))
+    string model = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(selectedModel)
+    string fidelity = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : "\"EXACT\""
     string coModels = sameEventCount > 1 and not priceConflict ? (bocSameEvent and closeSameEvent and flipSameEvent ? "[\"BOC\",\"DIR_CLOSE\",\"HTF_FLIP\"]" : bocSameEvent and closeSameEvent ? "[\"BOC\",\"DIR_CLOSE\"]" : bocSameEvent and flipSameEvent ? "[\"BOC\",\"HTF_FLIP\"]" : "[\"DIR_CLOSE\",\"HTF_FLIP\"]") : "[]"
     "{" +
      "\"selection_id\":\"EDGE_DERIVED\"," +
@@ -2043,9 +2092,9 @@ entrySelectionPayload(EntryAttempt attempt) =>
 
 entrySelectedFacts(EntryAttempt attempt) =>
     bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and commonExact
+    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact
     bool closeExact = attempt.closeEmitted and commonExact
-    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and commonExact
+    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
     int selectedEpoch = na
     int selectedSequence = na
     int selectedTicks = na
@@ -2069,14 +2118,20 @@ entrySelectedFacts(EntryAttempt attempt) =>
 
 entryHasPaperEligibleSelection(EntryAttempt attempt) =>
     bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and commonExact
+    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact
     bool closeExact = attempt.closeEmitted and commonExact
-    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and commonExact
+    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
     bool bocConflict = bocExact and attempt.bocEventEpoch == selectedEpoch and attempt.bocEventSequence == selectedSequence and attempt.bocEventTicks != selectedTicks
     bool closeConflict = closeExact and attempt.closeEventEpoch == selectedEpoch and attempt.closeEventSequence == selectedSequence and attempt.closeEventTicks != selectedTicks
     bool flipConflict = flipExact and attempt.flipEventEpoch == selectedEpoch and attempt.flipEventSequence == selectedSequence and attempt.flipEventTicks != selectedTicks
     not na(selectedEpoch) and (bocExact or closeExact or flipExact) and not (bocConflict or closeConflict or flipConflict)
+
+entryBundleReadyToEmit(EntryAttempt attempt) =>
+    not attempt.bocAuditPending and not attempt.flipAuditPending and
+     (not attempt.bocEmitted or not na(attempt.bocObservedAtEpoch)) and
+     (not attempt.closeEmitted or not na(attempt.closeObservedAtEpoch)) and
+     (not attempt.flipEmitted or not na(attempt.flipObservedAtEpoch))
 
 entrySetupBundlePayload(EntryAttempt attempt, RawZone zone) =>
     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
@@ -2182,11 +2237,19 @@ recordDirectionalClose(EntryAttempt attempt, RawZone zone) =>
         attempt.closeHighTicks := priceTicks(high)
         attempt.closeLowTicks := priceTicks(low)
         attempt.closeCloseTicks := priceTicks(close)
+        attempt.closeObservedAtEpoch := entryClockEpoch()
         if na(attempt.entryTicks)
             attempt.entryTicks := attempt.closeEventTicks
     triggered
 
-recordBoc(EntryAttempt attempt, RawZone zone) =>
+recordBoc(EntryAttempt attempt, RawZone zone, bool allowNewObservation) =>
+    int nowEpoch = entryClockEpoch()
+    bool bocTriggered = false
+    if attempt.bocAuditPending and nowEpoch > attempt.bocEventEpoch
+        attempt.bocAuditPending := false
+        attempt.bocCoverageEndEpoch := nowEpoch
+        attempt.bocObservedAtEpoch := nowEpoch
+        bocTriggered := true
     bool longBreak = attempt.demand and close > attempt.referenceHighPrice
     bool shortBreak = not attempt.demand and close < attempt.referenceLowPrice
     bool brokenNow = longBreak or shortBreak
@@ -2194,29 +2257,33 @@ recordBoc(EntryAttempt attempt, RawZone zone) =>
     bool exactFirstCross = barstate.isrealtime and continuousCoverage and attempt.bocPreviousNonBrokenSide and brokenNow
     bool historicalObservedBreak = not barstate.isrealtime and (attempt.demand ? high > attempt.referenceHighPrice : low < attempt.referenceLowPrice)
     bool uncoveredRealtimeBreak = barstate.isrealtime and brokenNow and not exactFirstCross
-    bool bocTriggered = not attempt.bocEmitted and (exactFirstCross or uncoveredRealtimeBreak or historicalObservedBreak)
-    if bocTriggered
+    bool newObservation = allowNewObservation and not attempt.bocEmitted and (exactFirstCross or uncoveredRealtimeBreak or historicalObservedBreak)
+    if newObservation
         bool opens15 = minute(time) % 15 == 0
         bool opens30 = minute(time) % 30 == 0
         bool opens60 = minute(time) == 0
         bool htfTimed = opens15 or opens30 or opens60
         string bocTier = htfTimed ? BOC_TIER_HTF : BOC_TIER_DISCRETIONARY
         attempt.bocEmitted := true
-        attempt.bocEventEpoch := epochSeconds(time_close)
-        if barstate.isrealtime
-            attempt.bocEventEpoch := epochSeconds(timenow)
+        attempt.bocEventEpoch := nowEpoch
         attempt.bocEventSequence := tickSequence
         attempt.bocEventTicks := priceTicks(close)
         attempt.bocContextMask := (opens15 ? 1 : 0) + (opens30 ? 2 : 0) + (opens60 ? 4 : 0)
         attempt.bocTier := bocTier
-        bool epochAdvanced = not na(attempt.bocCoverageStartEpoch) and epochSeconds(timenow) > attempt.bocCoverageStartEpoch
+        if na(attempt.bocCoverageStartEpoch)
+            attempt.bocCoverageStartEpoch := barstate.isrealtime ? nowEpoch : attempt.referenceOpenEpoch
+        bool epochAdvanced = nowEpoch > attempt.bocCoverageStartEpoch
+        attempt.bocTriggerCausal := epochAdvanced
+        attempt.bocAuditPending := not epochAdvanced
+        attempt.bocCoverageEndEpoch := epochAdvanced ? nowEpoch : na
+        attempt.bocObservedAtEpoch := epochAdvanced ? nowEpoch : na
         attempt.bocFidelity := exactFirstCross and epochAdvanced ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"
         attempt.bocProofPlane := barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE
         attempt.bocReplayability := barstate.isrealtime ? ENTRY_LIVE_REPLAYABILITY : ENTRY_REPLAYABLE
-        attempt.bocCoverageGapDetected := uncoveredRealtimeBreak or not barstate.isrealtime or not epochAdvanced
+        attempt.bocCoverageGapDetected := uncoveredRealtimeBreak or not epochAdvanced
         attempt.bocAmbiguityCode := uncoveredRealtimeBreak or not epochAdvanced ? "SHADOW_MISSING_INTRABAR_COVERAGE" : "SHADOW_SAME_CHILD_BAR_ORDER"
-        if na(attempt.bocCoverageStartEpoch)
-            attempt.bocCoverageStartEpoch := attempt.referenceOpenEpoch
+        attempt.bocFailureCode := not epochAdvanced ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : uncoveredRealtimeBreak ? "REALTIME_FIRST_CROSS_UNPROVEN" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HISTORICAL_ORDER_UNPROVEN"
+        bocTriggered := not attempt.bocAuditPending
         if na(attempt.entryTicks)
             attempt.entryTicks := attempt.bocEventTicks
     if barstate.isrealtime and not attempt.bocEmitted
@@ -2462,9 +2529,16 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
     flipTriggered
 
 finalizeFlipCandidate(EntryAttempt attempt) =>
+    int nowEpoch = entryClockEpoch()
+    bool triggered = false
+    if attempt.flipAuditPending and nowEpoch > attempt.flipEventEpoch
+        attempt.flipAuditPending := false
+        attempt.flipCoverageEndEpoch := nowEpoch
+        attempt.flipObservedAtEpoch := nowEpoch
+        triggered := true
     int mask = (attempt.htf15TriggeredThisTick ? 1 : 0) + (attempt.htf30TriggeredThisTick ? 2 : 0) + (attempt.htf60TriggeredThisTick ? 4 : 0)
-    bool triggered = not attempt.flipEmitted and mask > 0
-    if triggered
+    bool newObservation = not attempt.flipEmitted and mask > 0
+    if newObservation
         int firstContext = attempt.htf15TriggeredThisTick ? 15 : attempt.htf30TriggeredThisTick ? 30 : 60
         int anchorEpoch = firstContext == 15 ? attempt.htf15AnchorEpoch : firstContext == 30 ? attempt.htf30AnchorEpoch : attempt.htf60AnchorEpoch
         int openTicks = firstContext == 15 ? attempt.htf15OpenTicks : firstContext == 30 ? attempt.htf30OpenTicks : attempt.htf60OpenTicks
@@ -2483,28 +2557,38 @@ finalizeFlipCandidate(EntryAttempt attempt) =>
         bool compatible60 = not attempt.htf60TriggeredThisTick or attempt.htf60AnchorEpoch == anchorEpoch and attempt.htf60OpenTicks == openTicks and attempt.htf60ContactOpenEpoch == contactOpenEpoch and attempt.htf60ContactCloseEpoch == contactCloseEpoch and attempt.htf60ContactOpenTicks == contactOpenTicks and attempt.htf60ContactHighTicks == contactHighTicks and attempt.htf60ContactLowTicks == contactLowTicks and attempt.htf60ContactCloseTicks == contactCloseTicks and attempt.htf60CoverageStartEpoch == coverageStartEpoch and attempt.htf60LastTickEpoch == previousTickEpoch and attempt.htf60PreviousTickTicks == previousTickTicks
         bool compatible = compatible15 and compatible30 and compatible60
         bool allExact = (not attempt.htf15TriggeredThisTick or attempt.htf15TriggerExact) and (not attempt.htf30TriggeredThisTick or attempt.htf30TriggerExact) and (not attempt.htf60TriggeredThisTick or attempt.htf60TriggerExact)
+        bool selectedCoverageGap = (attempt.htf15TriggeredThisTick and attempt.htf15CoverageGapDetected) or (attempt.htf30TriggeredThisTick and attempt.htf30CoverageGapDetected) or (attempt.htf60TriggeredThisTick and attempt.htf60CoverageGapDetected)
         attempt.flipEmitted := true
-        attempt.flipEventEpoch := barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)
+        attempt.flipEventEpoch := nowEpoch
         attempt.flipEventSequence := tickSequence
         attempt.flipEventTicks := openTicks
         attempt.flipContextMinutes := firstContext
         attempt.flipContextMask := mask
         attempt.flipAnchorEpoch := anchorEpoch
         attempt.flipOpenTicks := openTicks
-        attempt.flipFidelity := compatible and exact and allExact ? "EXACT" : "UNRESOLVED"
+        bool triggerCausal = barstate.isrealtime ? not na(previousTickEpoch) and nowEpoch > previousTickEpoch : nowEpoch > coverageStartEpoch
+        int recrossOpenEpoch = barstate.isrealtime ? previousTickEpoch : epochSeconds(time)
+        bool lifecycleCausal = triggerCausal and not na(contactOpenEpoch) and not na(contactCloseEpoch) and not na(recrossOpenEpoch) and contactOpenEpoch < contactCloseEpoch and contactCloseEpoch <= recrossOpenEpoch and recrossOpenEpoch < nowEpoch
+        attempt.flipTriggerCausal := triggerCausal
+        attempt.flipLifecycleCausal := lifecycleCausal
+        attempt.flipAuditPending := not triggerCausal
+        attempt.flipFidelity := compatible and exact and allExact and triggerCausal and lifecycleCausal ? "EXACT" : "UNRESOLVED"
         attempt.flipProofPlane := barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE
         attempt.flipReplayability := barstate.isrealtime ? ENTRY_LIVE_REPLAYABILITY : ENTRY_REPLAYABLE
         attempt.flipCoverageStartEpoch := coverageStartEpoch
-        attempt.flipCoverageGapDetected := not compatible or attempt.flipFidelity != "EXACT"
-        attempt.flipAmbiguityCode := compatible ? (barstate.isrealtime ? "SHADOW_MISSING_INTRABAR_COVERAGE" : "SHADOW_SAME_CHILD_BAR_ORDER") : "SHADOW_MISSING_INTRABAR_COVERAGE"
-        attempt.flipFailureCode := compatible ? "HISTORICAL_ORDER_UNPROVEN" : "HTF_FLIP_INCOMPATIBLE_CONTEXTS"
+        attempt.flipCoverageEndEpoch := triggerCausal ? nowEpoch : na
+        attempt.flipObservedAtEpoch := triggerCausal ? nowEpoch : na
+        attempt.flipCoverageGapDetected := selectedCoverageGap
+        attempt.flipFullLifecycleOrdered := lifecycleCausal
+        attempt.flipAmbiguityCode := not triggerCausal or selectedCoverageGap ? "SHADOW_MISSING_INTRABAR_COVERAGE" : not barstate.isrealtime ? "SHADOW_SAME_CHILD_BAR_ORDER" : "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE"
+        attempt.flipFailureCode := not triggerCausal ? "HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE" : not compatible ? "HTF_FLIP_INCOMPATIBLE_CONTEXTS" : selectedCoverageGap ? "HTF_FLIP_MISSING_INTRABAR_COVERAGE" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HTF_FLIP_LIFECYCLE_UNRESOLVED"
         attempt.flipContactOpenEpoch := contactOpenEpoch
         attempt.flipContactCloseEpoch := contactCloseEpoch
         attempt.flipContactOpenTicks := contactOpenTicks
         attempt.flipContactHighTicks := contactHighTicks
         attempt.flipContactLowTicks := contactLowTicks
         attempt.flipContactCloseTicks := contactCloseTicks
-        attempt.flipRecrossOpenEpoch := barstate.isrealtime ? previousTickEpoch : epochSeconds(time)
+        attempt.flipRecrossOpenEpoch := recrossOpenEpoch
         attempt.flipRecrossCloseEpoch := attempt.flipEventEpoch
         attempt.flipRecrossOpenTicks := barstate.isrealtime ? previousTickTicks : priceTicks(open)
         attempt.flipRecrossHighTicks := barstate.isrealtime ? math.max(previousTickTicks, priceTicks(close)) : priceTicks(high)
@@ -2512,11 +2596,12 @@ finalizeFlipCandidate(EntryAttempt attempt) =>
         attempt.flipRecrossCloseTicks := priceTicks(close)
         if na(attempt.entryTicks)
             attempt.entryTicks := attempt.flipEventTicks
+        triggered := not attempt.flipAuditPending
     triggered
 
 monitorAttemptExit(EntryAttempt attempt, RawZone zone) =>
     bool emitted = false
-    if not na(attempt.entryTicks) and not attempt.exitTerminal
+    if not na(attempt.entryTicks) and not attempt.exitTerminal and entryBundleReadyToEmit(attempt)
         int stopPriceTicks = not na(attempt.stopTicks) ? attempt.stopTicks : attempt.demand ? attempt.entryTicks - entryStopTicks : attempt.entryTicks + entryStopTicks
         int targetPriceTicks = not na(attempt.targetTicks) ? attempt.targetTicks : attempt.demand ? attempt.entryTicks + entryTargetTicks : attempt.entryTicks - entryTargetTicks
         float stopPrice = stopPriceTicks * syminfo.mintick
@@ -2567,20 +2652,34 @@ var bool validationStarted = not validationCapture or validationCalculationStart
 var bool validationFailed = false
 var string validationFailureReason = ""
 
-zoneHasUnresolvedAttempt(int zoneId) =>
+zoneHasActiveAttempt(int zoneId) =>
     bool protectedAttempt = false
     int attemptIndex = entryAttemptIndex(zoneId)
     if not na(attemptIndex)
         EntryAttempt attempt = array.get(entryAttempts, attemptIndex)
-        protectedAttempt := not na(attempt.entryTicks) and not attempt.exitTerminal
+        protectedAttempt := not attempt.exitTerminal
     protectedAttempt
+
+retireOldestNonEconomicAttempt(array<EntryAttempt> attempts) =>
+    bool retired = false
+    int attemptIndex = 0
+    while attemptIndex < array.size(attempts) and not retired
+        EntryAttempt attempt = array.get(attempts, attemptIndex)
+        if not attempt.exitTerminal and not attempt.paperDecisionEmitted
+            attempt.retentionBlocked := true
+            attempt.exitTerminal := true
+            array.set(attempts, attemptIndex, attempt)
+            log.warning("ENTRY_ATTEMPT_RETIRED_AT_CAP:" + attempt.setupId)
+            retired := true
+        attemptIndex += 1
+    retired
 
 evictOldestUnprotectedZone(array<RawZone> zoneItems, array<EntryAttempt> attempts) =>
     bool removed = false
     int scanIndex = array.size(zoneItems) - 1
     while scanIndex >= 0 and not removed
         RawZone oldest = array.get(zoneItems, scanIndex)
-        if not zoneHasUnresolvedAttempt(oldest.id)
+        if not zoneHasActiveAttempt(oldest.id)
             int attemptIndex = entryAttemptIndex(oldest.id)
             if not na(attemptIndex)
                 array.remove(attempts, attemptIndex)
@@ -2777,12 +2876,13 @@ if barstate.isconfirmed and isFiveMinute and validationReady
     while array.size(zones) > maxZones
         bool evicted = evictOldestUnprotectedZone(zones, entryAttempts)
         if not evicted
-            validationFailed := validationCapture
-            validationFailureReason := "PROTECTED_ENTRY_ATTEMPT_CAP_EXCEEDED"
-            if validationCapture
-                validationEvents := appendValidationEvent(validationEvents, validationFailure("RUN_FAILED_ACTIVE_CAP", validationFailureReason))
-                validationEventCount += 1
-            break
+            bool retired = retireOldestNonEconomicAttempt(entryAttempts)
+            if retired
+                evicted := evictOldestUnprotectedZone(zones, entryAttempts)
+            if not evicted
+                runtime.error("ENTRY_ATTEMPT_HARD_CAP_INVARIANT")
+    if array.size(entryAttempts) > ENTRY_MAX_ATTEMPTS
+        runtime.error("ENTRY_ATTEMPT_HARD_CAP_INVARIANT")
 
     if setupExportReady
         if setupExportSnapshotPending
@@ -2846,15 +2946,16 @@ if isFiveMinute and validationReady and entryZoneCount > 0
             bool bocTriggered = false
             bool flipTriggered = false
             bool closeTriggered = false
+            bocTriggered := recordBoc(attempt, zone, candidateObservationOpen)
             if candidateObservationOpen
-                bocTriggered := recordBoc(attempt, zone)
                 bool flip15Triggered = updateFlipContext(attempt, zone, 15)
                 bool flip30Triggered = updateFlipContext(attempt, zone, 30)
                 bool flip60Triggered = updateFlipContext(attempt, zone, 60)
-                flipTriggered := finalizeFlipCandidate(attempt)
                 closeTriggered := recordDirectionalClose(attempt, zone)
+            flipTriggered := finalizeFlipCandidate(attempt)
             bool candidateChanged = bocTriggered or flipTriggered or closeTriggered
-            if candidateChanged
+            bool bundleReady = entryBundleReadyToEmit(attempt)
+            if candidateChanged and bundleReady
                 if not attempt.paperDecisionEmitted and entryHasPaperEligibleSelection(attempt)
                     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
                     attempt.paperDecisionEmitted := true
@@ -2863,7 +2964,8 @@ if isFiveMinute and validationReady and entryZoneCount > 0
                     attempt.targetTicks := zone.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
                 bool intrabarCandidate = barstate.isrealtime and not closeTriggered
                 emitEntryPayload(attempt, zone, intrabarCandidate, "[]", false)
-            monitorAttemptExit(attempt, zone)
+            if bundleReady
+                monitorAttemptExit(attempt, zone)
             array.set(entryAttempts, attemptIndex, attempt)
 
 int drawCount = array.size(zones)
