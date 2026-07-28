@@ -290,6 +290,8 @@ type EntryAttempt
     bool bocCoverageReady
     bool bocPreviousNonBrokenSide
     int bocLastTickSequence
+    int bocLastTickEpoch
+    int bocPreviousTickTicks
     int bocCoverageStartEpoch
     int bocCoverageEndEpoch
     bool bocCoverageGapDetected
@@ -1715,6 +1717,8 @@ newEntryAttempt(RawZone zone) =>
     attempt.bocCoverageReady := false
     attempt.bocPreviousNonBrokenSide := false
     attempt.bocLastTickSequence := na
+    attempt.bocLastTickEpoch := na
+    attempt.bocPreviousTickTicks := na
     attempt.bocCoverageStartEpoch := na
     attempt.bocCoverageEndEpoch := na
     attempt.bocCoverageGapDetected := false
@@ -1836,6 +1840,17 @@ ensureEntryAttempt(RawZone zone) =>
         else
             log.error("ENTRY_ATTEMPT_HARD_CAP_REACHED")
     attemptIndex
+
+materializeEngagedEntryAttempts(array<RawZone> zoneItems) =>
+    bool materialized = false
+    int zoneCount = array.size(zoneItems)
+    if zoneCount > 0
+        for zoneIndex = 0 to zoneCount - 1
+            RawZone zone = array.get(zoneItems, zoneIndex)
+            if zone.state == STATE_TAPPED and zone.setupState == SETUP_ARMED
+                int attemptIndex = ensureEntryAttempt(zone)
+                materialized := materialized or not na(attemptIndex)
+    materialized
 
 commonRuleResultsPayload(EntryAttempt attempt) =>
     "[" +
@@ -2254,10 +2269,13 @@ recordBoc(EntryAttempt attempt, RawZone zone, bool allowNewObservation) =>
     bool shortBreak = not attempt.demand and close < attempt.referenceLowPrice
     bool brokenNow = longBreak or shortBreak
     bool continuousCoverage = attempt.bocCoverageReady and attempt.bocLastTickSequence + 1 == tickSequence
-    bool exactFirstCross = barstate.isrealtime and continuousCoverage and attempt.bocPreviousNonBrokenSide and brokenNow
+    bool firstCrossObserved = barstate.isrealtime and continuousCoverage and attempt.bocPreviousNonBrokenSide and brokenNow
+    bool priorTickCausal = not na(attempt.bocLastTickEpoch) and nowEpoch > attempt.bocLastTickEpoch
+    bool exactFirstCross = firstCrossObserved and priorTickCausal
+    bool unrepresentableFirstCross = firstCrossObserved and not priorTickCausal
     bool historicalObservedBreak = not barstate.isrealtime and (attempt.demand ? high > attempt.referenceHighPrice : low < attempt.referenceLowPrice)
-    bool uncoveredRealtimeBreak = barstate.isrealtime and brokenNow and not exactFirstCross
-    bool newObservation = allowNewObservation and not attempt.bocEmitted and (exactFirstCross or uncoveredRealtimeBreak or historicalObservedBreak)
+    bool uncoveredRealtimeBreak = barstate.isrealtime and brokenNow and not firstCrossObserved
+    bool newObservation = allowNewObservation and not attempt.bocEmitted and (exactFirstCross or unrepresentableFirstCross or uncoveredRealtimeBreak or historicalObservedBreak)
     if newObservation
         bool opens15 = minute(time) % 15 == 0
         bool opens30 = minute(time) % 30 == 0
@@ -2272,17 +2290,17 @@ recordBoc(EntryAttempt attempt, RawZone zone, bool allowNewObservation) =>
         attempt.bocTier := bocTier
         if na(attempt.bocCoverageStartEpoch)
             attempt.bocCoverageStartEpoch := barstate.isrealtime ? nowEpoch : attempt.referenceOpenEpoch
-        bool epochAdvanced = nowEpoch > attempt.bocCoverageStartEpoch
-        attempt.bocTriggerCausal := epochAdvanced
-        attempt.bocAuditPending := not epochAdvanced
-        attempt.bocCoverageEndEpoch := epochAdvanced ? nowEpoch : na
-        attempt.bocObservedAtEpoch := epochAdvanced ? nowEpoch : na
-        attempt.bocFidelity := exactFirstCross and epochAdvanced ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"
+        bool coverageIntervalAdvanced = nowEpoch > attempt.bocCoverageStartEpoch
+        attempt.bocTriggerCausal := not unrepresentableFirstCross
+        attempt.bocAuditPending := unrepresentableFirstCross or not coverageIntervalAdvanced
+        attempt.bocCoverageEndEpoch := attempt.bocAuditPending ? na : nowEpoch
+        attempt.bocObservedAtEpoch := attempt.bocAuditPending ? na : nowEpoch
+        attempt.bocFidelity := exactFirstCross ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"
         attempt.bocProofPlane := barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE
         attempt.bocReplayability := barstate.isrealtime ? ENTRY_LIVE_REPLAYABILITY : ENTRY_REPLAYABLE
-        attempt.bocCoverageGapDetected := uncoveredRealtimeBreak or not epochAdvanced
-        attempt.bocAmbiguityCode := uncoveredRealtimeBreak or not epochAdvanced ? "SHADOW_MISSING_INTRABAR_COVERAGE" : "SHADOW_SAME_CHILD_BAR_ORDER"
-        attempt.bocFailureCode := not epochAdvanced ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : uncoveredRealtimeBreak ? "REALTIME_FIRST_CROSS_UNPROVEN" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HISTORICAL_ORDER_UNPROVEN"
+        attempt.bocCoverageGapDetected := uncoveredRealtimeBreak or not coverageIntervalAdvanced
+        attempt.bocAmbiguityCode := uncoveredRealtimeBreak or unrepresentableFirstCross or not coverageIntervalAdvanced ? "SHADOW_MISSING_INTRABAR_COVERAGE" : "SHADOW_SAME_CHILD_BAR_ORDER"
+        attempt.bocFailureCode := unrepresentableFirstCross ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : uncoveredRealtimeBreak ? "REALTIME_FIRST_CROSS_UNPROVEN" : not coverageIntervalAdvanced ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HISTORICAL_ORDER_UNPROVEN"
         bocTriggered := not attempt.bocAuditPending
         if na(attempt.entryTicks)
             attempt.entryTicks := attempt.bocEventTicks
@@ -2296,6 +2314,8 @@ recordBoc(EntryAttempt attempt, RawZone zone, bool allowNewObservation) =>
             attempt.bocCoverageStartEpoch := epochSeconds(timenow)
         attempt.bocPreviousNonBrokenSide := not brokenNow
         attempt.bocLastTickSequence := tickSequence
+        attempt.bocLastTickEpoch := epochSeconds(timenow)
+        attempt.bocPreviousTickTicks := priceTicks(close)
         attempt.bocCoverageReady := true
     bocTriggered
 
@@ -2561,7 +2581,7 @@ finalizeFlipCandidate(EntryAttempt attempt) =>
         attempt.flipEmitted := true
         attempt.flipEventEpoch := nowEpoch
         attempt.flipEventSequence := tickSequence
-        attempt.flipEventTicks := openTicks
+        attempt.flipEventTicks := priceTicks(close)
         attempt.flipContextMinutes := firstContext
         attempt.flipContextMask := mask
         attempt.flipAnchorEpoch := anchorEpoch
@@ -2811,6 +2831,10 @@ if barstate.isconfirmed and isFiveMinute and validationReady
             if exportSetupEvents
                 syncSetupExportLifecycle(zone)
             array.set(zones, index, zone)
+
+    // Materialize attempts immediately after engagement/setup transitions so a
+    // same-update tapped+armed zone is protected before bounded retention.
+    materializeEngagedEntryAttempts(zones)
 
     int direction = candleDirection(0)
     if direction == 1

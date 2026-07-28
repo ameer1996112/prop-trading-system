@@ -1,11 +1,24 @@
 from pathlib import Path
+import re
 
 
 PINE = Path("scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine")
+PARITY = Path("apps/observation-edge/test/rd-entry-pine-v3-parity.test.ts")
 
 
 def source() -> str:
     return PINE.read_text()
+
+
+def section(text: str, start: str, end: str) -> str:
+    start_at = text.index(start)
+    return text[start_at:text.index(end, start_at)]
+
+
+def assigned_expression(text: str, target: str) -> str:
+    match = re.search(rf"^\s*{re.escape(target)}\s*:=\s*(.+)$", text, re.MULTILINE)
+    assert match is not None, f"missing assignment for {target}"
+    return match.group(1).strip()
 
 
 def test_pine_v3_declares_the_closed_three_model_contract() -> None:
@@ -184,6 +197,8 @@ def test_pine_v3_exact_intrabar_evidence_requires_continuous_first_cross_coverag
         "bool bocCoverageReady",
         "bool bocPreviousNonBrokenSide",
         "int bocLastTickSequence",
+        "int bocLastTickEpoch",
+        "int bocPreviousTickTicks",
         "bool bocCoverageGapDetected",
         "bool htf15CoverageReady",
         "bool htf30CoverageReady",
@@ -193,12 +208,22 @@ def test_pine_v3_exact_intrabar_evidence_requires_continuous_first_cross_coverag
         "int htf60LastTickSequence",
     ):
         assert field in pine
-    assert "bool continuousCoverage = attempt.bocCoverageReady and attempt.bocLastTickSequence + 1 == tickSequence" in pine
-    assert "bool exactFirstCross = barstate.isrealtime and continuousCoverage and attempt.bocPreviousNonBrokenSide and brokenNow" in pine
-    record_boc = pine[pine.index("recordBoc("):pine.index("captureFlipContact(")]
+    record_boc = section(pine, "recordBoc(", "captureFlipContact(")
+    assert "bool continuousCoverage = attempt.bocCoverageReady and attempt.bocLastTickSequence + 1 == tickSequence" in record_boc
+    assert "bool firstCrossObserved = barstate.isrealtime and continuousCoverage and attempt.bocPreviousNonBrokenSide and brokenNow" in record_boc
+    assert "bool priorTickCausal = not na(attempt.bocLastTickEpoch) and nowEpoch > attempt.bocLastTickEpoch" in record_boc
+    assert "bool exactFirstCross = firstCrossObserved and priorTickCausal" in record_boc
+    assert "bool unrepresentableFirstCross = firstCrossObserved and not priorTickCausal" in record_boc
     assert "int nowEpoch = entryClockEpoch()" in record_boc
     assert "attempt.bocEventEpoch := nowEpoch" in record_boc
-    assert 'attempt.bocFidelity := exactFirstCross and epochAdvanced ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"' in pine
+    assert assigned_expression(record_boc, "attempt.bocFidelity") == (
+        'exactFirstCross ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"'
+    )
+    assert assigned_expression(record_boc, "attempt.bocLastTickEpoch") == "epochSeconds(timenow)"
+    assert assigned_expression(record_boc, "attempt.bocPreviousTickTicks") == "priceTicks(close)"
+    assert "attempt.bocCoverageStartEpoch" not in assigned_expression(
+        record_boc, "attempt.bocTriggerCausal"
+    )
     assert "SHADOW_MISSING_INTRABAR_COVERAGE" in pine
 
 
@@ -313,6 +338,93 @@ def test_pine_v3_freezes_setup_facts_and_protects_open_attempts_from_eviction() 
     assert "const int ENTRY_MAX_ATTEMPTS = 120" in pine
     assert "array.size(entryAttempts) > ENTRY_MAX_ATTEMPTS" in pine
     assert "array.shift(entryAttempts)" not in pine
+
+
+def test_pine_v3_materializes_engagement_protection_before_zone_trimming() -> None:
+    pine = source()
+    confirmed_update = section(
+        pine,
+        "if barstate.isconfirmed and isFiveMinute and validationReady",
+        "// Entry candidates are evaluated",
+    )
+    materialize_at = confirmed_update.index("materializeEngagedEntryAttempts(zones)")
+    trim_at = confirmed_update.index("while array.size(zones) > maxZones")
+
+    assert materialize_at < trim_at
+    materializer = section(
+        pine,
+        "materializeEngagedEntryAttempts(",
+        "zoneHasActiveAttempt(",
+    )
+    assert "ensureEntryAttempt(zone)" in materializer
+    assert "zone.state == STATE_TAPPED and zone.setupState == SETUP_ARMED" in materializer
+
+
+def test_pine_v3_flip_crossing_price_and_fixture_are_field_exact() -> None:
+    pine = source()
+    parity = PARITY.read_text()
+    finalize = section(pine, "finalizeFlipCandidate(", "monitorAttemptExit(")
+
+    assert assigned_expression(finalize, "attempt.flipEventTicks") == "priceTicks(close)"
+    assert assigned_expression(finalize, "attempt.flipOpenTicks") == "openTicks"
+    assert assigned_expression(finalize, "attempt.flipFidelity") == (
+        'compatible and exact and allExact and triggerCausal and lifecycleCausal ? "EXACT" : "UNRESOLVED"'
+    )
+    assert assigned_expression(finalize, "attempt.flipProofPlane") == (
+        "barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE"
+    )
+
+    flip_fixture = section(parity, "function exactFlipEvidence()", "function payloadEnvelope(")
+    assert re.search(r"observed_trigger_ticks:\s*111,", flip_fixture)
+    assert re.search(r"htf_open_ticks:\s*110,", flip_fixture)
+    assert re.search(r"close_ticks:\s*111,", flip_fixture)
+
+
+def test_pine_v3_static_branches_match_nullable_and_historical_fixture_clocks() -> None:
+    pine = source()
+    parity = PARITY.read_text()
+    record_boc = section(pine, "recordBoc(", "captureFlipContact(")
+    evidence_serializer = section(pine, "entryEvidencePayload(", "entryCandidatesPayload(")
+    clock = section(pine, "entryClockEpoch()", "entryObservedEpoch(")
+
+    assert "attempt.bocAuditPending := unrepresentableFirstCross or not coverageIntervalAdvanced" in record_boc
+    assert assigned_expression(record_boc, "attempt.bocTriggerCausal") == (
+        "not unrepresentableFirstCross"
+    )
+    assert 'unrepresentableFirstCross ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE"' in record_boc
+    assert "nullableEntryInt(triggerCausal, triggerEpoch)" in evidence_serializer
+    assert "nullableOrderedCandlePayload(lifecycleCausal" in evidence_serializer
+    assert "barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)" in clock
+
+    same_second_boc = section(
+        parity,
+        'it("accepts a same-second BOC',
+        'it("accepts a same-second flip',
+    )
+    for field in ("observed_trigger_epoch", "observed_trigger_ticks"):
+        assert re.search(rf"{field}:\s*null,", same_second_boc)
+    assert re.search(r"coverage_start_epoch:\s*2700,", same_second_boc)
+    assert re.search(r"coverage_end_epoch:\s*2701,", same_second_boc)
+
+    close_candidate = section(
+        parity,
+        "function closeCandidate(",
+        "function exactCloseEvidence(",
+    )
+    close_evidence = section(
+        parity,
+        "function exactCloseEvidence(",
+        "function flipCandidate(",
+    )
+    historical_close_followup = section(
+        parity,
+        'it("validates a Pine-emittable historical DIR_CLOSE',
+        "\n  });\n",
+    )
+    assert re.search(r"observed_at_epoch:\s*2700,", close_candidate)
+    assert re.search(r"observed_trigger_epoch:\s*2700,", close_evidence)
+    assert re.search(r"evaluated_at_epoch:\s*3000,", historical_close_followup)
+    assert re.search(r"isRealtime:\s*false,", historical_close_followup)
 
 
 def test_pine_v3_producer_proposal_is_diagnostic_and_reason_accurate() -> None:

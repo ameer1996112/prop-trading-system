@@ -39,6 +39,14 @@ const flipClaims = [
   "model-continuation-2026-07",
 ];
 
+const closeClaims = [
+  "standard-close-2024-03",
+  "closure-or-flip-2025-03",
+  "directional-close-2025-08",
+  "directional-close-required-2026-06",
+  "model-continuation-2026-07",
+];
+
 function strict(value: unknown) {
   return parseStrictJson(new TextEncoder().encode(JSON.stringify(value)));
 }
@@ -101,6 +109,56 @@ function exactBocEvidence(setupId: string) {
   };
 }
 
+function closeCandidate(setupId: string) {
+  return {
+    candidate_id: "EDGE_DERIVED:DIR_CLOSE",
+    setup_id: setupId,
+    model: "DIR_CLOSE",
+    state: "MATCHED",
+    direction: "LONG",
+    event_anchor_epoch: 2400,
+    trigger_ordinal: 1,
+    boc_tier: null,
+    reference_candle_open_epoch: null,
+    source_claim_ids: closeClaims,
+    observed_at_epoch: 2700,
+  };
+}
+
+function exactCloseEvidence() {
+  return {
+    evidence_id: "EDGE_DERIVED:DIR_CLOSE",
+    candidate_id: "EDGE_DERIVED:DIR_CLOSE",
+    observed_trigger_epoch: 2700,
+    trigger_sequence: 0,
+    observed_trigger_ticks: 111,
+    htf_context_minutes: [],
+    fidelity: "EXACT",
+    proof_plane: "CONFIRMED_5M",
+    replayability: "REPLAYABLE",
+    coverage_start_epoch: 2400,
+    coverage_end_epoch: 2700,
+    ambiguity_codes: [],
+    boc_tier: null,
+    reference_candle_open_epoch: null,
+    reference_candle_open_ticks: null,
+    reference_candle_high_ticks: null,
+    reference_candle_low_ticks: null,
+    reference_candle_close_ticks: null,
+    htf_open_ticks: null,
+    contact_candle: null,
+    recross_candle: null,
+    coverage_gap_detected: null,
+    full_lifecycle_ordered: null,
+    destination_seen_before_contact: null,
+    passed_rule_ids: ["ENTRY_DIR_CLOSE"],
+    failed_rule_ids: [],
+    source_claim_ids: closeClaims,
+    payload_sha256: "EDGE_DERIVED",
+    observed_at_epoch: 2700,
+  };
+}
+
 function flipCandidate(setupId: string) {
   return {
     candidate_id: "EDGE_DERIVED:HTF_FLIP",
@@ -137,7 +195,7 @@ function exactFlipEvidence() {
     reference_candle_high_ticks: null,
     reference_candle_low_ticks: null,
     reference_candle_close_ticks: null,
-    htf_open_ticks: 111,
+    htf_open_ticks: 110,
     contact_candle: {
       open_epoch: 2100,
       close_epoch: 2400,
@@ -292,6 +350,18 @@ describe("RD Pine v3 independent raw payload parity", () => {
       fidelity: null,
       action: "OBSERVE",
     });
+    const rawEvidence = (
+      (payload.setups as Array<Record<string, unknown>>)[0]!
+        .evidence as Array<Record<string, unknown>>
+    );
+    expect(rawEvidence.map((item) => item.observed_trigger_ticks)).toEqual([
+      111,
+      111,
+    ]);
+    expect(rawEvidence[1]!.htf_open_ticks).toBe(110);
+    expect((payload.market_event as Record<string, unknown>).tick_price_ticks).toBe(
+      111,
+    );
     expect(JSON.stringify(parsed.canonicalPayload)).not.toContain(
       "EDGE_DERIVED",
     );
@@ -751,21 +821,21 @@ describe("RD Pine v3 independent raw payload parity", () => {
     expect(bundle.selectionProposal.evaluated_at_epoch).toBe(3000);
   });
 
-  it("validates an actual later exact-paper ambiguity as EXIT_FOLLOWUP", async () => {
-    const setupId = "setup-pine-exact-paper-ambiguity";
+  it("validates a Pine-emittable historical DIR_CLOSE later ambiguity as EXIT_FOLLOWUP", async () => {
+    const setupId = "setup-pine-close-paper-ambiguity";
     const payload = payloadEnvelope(
       setupId,
-      [bocCandidate(setupId, "MATCHED")],
-      [exactBocEvidence(setupId)],
+      [closeCandidate(setupId)],
+      [exactCloseEvidence()],
       {
         selection_id: "EDGE_DERIVED",
         setup_id: setupId,
         policy_version: "rd-entry-arbitration-v3",
         revision: 6,
-        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
-        canonical_candidate_id: "EDGE_DERIVED:BOC",
-        canonical_evidence_id: "EDGE_DERIVED:BOC",
-        canonical_model: "BOC",
+        candidate_ids_considered: ["EDGE_DERIVED:DIR_CLOSE"],
+        canonical_candidate_id: "EDGE_DERIVED:DIR_CLOSE",
+        canonical_evidence_id: "EDGE_DERIVED:DIR_CLOSE",
+        canonical_model: "DIR_CLOSE",
         reason: "ONLY_EXACT_TRIGGER",
         fidelity: "EXACT",
         action: "PAPER_ELIGIBLE",
@@ -775,6 +845,7 @@ describe("RD Pine v3 independent raw payload parity", () => {
       {
         isRealtime: false,
         observedAtEpoch: 3000,
+        entryTicks: 111,
         marketEvent: {
           epoch: 3000,
           sequence: 0,
