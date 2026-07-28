@@ -3,15 +3,22 @@ import type {
   EntryBatchSemanticIdentity,
   ValidatedEntryWireBatch,
 } from "./rd-entry-wire";
+import type { ValidatedEntryV3Bundle } from "./rd-entry-wire-v3";
 
 export type ObservationKind = "incremental" | "snapshot";
 export type ReceiptStatus = "RECEIVED" | "DUPLICATE";
-export type ObservationSchemaVersion = "1.0" | "1.1" | "1.2" | "2.0";
+export type ObservationSchemaVersion =
+  | "1.0"
+  | "1.1"
+  | "1.2"
+  | "2.0"
+  | "3.0";
 export type StrategyVersion =
   | "1.0.0-phase1"
   | "1.1.0-paper1"
   | "1.2.0-contract1"
-  | "2.0.0-contract2";
+  | "2.0.0-contract2"
+  | "3.0.0-contract3";
 
 export interface ReceiptMetadata {
   readonly idempotencyKey: string;
@@ -46,6 +53,14 @@ export type ValidatedObservation =
       readonly chunkIndex: number;
       readonly chunkCount: number;
       readonly entryBatches: readonly ValidatedEntryWireBatch[];
+    }
+  | {
+      readonly version: "entry-v3";
+      readonly credential: string;
+      readonly canonicalPayload: CanonicalObject;
+      readonly metadata: ReceiptMetadata;
+      readonly entryBundles: readonly ValidatedEntryV3Bundle[];
+      readonly paperCommands: readonly [];
     };
 
 export type CanonicalScalar = null | boolean | number | string;

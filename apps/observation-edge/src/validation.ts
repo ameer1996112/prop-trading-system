@@ -19,6 +19,7 @@ import {
   validateEntryV2BodySize,
   validateEntryV2Payload,
 } from "./rd-entry-wire";
+import { validateEntryV3Payload } from "./rd-entry-wire-v3";
 
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const MAX_OBSERVATIONS_PER_MESSAGE = 1_024;
@@ -1024,6 +1025,15 @@ export async function validateObservationEnvelope(
     const payload = await validateEntryV2Payload(payloadValue);
     return {
       version: "entry-v2",
+      credential,
+      ...payload,
+      paperCommands: [],
+    };
+  }
+  if (field(payloadObject, "schema_version") === "3.0") {
+    const payload = await validateEntryV3Payload(payloadValue);
+    return {
+      version: "entry-v3",
       credential,
       ...payload,
       paperCommands: [],

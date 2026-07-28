@@ -1,0 +1,810 @@
+import {
+  candidateIdV3,
+  evidenceIdV3,
+  evidencePayloadSha256V3,
+  selectionIdV3,
+  validateEntryCandidateV3,
+  validateEntryEvaluationV3,
+  validateEntryEvidenceV3,
+  validateOrderedCandleV3,
+  validateSelectionShapeV3,
+  type CandidateFidelityV3,
+  type EntryCandidateEvidenceV3,
+  type EntryCandidateV3,
+  type EntryDirectionV3,
+  type EntryEvaluationV3,
+  type EntrySelectionV3,
+  type OrderedCandleV3,
+  type SetupEntryFactsV3,
+} from "./rd-entry-domain-v3";
+import { arbitrateEntryCandidatesV3 } from "./rd-entry-arbitrator-v3";
+import {
+  isStrictJsonNumber,
+  type StrictJsonValue,
+} from "./strict-json";
+import type {
+  CanonicalObject,
+  ReceiptMetadata,
+} from "./types";
+
+export const ENTRY_V3_MAX_PAYLOAD_CHARACTERS = 35_000;
+export const REQUIRED_COMMON_RULE_IDS_V3 = [
+  "LIQ_ACTUAL_EXTREME_SWEPT",
+  "LIQ_DISTANCE_INFLUENCES_ZONE",
+  "LIQ_EVENT_ORDER",
+  "LIQ_INTERNAL_REBREAK",
+  "LIQ_NORMAL_TWO_OPPOSITE_CANDLES",
+  "LIQ_ONE_CANDLE_EXCEPTION",
+  "LIQ_OWN_EXTREME_SAME_LEG",
+  "LIQ_REPLACEMENT_AFTER_STALE_MOVE",
+  "LIQ_STRICT_OWN_EXTREME_BREAK",
+  "TIMEFRAME_FIVE_MINUTE_ONLY",
+  "ZONE_ACCURACY_BOUNDS",
+  "ZONE_FRESH_UNTAPPED",
+  "ZONE_ORIGIN_OPPOSITE_CANDLE",
+  "ZONE_PRE_ENTRY_CLOSE_OUTSIDE",
+] as const;
+
+const TOP_LEVEL_KEYS = [
+  "schema_version",
+  "strategy_id",
+  "strategy_version",
+  "rule_contract_version",
+  "execution_mode",
+  "producer_instance_id",
+  "producer_sequence",
+  "event_id",
+  "is_realtime",
+  "symbol",
+  "ticker_id",
+  "feed",
+  "timeframe",
+  "tick_size",
+  "detector_code_hash",
+  "settings_hash",
+  "observed_at_epoch",
+  "market_event",
+  "exit_events",
+  "setups",
+] as const;
+const SETUP_BUNDLE_KEYS = [
+  "setup",
+  "candidates",
+  "evidence",
+  "selection_proposal",
+  "trade_plan",
+] as const;
+const SETUP_KEYS = [
+  "setup_id",
+  "direction",
+  "zone_top_ticks",
+  "zone_bottom_ticks",
+  "zone_engaged_epoch",
+  "invalidated_before_entry",
+  "common_fidelity",
+  "common_rule_results",
+] as const;
+const CANDIDATE_KEYS = [
+  "candidate_id",
+  "setup_id",
+  "model",
+  "state",
+  "direction",
+  "event_anchor_epoch",
+  "trigger_ordinal",
+  "boc_tier",
+  "reference_candle_open_epoch",
+  "source_claim_ids",
+  "observed_at_epoch",
+] as const;
+const EVIDENCE_KEYS = [
+  "evidence_id",
+  "candidate_id",
+  "observed_trigger_epoch",
+  "trigger_sequence",
+  "observed_trigger_ticks",
+  "htf_context_minutes",
+  "fidelity",
+  "proof_plane",
+  "replayability",
+  "coverage_start_epoch",
+  "coverage_end_epoch",
+  "ambiguity_codes",
+  "boc_tier",
+  "reference_candle_open_epoch",
+  "reference_candle_open_ticks",
+  "reference_candle_high_ticks",
+  "reference_candle_low_ticks",
+  "reference_candle_close_ticks",
+  "htf_open_ticks",
+  "contact_candle",
+  "recross_candle",
+  "coverage_gap_detected",
+  "full_lifecycle_ordered",
+  "destination_seen_before_contact",
+  "passed_rule_ids",
+  "failed_rule_ids",
+  "source_claim_ids",
+  "payload_sha256",
+  "observed_at_epoch",
+] as const;
+const SELECTION_KEYS = [
+  "selection_id",
+  "setup_id",
+  "policy_version",
+  "revision",
+  "candidate_ids_considered",
+  "canonical_candidate_id",
+  "canonical_evidence_id",
+  "canonical_model",
+  "reason",
+  "fidelity",
+  "action",
+  "co_triggered_models",
+  "evaluated_at_epoch",
+] as const;
+const CANDLE_KEYS = [
+  "open_epoch",
+  "close_epoch",
+  "open_ticks",
+  "high_ticks",
+  "low_ticks",
+  "close_ticks",
+] as const;
+const MARKET_EVENT_KEYS = [
+  "epoch",
+  "sequence",
+  "tick_price_ticks",
+  "barstate_isconfirmed",
+  "confirmed_bar",
+] as const;
+const TRADE_PLAN_KEYS = [
+  "direction",
+  "entry_ticks",
+  "stop_ticks",
+  "target_ticks",
+] as const;
+const EXIT_EVENT_KEYS = [
+  "event_id",
+  "setup_id",
+  "exit_reason",
+  "epoch",
+  "sequence",
+  "price_ticks",
+] as const;
+const SHA256 = /^[a-f0-9]{64}$/u;
+const IDENTIFIER = /^[\x21-\x5b\x5d-\x7e]+$/u;
+const POSITIVE_DECIMAL =
+  /^(?:0\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\.[0-9]+)?)$/u;
+
+export class EntryV3ValidationError extends Error {
+  constructor(message = "ENTRY_V3_INVALID") {
+    super(message);
+    this.name = "EntryV3ValidationError";
+  }
+}
+
+export interface EntryV3CommonRuleResult {
+  readonly rule_id: (typeof REQUIRED_COMMON_RULE_IDS_V3)[number];
+  readonly passed: true;
+}
+
+export interface EntryV3MarketEvent {
+  readonly epoch: number;
+  readonly sequence: number;
+  readonly tick_price_ticks: number;
+  readonly barstate_isconfirmed: boolean;
+  readonly confirmed_bar: OrderedCandleV3 | null;
+}
+
+export interface EntryV3TradePlan {
+  readonly direction: EntryDirectionV3;
+  readonly entry_ticks: number;
+  readonly stop_ticks: number;
+  readonly target_ticks: number;
+}
+
+export interface EntryV3ExitEvent {
+  readonly event_id: string;
+  readonly setup_id: string;
+  readonly exit_reason: "STOP_LOSS" | "TARGET";
+  readonly epoch: number;
+  readonly sequence: number;
+  readonly price_ticks: number;
+}
+
+export interface ValidatedEntryV3Bundle {
+  readonly setup: SetupEntryFactsV3;
+  readonly commonRuleResults: readonly EntryV3CommonRuleResult[];
+  readonly candidates: readonly EntryCandidateV3[];
+  readonly evidence: readonly EntryCandidateEvidenceV3[];
+  readonly selectionProposal: EntrySelectionV3;
+  readonly evaluation: EntryEvaluationV3;
+  readonly tradePlan: EntryV3TradePlan;
+}
+
+export interface ValidatedEntryV3Payload {
+  readonly canonicalPayload: CanonicalObject;
+  readonly metadata: ReceiptMetadata;
+  readonly producerSequence: number;
+  readonly eventId: string;
+  readonly isRealtime: boolean;
+  readonly detectorCodeHash: string;
+  readonly settingsHash: string;
+  readonly marketEvent: EntryV3MarketEvent;
+  readonly exitEvents: readonly EntryV3ExitEvent[];
+  readonly entryBundles: readonly ValidatedEntryV3Bundle[];
+}
+
+function fail(code = "ENTRY_V3_INVALID"): never {
+  throw new EntryV3ValidationError(code);
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  const result = value as Record<string, unknown>;
+  return `{${Object.keys(result)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(result[key])}`)
+    .join(",")}}`;
+}
+
+function plain(value: StrictJsonValue): unknown {
+  if (isStrictJsonNumber(value)) {
+    if (!Number.isSafeInteger(value.value) && value.isIntegerToken) {
+      fail();
+    }
+    return value.value;
+  }
+  if (Array.isArray(value)) return value.map(plain);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, plain(child)]),
+    );
+  }
+  return value;
+}
+
+function object(value: unknown, code = "ENTRY_V3_OBJECT"): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return fail(code);
+  }
+  return value as Record<string, unknown>;
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  code = "ENTRY_V3_KEYS",
+): void {
+  if (
+    Object.keys(value).sort().join("\u0000") !==
+    [...keys].sort().join("\u0000")
+  ) {
+    fail(code);
+  }
+}
+
+function integer(value: unknown, minimum = 0): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < minimum
+  ) {
+    return fail();
+  }
+  return value;
+}
+
+function signedInteger(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value)) return fail();
+  return value;
+}
+
+function text(value: unknown, maximum = 256): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum ||
+    value.trim() !== value
+  ) {
+    return fail();
+  }
+  return value;
+}
+
+function identifier(value: unknown): string {
+  const result = text(value);
+  return IDENTIFIER.test(result) ? result : fail();
+}
+
+function digest(value: unknown): string {
+  const result = text(value, 64);
+  return SHA256.test(result) && result !== "0".repeat(64) ? result : fail();
+}
+
+function boolean(value: unknown): boolean {
+  if (typeof value !== "boolean") return fail();
+  return value;
+}
+
+function values(value: unknown, minimum: number, maximum: number): unknown[] {
+  if (!Array.isArray(value) || value.length < minimum || value.length > maximum) {
+    return fail();
+  }
+  return value;
+}
+
+function stringValues(value: unknown, maximum = 32): readonly string[] {
+  const result = values(value, 0, maximum).map(identifier);
+  if (new Set(result).size !== result.length) fail();
+  return result;
+}
+
+function parseCandle(value: unknown, requireFiveMinutes = false): OrderedCandleV3 {
+  const result = object(value);
+  exactKeys(result, CANDLE_KEYS);
+  const candle: OrderedCandleV3 = {
+    open_epoch: integer(result.open_epoch),
+    close_epoch: integer(result.close_epoch),
+    open_ticks: signedInteger(result.open_ticks),
+    high_ticks: signedInteger(result.high_ticks),
+    low_ticks: signedInteger(result.low_ticks),
+    close_ticks: signedInteger(result.close_ticks),
+  };
+  try {
+    validateOrderedCandleV3(candle);
+  } catch {
+    return fail();
+  }
+  if (
+    requireFiveMinutes &&
+    (candle.close_epoch - candle.open_epoch !== 300 ||
+      candle.open_epoch % 300 !== 0)
+  ) {
+    fail();
+  }
+  return candle;
+}
+
+function parseCandidate(value: unknown): EntryCandidateV3 {
+  const result = object(value);
+  exactKeys(result, CANDIDATE_KEYS);
+  const candidate = {
+    candidate_id: digest(result.candidate_id),
+    setup_id: identifier(result.setup_id),
+    model: result.model,
+    state: result.state,
+    direction: result.direction,
+    event_anchor_epoch: integer(result.event_anchor_epoch),
+    trigger_ordinal: integer(result.trigger_ordinal, 1),
+    boc_tier: result.boc_tier,
+    reference_candle_open_epoch:
+      result.reference_candle_open_epoch === null
+        ? null
+        : integer(result.reference_candle_open_epoch),
+    source_claim_ids: stringValues(result.source_claim_ids),
+    observed_at_epoch: integer(result.observed_at_epoch),
+  } as EntryCandidateV3;
+  try {
+    validateEntryCandidateV3(candidate);
+  } catch {
+    return fail();
+  }
+  return candidate;
+}
+
+function nullableInteger(value: unknown): number | null {
+  return value === null ? null : signedInteger(value);
+}
+
+function nullableBoolean(value: unknown): boolean | null {
+  return value === null ? null : boolean(value);
+}
+
+function parseEvidence(value: unknown): EntryCandidateEvidenceV3 {
+  const result = object(value);
+  exactKeys(result, EVIDENCE_KEYS);
+  const evidence = {
+    evidence_id: digest(result.evidence_id),
+    candidate_id: digest(result.candidate_id),
+    observed_trigger_epoch:
+      result.observed_trigger_epoch === null
+        ? null
+        : integer(result.observed_trigger_epoch),
+    trigger_sequence: integer(result.trigger_sequence),
+    observed_trigger_ticks: nullableInteger(result.observed_trigger_ticks),
+    htf_context_minutes: values(result.htf_context_minutes, 0, 3).map(
+      (item) => integer(item, 15),
+    ),
+    fidelity: result.fidelity,
+    proof_plane: result.proof_plane,
+    replayability: result.replayability,
+    coverage_start_epoch: integer(result.coverage_start_epoch),
+    coverage_end_epoch: integer(result.coverage_end_epoch),
+    ambiguity_codes: stringValues(result.ambiguity_codes, 3),
+    boc_tier: result.boc_tier,
+    reference_candle_open_epoch:
+      result.reference_candle_open_epoch === null
+        ? null
+        : integer(result.reference_candle_open_epoch),
+    reference_candle_open_ticks: nullableInteger(
+      result.reference_candle_open_ticks,
+    ),
+    reference_candle_high_ticks: nullableInteger(
+      result.reference_candle_high_ticks,
+    ),
+    reference_candle_low_ticks: nullableInteger(
+      result.reference_candle_low_ticks,
+    ),
+    reference_candle_close_ticks: nullableInteger(
+      result.reference_candle_close_ticks,
+    ),
+    htf_open_ticks: nullableInteger(result.htf_open_ticks),
+    contact_candle:
+      result.contact_candle === null ? null : parseCandle(result.contact_candle),
+    recross_candle:
+      result.recross_candle === null ? null : parseCandle(result.recross_candle),
+    coverage_gap_detected: nullableBoolean(result.coverage_gap_detected),
+    full_lifecycle_ordered: nullableBoolean(result.full_lifecycle_ordered),
+    destination_seen_before_contact: nullableBoolean(
+      result.destination_seen_before_contact,
+    ),
+    passed_rule_ids: stringValues(result.passed_rule_ids),
+    failed_rule_ids: stringValues(result.failed_rule_ids),
+    source_claim_ids: stringValues(result.source_claim_ids),
+    payload_sha256: digest(result.payload_sha256),
+    observed_at_epoch: integer(result.observed_at_epoch),
+  } as EntryCandidateEvidenceV3;
+  try {
+    validateEntryEvidenceV3(evidence);
+  } catch {
+    return fail();
+  }
+  return evidence;
+}
+
+function parseSelection(value: unknown): EntrySelectionV3 {
+  const result = object(value);
+  exactKeys(result, SELECTION_KEYS);
+  const selection = {
+    selection_id: digest(result.selection_id),
+    setup_id: identifier(result.setup_id),
+    policy_version: result.policy_version,
+    revision: integer(result.revision),
+    candidate_ids_considered: stringValues(result.candidate_ids_considered),
+    canonical_candidate_id:
+      result.canonical_candidate_id === null
+        ? null
+        : digest(result.canonical_candidate_id),
+    canonical_evidence_id:
+      result.canonical_evidence_id === null
+        ? null
+        : digest(result.canonical_evidence_id),
+    canonical_model: result.canonical_model,
+    reason: result.reason,
+    fidelity: result.fidelity,
+    action: result.action,
+    co_triggered_models: stringValues(result.co_triggered_models, 3),
+    evaluated_at_epoch: integer(result.evaluated_at_epoch),
+  } as EntrySelectionV3;
+  try {
+    validateSelectionShapeV3(selection);
+  } catch {
+    return fail();
+  }
+  return selection;
+}
+
+async function verifyCanonicalDigests(
+  evaluation: EntryEvaluationV3,
+): Promise<void> {
+  for (const candidate of evaluation.candidates) {
+    if ((await candidateIdV3(candidate)) !== candidate.candidate_id) fail();
+  }
+  for (const evidence of evaluation.evidence) {
+    const { evidence_id: _, payload_sha256: __, observed_at_epoch: ___, ...payload } =
+      evidence;
+    const payloadSha256 = await evidencePayloadSha256V3(payload);
+    if (
+      payloadSha256 !== evidence.payload_sha256 ||
+      (await evidenceIdV3(evidence)) !== evidence.evidence_id
+    ) {
+      fail();
+    }
+  }
+  if ((await selectionIdV3(evaluation.selection)) !== evaluation.selection.selection_id) {
+    fail();
+  }
+}
+
+function parseCommonRules(value: unknown): readonly EntryV3CommonRuleResult[] {
+  const result = values(
+    value,
+    REQUIRED_COMMON_RULE_IDS_V3.length,
+    REQUIRED_COMMON_RULE_IDS_V3.length,
+  ).map((item) => {
+    const rule = object(item);
+    exactKeys(rule, ["rule_id", "passed"]);
+    return {
+      rule_id: identifier(rule.rule_id),
+      passed: boolean(rule.passed),
+    };
+  });
+  if (
+    result.map((item) => item.rule_id).join() !==
+      REQUIRED_COMMON_RULE_IDS_V3.join() ||
+    result.some((item) => !item.passed)
+  ) {
+    fail();
+  }
+  return result as readonly EntryV3CommonRuleResult[];
+}
+
+function parseSetup(value: unknown): {
+  readonly facts: SetupEntryFactsV3;
+  readonly commonRules: readonly EntryV3CommonRuleResult[];
+} {
+  const result = object(value);
+  exactKeys(result, SETUP_KEYS);
+  const facts = {
+    setup_id: identifier(result.setup_id),
+    direction: result.direction,
+    zone_top_ticks: signedInteger(result.zone_top_ticks),
+    zone_bottom_ticks: signedInteger(result.zone_bottom_ticks),
+    zone_engaged_epoch:
+      result.zone_engaged_epoch === null
+        ? null
+        : integer(result.zone_engaged_epoch),
+    invalidated_before_entry: boolean(result.invalidated_before_entry),
+    common_fidelity: result.common_fidelity,
+  } as SetupEntryFactsV3;
+  if (
+    (facts.direction !== "LONG" && facts.direction !== "SHORT") ||
+    facts.zone_top_ticks <= facts.zone_bottom_ticks ||
+    !["EXACT", "CALIBRATED", "DISCRETIONARY", "UNRESOLVED"].includes(
+      facts.common_fidelity,
+    )
+  ) {
+    fail();
+  }
+  return {
+    facts,
+    commonRules: parseCommonRules(result.common_rule_results),
+  };
+}
+
+function parseTradePlan(
+  value: unknown,
+  expectedDirection: EntryDirectionV3,
+): EntryV3TradePlan {
+  const result = object(value);
+  exactKeys(result, TRADE_PLAN_KEYS);
+  const direction = result.direction;
+  const plan = {
+    direction,
+    entry_ticks: signedInteger(result.entry_ticks),
+    stop_ticks: signedInteger(result.stop_ticks),
+    target_ticks: signedInteger(result.target_ticks),
+  } as EntryV3TradePlan;
+  if (
+    direction !== expectedDirection ||
+    (direction === "LONG"
+      ? !(plan.stop_ticks < plan.entry_ticks &&
+          plan.entry_ticks < plan.target_ticks)
+      : direction === "SHORT"
+        ? !(plan.target_ticks < plan.entry_ticks &&
+            plan.entry_ticks < plan.stop_ticks)
+        : true)
+  ) {
+    fail();
+  }
+  return plan;
+}
+
+async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
+  const result = object(value);
+  exactKeys(result, SETUP_BUNDLE_KEYS);
+  const setup = parseSetup(result.setup);
+  const candidates = values(result.candidates, 0, 3).map(parseCandidate);
+  const evidence = values(result.evidence, 0, 12).map(parseEvidence);
+  if (
+    new Set(candidates.map((item) => item.candidate_id)).size !==
+      candidates.length ||
+    new Set(evidence.map((item) => item.evidence_id)).size !== evidence.length ||
+    candidates.some(
+      (item) =>
+        item.setup_id !== setup.facts.setup_id ||
+        item.direction !== setup.facts.direction,
+    )
+  ) {
+    fail();
+  }
+  const selectionProposal = parseSelection(result.selection_proposal);
+  const canonicalSelection = await arbitrateEntryCandidatesV3(
+    setup.facts.setup_id,
+    candidates,
+    evidence,
+    setup.facts.invalidated_before_entry,
+    selectionProposal.revision,
+    selectionProposal.evaluated_at_epoch,
+  );
+  if (
+    canonicalJson(canonicalSelection) !== canonicalJson(selectionProposal)
+  ) {
+    fail();
+  }
+  const evaluation = {
+    candidates: [...candidates].sort((a, b) =>
+      a.candidate_id.localeCompare(b.candidate_id),
+    ),
+    evidence: [...evidence].sort((a, b) =>
+      a.evidence_id.localeCompare(b.evidence_id),
+    ),
+    selection: canonicalSelection,
+  };
+  try {
+    validateEntryEvaluationV3(evaluation);
+  } catch {
+    return fail();
+  }
+  await verifyCanonicalDigests(evaluation);
+  if (
+    selectionProposal.action === "PAPER_ELIGIBLE" &&
+    (setup.facts.common_fidelity !== "EXACT" ||
+      setup.facts.invalidated_before_entry ||
+      setup.facts.zone_engaged_epoch === null ||
+      evaluation.evidence.some(
+        (item) =>
+          item.observed_trigger_epoch !== null &&
+          item.observed_trigger_epoch < setup.facts.zone_engaged_epoch!,
+      ))
+  ) {
+    fail();
+  }
+  return {
+    setup: setup.facts,
+    commonRuleResults: setup.commonRules,
+    candidates: evaluation.candidates,
+    evidence: evaluation.evidence,
+    selectionProposal,
+    evaluation,
+    tradePlan: parseTradePlan(result.trade_plan, setup.facts.direction),
+  };
+}
+
+function parseMarketEvent(value: unknown): EntryV3MarketEvent {
+  const result = object(value);
+  exactKeys(result, MARKET_EVENT_KEYS);
+  const barstateIsConfirmed = boolean(result.barstate_isconfirmed);
+  const confirmedBar =
+    result.confirmed_bar === null
+      ? null
+      : parseCandle(result.confirmed_bar, true);
+  if (barstateIsConfirmed !== (confirmedBar !== null)) fail();
+  const event = {
+    epoch: integer(result.epoch),
+    sequence: integer(result.sequence),
+    tick_price_ticks: signedInteger(result.tick_price_ticks),
+    barstate_isconfirmed: barstateIsConfirmed,
+    confirmed_bar: confirmedBar,
+  };
+  if (
+    confirmedBar !== null &&
+    (event.epoch !== confirmedBar.close_epoch ||
+      event.tick_price_ticks !== confirmedBar.close_ticks)
+  ) {
+    fail();
+  }
+  return event;
+}
+
+function parseExitEvent(value: unknown): EntryV3ExitEvent {
+  const result = object(value);
+  exactKeys(result, EXIT_EVENT_KEYS);
+  const reason = result.exit_reason;
+  if (reason !== "STOP_LOSS" && reason !== "TARGET") fail();
+  return {
+    event_id: identifier(result.event_id),
+    setup_id: identifier(result.setup_id),
+    exit_reason: reason,
+    epoch: integer(result.epoch),
+    sequence: integer(result.sequence),
+    price_ticks: signedInteger(result.price_ticks),
+  };
+}
+
+export async function validateEntryV3Payload(
+  raw: StrictJsonValue,
+): Promise<ValidatedEntryV3Payload> {
+  const decoded = plain(raw);
+  const serialized = JSON.stringify(decoded);
+  if (serialized.length >= ENTRY_V3_MAX_PAYLOAD_CHARACTERS) {
+    fail("ENTRY_V3_MESSAGE_TOO_LARGE");
+  }
+  const payload = object(decoded);
+  exactKeys(payload, TOP_LEVEL_KEYS);
+  if (
+    payload.schema_version !== "3.0" ||
+    payload.strategy_id !== "rd_liquidity_sd_5m_v1" ||
+    payload.strategy_version !== "3.0.0-contract3" ||
+    payload.rule_contract_version !== "3.0.0" ||
+    payload.execution_mode !== "PAPER_ONLY" ||
+    payload.timeframe !== "5"
+  ) {
+    fail();
+  }
+  const producerInstanceId = identifier(payload.producer_instance_id);
+  const producerSequence = integer(payload.producer_sequence);
+  const eventId = identifier(payload.event_id);
+  const isRealtime = boolean(payload.is_realtime);
+  const symbol = identifier(payload.symbol);
+  const tickerId = identifier(payload.ticker_id);
+  const feed = identifier(payload.feed);
+  const tickSize = text(payload.tick_size, 64);
+  if (!POSITIVE_DECIMAL.test(tickSize)) fail();
+  const detectorCodeHash = digest(payload.detector_code_hash);
+  const settingsHash = digest(payload.settings_hash);
+  const observedAtEpoch = integer(payload.observed_at_epoch);
+  const marketEvent = parseMarketEvent(payload.market_event);
+  if (marketEvent.epoch > observedAtEpoch) fail();
+  const exitEvents = values(payload.exit_events, 0, 32).map(parseExitEvent);
+  const setupValues = values(payload.setups, 1, 32);
+  const entryBundles: ValidatedEntryV3Bundle[] = [];
+  for (const value of setupValues) entryBundles.push(await parseBundle(value));
+  if (
+    new Set(entryBundles.map((item) => item.setup.setup_id)).size !==
+      entryBundles.length
+  ) {
+    fail();
+  }
+  for (const bundle of entryBundles) {
+    if (
+      bundle.candidates.some(
+        (candidate) => candidate.observed_at_epoch > observedAtEpoch,
+      ) ||
+      bundle.evidence.some(
+        (evidence) =>
+          evidence.observed_at_epoch > observedAtEpoch ||
+          (evidence.proof_plane === "REALTIME_TICK" && !isRealtime),
+      ) ||
+      bundle.selectionProposal.evaluated_at_epoch > observedAtEpoch
+    ) {
+      fail();
+    }
+  }
+  const canonicalPayload = decoded as CanonicalObject;
+  return {
+    canonicalPayload,
+    metadata: {
+      idempotencyKey: eventId,
+      schemaVersion: "3.0",
+      strategyId: "rd_liquidity_sd_5m_v1",
+      strategyVersion: "3.0.0-contract3",
+      producerInstanceId,
+      sequence: producerSequence,
+      symbol,
+      tickerId,
+      feed,
+      timeframe: "5",
+      kind: "incremental",
+    },
+    producerSequence,
+    eventId,
+    isRealtime,
+    detectorCodeHash,
+    settingsHash,
+    marketEvent,
+    exitEvents,
+    entryBundles,
+  };
+}
+
+export function validateEntryV3BodySize(raw: Uint8Array): void {
+  if (new TextDecoder().decode(raw).length >= ENTRY_V3_MAX_PAYLOAD_CHARACTERS) {
+    fail("ENTRY_V3_MESSAGE_TOO_LARGE");
+  }
+}
