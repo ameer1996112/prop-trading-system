@@ -235,6 +235,17 @@ INSERT INTO observation_entry_v3_exit_applications (
 `;
 
 export const LIST_ENTRY_V3_DECISIONS_SQL = `
+WITH ranked_selections AS (
+  SELECT
+    stored_selection.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY stored_selection.setup_id, stored_selection.attempt_kind
+      ORDER BY
+        stored_selection.evaluated_at_epoch DESC,
+        stored_selection.selection_id DESC
+    ) AS attempt_revision_rank
+  FROM observation_entry_v3_selections AS stored_selection
+)
 SELECT
   selection.selection_id,
   selection.logical_selection_id,
@@ -256,9 +267,10 @@ SELECT
   selection.selection_json,
   event.symbol,
   event.tick_size
-FROM observation_entry_v3_selections AS selection
+FROM ranked_selections AS selection
 JOIN observation_entry_v3_events AS event
   ON event.event_id = selection.event_id
+WHERE selection.attempt_revision_rank = 1
 ORDER BY selection.evaluated_at_epoch DESC, selection.selection_id DESC
 LIMIT ?
 `;
@@ -327,7 +339,12 @@ LIMIT ?
 
 export const LIST_ENTRY_V3_DECISION_PAPER_SQL = `
 SELECT
-  link.selection_id,
+  current_selection.selection_id,
+  opened_selection.selection_id AS opened_decision_id,
+  opened_selection.logical_selection_id AS opened_selection_id,
+  opened_selection.canonical_model AS opened_canonical_model,
+  opened_selection.reason AS opened_reason,
+  opened_selection.evaluated_at_epoch AS opened_evaluated_at_epoch,
   link.intent_id,
   intent.entry_price,
   intent.stop_loss,
@@ -335,11 +352,16 @@ SELECT
   CASE WHEN settlement.settlement_id IS NULL THEN 'OPEN' ELSE 'SETTLED' END
     AS trade_state
 FROM observation_entry_v3_paper_links AS link
+JOIN observation_entry_v3_selections AS current_selection
+  ON current_selection.setup_id = link.setup_id
+  AND current_selection.attempt_kind = link.attempt_kind
+JOIN observation_entry_v3_selections AS opened_selection
+  ON opened_selection.selection_id = link.selection_id
 JOIN paper_trade_intents AS intent ON intent.intent_id = link.intent_id
 LEFT JOIN paper_trade_settlements AS settlement
   ON settlement.intent_id = intent.intent_id
-WHERE link.selection_id IN (SELECT value FROM json_each(?))
-ORDER BY link.selection_id
+WHERE current_selection.selection_id IN (SELECT value FROM json_each(?))
+ORDER BY current_selection.selection_id
 LIMIT ?
 `;
 

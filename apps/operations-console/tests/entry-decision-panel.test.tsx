@@ -11,6 +11,7 @@ const discretionarySnapshot: EntryDecisionSnapshot = {
     {
       decisionId: "stored-selection-a",
       setupId: "setup-discretionary",
+      attemptKind: "INITIAL",
       symbol: "GBPUSD",
       direction: "LONG",
       selection: {
@@ -106,6 +107,7 @@ const discretionarySnapshot: EntryDecisionSnapshot = {
         stopTicks: 101,
         targetTicks: 151,
       },
+      openedEconomicSelection: null,
       paperIntentId: null,
       trade: null,
       shadowOutcome: { state: "OPEN", outcomeRMillis: null },
@@ -208,6 +210,13 @@ describe("EntryDecisionPanel", () => {
             },
           ],
           paperIntentId: "intent-a",
+          openedEconomicSelection: {
+            decisionId: "stored-selection-a",
+            selectionId: "selection-a",
+            canonicalModel: "HTF_FLIP",
+            reason: "CO_TRIGGER_SAME_EVENT",
+            evaluatedAtEpoch: 2_400,
+          },
           trade: {
             entryPrice: "1.1",
             stopLoss: "1.0",
@@ -223,6 +232,37 @@ describe("EntryDecisionPanel", () => {
       "href",
       "#paper-intent-intent-a",
     );
+  });
+
+  it("labels a later revision as already open instead of a new selection", () => {
+    const alreadyOpen = structuredClone(discretionarySnapshot);
+    const item = alreadyOpen.items[0]!;
+    item.selection.action = "SHADOW_ONLY";
+    item.selection.effectiveActionReason = "NOT_SELECTED_ALREADY_OPEN";
+    item.openedEconomicSelection = {
+      decisionId: "stored-selection-opened",
+      selectionId: "selection-opened",
+      canonicalModel: "BOC",
+      reason: "ONLY_EXACT_TRIGGER",
+      evaluatedAtEpoch: 2_100,
+    };
+    item.paperIntentId = "intent-opened";
+    item.trade = {
+      entryPrice: "1.1",
+      stopLoss: "1.0",
+      takeProfit: "1.3",
+      state: "OPEN",
+    };
+
+    render(<EntryDecisionPanel initialSnapshot={alreadyOpen} />);
+
+    expect(screen.getByText("BOC already open")).toBeInTheDocument();
+    expect(
+      screen.getByText("Immutable paper selection · Only exact trigger"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Directional close selected"),
+    ).not.toBeInTheDocument();
   });
 
   it("explains a context-misaligned blocked flip with no retained lifecycle", () => {

@@ -1693,6 +1693,7 @@ function cloneEntryV3DecisionEvent(
   database: FakeD1,
   caseId: string,
   suffix: string,
+  exactEventId = false,
 ): {
   readonly originalSelectionId: string;
   readonly clonedSelectionId: string;
@@ -1701,7 +1702,7 @@ function cloneEntryV3DecisionEvent(
   readonly originalEvidenceIds: Map<string, string>;
   readonly clonedEvidenceIds: Map<string, string>;
 } {
-  const originalEventId = `decision-event:${caseId}`;
+  const originalEventId = exactEventId ? caseId : `decision-event:${caseId}`;
   const clonedEventId = `zz-decision-event:${suffix}`;
   const clonedReceiptId = `zz-decision-receipt:${suffix}`;
   const event = database.sqlite
@@ -2187,26 +2188,84 @@ describe("observation edge Worker", () => {
     const report = await body(response);
     const items = report.items as Array<Record<string, unknown>>;
     expect(response.status).toBe(200);
-    expect(items).toHaveLength(2);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.decision_id).toBe(clone.clonedSelectionId);
+    expect(items[0]?.shadow_outcome).toBeNull();
+  });
+
+  it("limits current cards by attempt and preserves the immutable opened paper selection", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+    });
+    const first = entryV3WorkerPayload();
+    const firstResponse = await handleRequest(postBody(first), env);
+    expect(firstResponse.status).toBe(202);
+    const opened = database.sqlite
+      .prepare(
+        `SELECT selection_id, logical_selection_id
+         FROM observation_entry_v3_selections`,
+      )
+      .get() as { selection_id: string; logical_selection_id: string };
+
+    const clone = cloneEntryV3DecisionEvent(
+      database,
+      "worker-v3:1",
+      "paper-followup",
+      true,
+    );
+    database.sqlite.exec(
+      "DROP TRIGGER observation_entry_v3_selections_no_update",
+    );
+    database.sqlite
+      .prepare(
+        `UPDATE observation_entry_v3_selections
+         SET action = 'SHADOW_ONLY',
+             effective_action_reason = 'NOT_SELECTED_ALREADY_OPEN'
+         WHERE selection_id = ?`,
+      )
+      .run(clone.clonedSelectionId);
+
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=1`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    const report = await body(response);
+    const items = report.items as Array<Record<string, unknown>>;
+    expect(response.status).toBe(200);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.decision_id).toBe(clone.clonedSelectionId);
+    expect(items[0]?.selection).toMatchObject({
+      action: "SHADOW_ONLY",
+      effective_action_reason: "NOT_SELECTED_ALREADY_OPEN",
+    });
+    expect(items[0]?.opened_economic_selection).toEqual({
+      decision_id: opened.selection_id,
+      selection_id: opened.logical_selection_id,
+      canonical_model: "BOC",
+      reason: "ONLY_EXACT_TRIGGER",
+      evaluated_at_epoch: 2400,
+    });
+    expect(items[0]).toMatchObject({
+      paper_intent_id: expect.any(String),
+      trade: { state: "OPEN" },
+    });
     expect(
-      items.map((item) => (item.selection as Record<string, unknown>).selection_id),
-    ).toEqual([
-      (
-        items[0]?.selection as Record<string, unknown>
-      ).selection_id,
-      (
-        items[0]?.selection as Record<string, unknown>
-      ).selection_id,
-    ]);
-    expect(new Set(items.map((item) => item.decision_id)).size).toBe(2);
-    expect(
-      items.find((item) => item.decision_id === clone.clonedSelectionId)
-        ?.shadow_outcome,
-    ).toBeNull();
-    expect(
-      items.find((item) => item.decision_id === clone.originalSelectionId)
-        ?.shadow_outcome,
-    ).toMatchObject({ state: "OPEN" });
+      database.sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM observation_entry_v3_selections`,
+        )
+        .get(),
+    ).toEqual({ count: 2 });
   });
 
   it("fails closed when selection members are grafted across v3 events", async () => {
@@ -2255,9 +2314,9 @@ describe("observation edge Worker", () => {
          WHERE selection_id = ? AND object_id IN (?, ?)`,
       )
       .run(
-        clone.originalSelectionId,
-        clone.originalCandidateIds.get(bocLogicalId)!,
-        clone.originalEvidenceIds.get(bocEvidenceLogicalId)!,
+        clone.clonedSelectionId,
+        clone.clonedCandidateIds.get(bocLogicalId)!,
+        clone.clonedEvidenceIds.get(bocEvidenceLogicalId)!,
       );
     database.sqlite
       .prepare(
@@ -2266,10 +2325,10 @@ describe("observation edge Worker", () => {
         ) VALUES (?, 'CANDIDATE', ?), (?, 'EVIDENCE', ?)`,
       )
       .run(
-        clone.originalSelectionId,
-        clone.clonedCandidateIds.get(bocLogicalId)!,
-        clone.originalSelectionId,
-        clone.clonedEvidenceIds.get(bocEvidenceLogicalId)!,
+        clone.clonedSelectionId,
+        clone.originalCandidateIds.get(bocLogicalId)!,
+        clone.clonedSelectionId,
+        clone.originalEvidenceIds.get(bocEvidenceLogicalId)!,
       );
     const env = await environment(database, {
       PAPER_LEDGER_ENABLED: "true",

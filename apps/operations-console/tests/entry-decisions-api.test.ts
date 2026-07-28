@@ -10,6 +10,7 @@ const payload = {
     {
       decision_id: "stored-selection-a",
       setup_id: "setup-a",
+      attempt_kind: "INITIAL",
       symbol: "EURUSD",
       direction: "LONG",
       selection: {
@@ -150,6 +151,13 @@ const payload = {
         stop_ticks: 101,
         target_ticks: 151,
       },
+      opened_economic_selection: {
+        decision_id: "stored-selection-a",
+        selection_id: "selection-a",
+        canonical_model: "DIR_CLOSE",
+        reason: "FALLBACK_TO_CONFIRMED_CLOSE",
+        evaluated_at_epoch: 2_400,
+      },
       paper_intent_id: "intent-a",
       trade: {
         entry_price: "0.00109",
@@ -286,6 +294,7 @@ function reportWithSingleFailedCandidate(
           selected_trigger_sequence: null,
         },
         candidates: [failedCandidate],
+        opened_economic_selection: null,
         paper_intent_id: null,
         trade: null,
       },
@@ -327,7 +336,7 @@ describe("loadEntryDecisions", () => {
     );
   });
 
-  it("keeps duplicate logical selection IDs when opaque decision IDs differ", async () => {
+  it("fails closed on duplicate setup cards", async () => {
     const repeated = structuredClone(payload);
     repeated.count = 2;
     repeated.items.push({
@@ -346,15 +355,51 @@ describe("loadEntryDecisions", () => {
 
     const snapshot = await loadEntryDecisions("operator-secret");
 
+    expect(snapshot).toMatchObject({ state: "ERROR", items: [] });
+  });
+
+  it("keeps a later already-open revision linked to the immutable economic selection", async () => {
+    const later = structuredClone(payload);
+    later.items[0]!.decision_id = "stored-selection-later";
+    const laterPayload = {
+      ...later,
+      items: [
+        {
+          ...later.items[0]!,
+          selection: {
+            ...later.items[0]!.selection,
+            action: "SHADOW_ONLY",
+            effective_action_reason: "NOT_SELECTED_ALREADY_OPEN",
+          },
+        },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(laterPayload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const snapshot = await loadEntryDecisions("operator-secret");
+
     expect(snapshot.state).toBe("READY");
-    expect(snapshot.items.map((item) => item.selection.selectionId)).toEqual([
-      "selection-a",
-      "selection-a",
-    ]);
-    expect(snapshot.items.map((item) => item.decisionId)).toEqual([
-      "stored-selection-a",
-      "stored-selection-b",
-    ]);
+    expect(snapshot.items[0]).toMatchObject({
+      decisionId: "stored-selection-later",
+      paperIntentId: "intent-a",
+      openedEconomicSelection: {
+        decisionId: "stored-selection-a",
+        selectionId: "selection-a",
+        canonicalModel: "DIR_CLOSE",
+      },
+      selection: {
+        action: "SHADOW_ONLY",
+        effectiveActionReason: "NOT_SELECTED_ALREADY_OPEN",
+      },
+    });
   });
 
   it.each(backendFailedRuleCases)(

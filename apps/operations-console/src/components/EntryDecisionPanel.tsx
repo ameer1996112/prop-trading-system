@@ -70,6 +70,9 @@ function titleCaseReason(value: string): string {
 
 function modelDecision(candidate: EntryDecisionCandidate, item: EntryDecisionItem): string {
   if (candidate.candidateId === item.selection.canonicalCandidateId) {
+    if (item.selection.effectiveActionReason === "NOT_SELECTED_ALREADY_OPEN") {
+      return `${MODEL_LABELS[candidate.model]} observed after paper open`;
+    }
     return `${MODEL_LABELS[candidate.model]} won arbitration`;
   }
   if (item.selection.coTriggeredModels.includes(candidate.model)) {
@@ -254,8 +257,13 @@ function shadowLabel(item: EntryDecisionItem): string {
 }
 
 function DecisionCard({ item }: { item: EntryDecisionItem }) {
-  const selected =
-    item.selection.canonicalModel === null
+  const openedSelection = item.openedEconomicSelection;
+  const alreadyOpen =
+    item.selection.effectiveActionReason === "NOT_SELECTED_ALREADY_OPEN" &&
+    openedSelection !== null;
+  const selected = alreadyOpen
+    ? `${MODEL_LABELS[openedSelection!.canonicalModel]} already open`
+    : item.selection.canonicalModel === null
       ? "No model selected"
       : `${MODEL_LABELS[item.selection.canonicalModel]} selected`;
   const coTrigger = coTriggerLabel(item);
@@ -271,8 +279,10 @@ function DecisionCard({ item }: { item: EntryDecisionItem }) {
           </p>
           <h3>{selected}</h3>
           <span>
-            {titleCaseReason(item.selection.reason)}
-            {item.selection.effectiveActionReason === null
+            {alreadyOpen
+              ? `Immutable paper selection · ${titleCaseReason(openedSelection!.reason)}`
+              : titleCaseReason(item.selection.reason)}
+            {item.selection.effectiveActionReason === null || alreadyOpen
               ? ""
               : ` · ${titleCaseReason(item.selection.effectiveActionReason)}`}
           </span>

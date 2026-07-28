@@ -1455,6 +1455,11 @@ interface DecisionParityRow {
 
 interface DecisionPaperRow {
   readonly selection_id: string;
+  readonly opened_decision_id: string;
+  readonly opened_selection_id: string;
+  readonly opened_canonical_model: "BOC" | "DIR_CLOSE" | "HTF_FLIP";
+  readonly opened_reason: EntrySelectionV3["reason"];
+  readonly opened_evaluated_at_epoch: number;
   readonly intent_id: string;
   readonly entry_price: string;
   readonly stop_loss: string;
@@ -1887,6 +1892,13 @@ async function listRdEntryDecisions(
       const paper = paperBySelection.get(row.selection_id) ?? null;
       const shadow = shadowBySelection.get(row.selection_id) ?? null;
       if (
+        (paper !== null &&
+          (paper.opened_decision_id.length < 1 ||
+            paper.opened_selection_id.length < 1 ||
+            !["BOC", "DIR_CLOSE", "HTF_FLIP"].includes(
+              paper.opened_canonical_model,
+            ) ||
+            !Number.isSafeInteger(paper.opened_evaluated_at_epoch))) ||
         shadow !== null &&
         !candidateRowsByStorageId.has(shadow.candidate_id)
       ) {
@@ -1895,6 +1907,7 @@ async function listRdEntryDecisions(
       return {
         decision_id: row.selection_id,
         setup_id: row.setup_id,
+        attempt_kind: row.attempt_kind,
         symbol: row.symbol,
         direction: candidates[0]!.direction,
         selection: decisionSelectionView(selection, row),
@@ -1913,6 +1926,16 @@ async function listRdEntryDecisions(
           stop_ticks: row.stop_ticks,
           target_ticks: row.target_ticks,
         },
+        opened_economic_selection:
+          paper === null
+            ? null
+            : {
+                decision_id: paper.opened_decision_id,
+                selection_id: paper.opened_selection_id,
+                canonical_model: paper.opened_canonical_model,
+                reason: paper.opened_reason,
+                evaluated_at_epoch: paper.opened_evaluated_at_epoch,
+              },
         paper_intent_id: paper?.intent_id ?? null,
         trade:
           paper === null

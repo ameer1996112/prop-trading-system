@@ -95,6 +95,7 @@ export type EntryDecisionSelection = {
 export type EntryDecisionItem = {
   decisionId: string;
   setupId: string;
+  attemptKind: "INITIAL" | "RE_ENTRY";
   symbol: string;
   direction: "LONG" | "SHORT";
   selection: EntryDecisionSelection;
@@ -116,6 +117,13 @@ export type EntryDecisionItem = {
     stopTicks: number;
     targetTicks: number;
   };
+  openedEconomicSelection: {
+    decisionId: string;
+    selectionId: string;
+    canonicalModel: EntryModel;
+    reason: EntryDecisionSelection["reason"];
+    evaluatedAtEpoch: number;
+  } | null;
   paperIntentId: string | null;
   trade: {
     entryPrice: string;
@@ -695,18 +703,24 @@ function parseItem(value: unknown): EntryDecisionItem {
   exactKeys(value, [
     "decision_id",
     "setup_id",
+    "attempt_kind",
     "symbol",
     "direction",
     "selection",
     "parity",
     "candidates",
     "trade_plan",
+    "opened_economic_selection",
     "paper_intent_id",
     "trade",
     "shadow_outcome",
   ]);
   const setupId = stringValue(value.setup_id);
   const decisionId = stringValue(value.decision_id);
+  const attemptKind =
+    value.attempt_kind === "INITIAL" || value.attempt_kind === "RE_ENTRY"
+      ? value.attempt_kind
+      : fail();
   const direction =
     value.direction === "LONG" || value.direction === "SHORT"
       ? value.direction
@@ -770,6 +784,34 @@ function parseItem(value: unknown): EntryDecisionItem {
   ]);
   const paperIntentId =
     value.paper_intent_id === null ? null : stringValue(value.paper_intent_id);
+  let openedEconomicSelection: EntryDecisionItem["openedEconomicSelection"] =
+    null;
+  if (value.opened_economic_selection !== null) {
+    if (!isRecord(value.opened_economic_selection)) fail();
+    exactKeys(value.opened_economic_selection, [
+      "decision_id",
+      "selection_id",
+      "canonical_model",
+      "reason",
+      "evaluated_at_epoch",
+    ]);
+    openedEconomicSelection = {
+      decisionId: stringValue(value.opened_economic_selection.decision_id),
+      selectionId: stringValue(value.opened_economic_selection.selection_id),
+      canonicalModel: enumValue(
+        value.opened_economic_selection.canonical_model,
+        models,
+      ),
+      reason: enumValue(
+        value.opened_economic_selection.reason,
+        selectionReasons,
+      ),
+      evaluatedAtEpoch: integer(
+        value.opened_economic_selection.evaluated_at_epoch,
+        0,
+      ),
+    };
+  }
   let trade: EntryDecisionItem["trade"] = null;
   if (value.trade !== null) {
     if (!isRecord(value.trade)) fail();
@@ -789,7 +831,12 @@ function parseItem(value: unknown): EntryDecisionItem {
           : fail(),
     };
   }
-  if ((paperIntentId === null) !== (trade === null)) fail();
+  if (
+    (paperIntentId === null) !== (trade === null) ||
+    (paperIntentId === null) !== (openedEconomicSelection === null)
+  ) {
+    fail();
+  }
   let shadowOutcome: EntryDecisionItem["shadowOutcome"] = null;
   if (value.shadow_outcome !== null) {
     if (!isRecord(value.shadow_outcome)) fail();
@@ -821,7 +868,13 @@ function parseItem(value: unknown): EntryDecisionItem {
   ) {
     fail();
   }
-  if ((selection.action === "PAPER_ELIGIBLE") !== (paperIntentId !== null)) {
+  if (
+    selection.action === "PAPER_ELIGIBLE"
+      ? openedEconomicSelection === null ||
+        openedEconomicSelection.decisionId !== decisionId
+      : openedEconomicSelection !== null &&
+        selection.effectiveActionReason !== "NOT_SELECTED_ALREADY_OPEN"
+  ) {
     fail();
   }
   if (selection.reason === "CO_TRIGGER_SAME_EVENT") {
@@ -849,6 +902,7 @@ function parseItem(value: unknown): EntryDecisionItem {
   return {
     decisionId,
     setupId,
+    attemptKind,
     symbol: stringValue(value.symbol, 64),
     direction,
     selection,
@@ -860,6 +914,7 @@ function parseItem(value: unknown): EntryDecisionItem {
       stopTicks: integer(value.trade_plan.stop_ticks),
       targetTicks: integer(value.trade_plan.target_ticks),
     },
+    openedEconomicSelection,
     paperIntentId,
     trade,
     shadowOutcome,
@@ -879,7 +934,12 @@ function parseReport(value: unknown): EntryDecisionSnapshot {
     fail();
   }
   const items = value.items.map(parseItem);
-  if (new Set(items.map((item) => item.decisionId)).size !== items.length) {
+  if (
+    new Set(items.map((item) => item.decisionId)).size !== items.length ||
+    new Set(
+      items.map((item) => `${item.setupId}\u0000${item.attemptKind}`),
+    ).size !== items.length
+  ) {
     fail();
   }
   return items.length === 0
