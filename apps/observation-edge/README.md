@@ -9,9 +9,10 @@ operations console. It has no broker, account, order, or trade-execution route.
 - Ingress is disabled unless `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED` is exactly
   `true` and the credential digest secret is a lowercase SHA-256 value.
 - The ingress digest, paper-admin digest, reviewed detector digest, and reviewed
-  settings digest are required Worker secrets. `wrangler.jsonc` declares their
-  names under `secrets.required` and never supplies plaintext or empty values
-  under `vars`.
+  settings digest are Worker secret bindings. `wrangler.jsonc` mirrors their
+  names under `secrets.required` as schema/type/local-warning metadata and never
+  supplies plaintext or empty values under `vars`. That metadata does not
+  inspect remote bindings or block deployment.
 - Request bodies are bounded before JSON parsing.
 - JSON duplicate keys, invalid UTF-8, non-finite values, unsafe integers,
   unexpected fields, corrupt identifiers, invalid market geometry, and
@@ -58,11 +59,12 @@ npx wrangler secret list
 ```
 
 This remote mutation requires explicit operator approval and creates a Worker
-deployment. The list must contain all four names declared in
-`secrets.required`; it never reveals their values. Follow the effective
-reviewed-hash verification sequence in
+deployment. Before application deployment continues, the list must contain all
+four names declared in `secrets.required`; it never reveals their values. After
+deployment, follow the signed DIR_CLOSE decision/intent and replay verification
+sequence in
 [`docs/runbooks/rd-three-entry-paper-rollout.md`](../../docs/runbooks/rd-three-entry-paper-rollout.md)
-before enabling contract-v3 Pine emission.
+to prove effective values before enabling contract-v3 Pine emission.
 
 After the secrets and database binding exist, set
 `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED` to `true`, export the operations

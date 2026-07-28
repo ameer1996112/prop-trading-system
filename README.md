@@ -78,10 +78,12 @@ The v2 producer and contract remain available for immutable historical records. 
 uses authenticated schema-3.0 event bundles and never contains a broker command. Reviewed
 detector/settings identity and PAPER_ONLY account/risk configuration are required before the edge
 can create an internal paper intent; missing or inconsistent authority fails closed to audit.
-The reviewed detector and settings hashes are required Worker secrets, not plaintext
-`wrangler.jsonc` variables. Their values are bound through owner-only input and verified against a
-signed strict payload before Pine emission; the exact procedure is in the contract-v3 release
-runbook below.
+The reviewed detector and settings hashes are Worker secret bindings, not plaintext
+`wrangler.jsonc` variables. The `secrets.required` list is schema/type/local-warning metadata only,
+not a remote-value or deployment gate. Operators must list all four remote secret names before
+deployment continuation, then prove the reviewed values after deployment with the signed strict
+DIR_CLOSE decision/intent and replay checks before Pine emission. The exact procedure is in the
+contract-v3 release runbook below.
 
 This is simulation bookkeeping, not broker execution. The older schema-1.1 transport can
 atomically create and settle internal simulator intents through authenticated observations, but

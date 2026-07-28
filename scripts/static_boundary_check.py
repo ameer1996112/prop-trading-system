@@ -20,8 +20,10 @@ CONFIGURATION_FILES = (
     Path("compose.yaml"),
     WRANGLER_CONFIG_PATH,
 )
-REQUIRED_REVIEWED_HASH_SECRETS = frozenset(
+WORKER_SECRET_METADATA_NAMES = frozenset(
     {
+        "TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256",
+        "PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256",
         "RD_ENTRY_V3_DETECTOR_CODE_HASH",
         "RD_ENTRY_V3_SETTINGS_HASH",
     }
@@ -77,17 +79,17 @@ def check(root: Path) -> None:
         except (json.JSONDecodeError, KeyError, TypeError) as error:
             failures.append(f"{wrangler_path}: invalid Worker safety configuration: {error}")
         else:
-            overridden_hashes = REQUIRED_REVIEWED_HASH_SECRETS.intersection(variables)
-            if overridden_hashes:
+            plaintext_secret_names = WORKER_SECRET_METADATA_NAMES.intersection(variables)
+            if plaintext_secret_names:
                 failures.append(
-                    f"{wrangler_path}: reviewed hashes must not be plaintext vars: "
-                    + ", ".join(sorted(overridden_hashes))
+                    f"{wrangler_path}: secret bindings must not be plaintext vars: "
+                    + ", ".join(sorted(plaintext_secret_names))
                 )
-            missing_hashes = REQUIRED_REVIEWED_HASH_SECRETS.difference(required_secrets)
-            if missing_hashes:
+            missing_secret_metadata = WORKER_SECRET_METADATA_NAMES.difference(required_secrets)
+            if missing_secret_metadata:
                 failures.append(
-                    f"{wrangler_path}: reviewed hashes must be required secrets: "
-                    + ", ".join(sorted(missing_hashes))
+                    f"{wrangler_path}: missing secrets.required metadata names: "
+                    + ", ".join(sorted(missing_secret_metadata))
                 )
 
     for relative_root in RUNTIME_ROOTS:

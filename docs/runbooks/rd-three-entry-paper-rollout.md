@@ -21,18 +21,19 @@ Record the reviewed commit and local build artifacts before approval:
   `0025_observation_entry_v3_decision_order.sql`.
 
 The required runtime binding names are listed below without values. The four names marked
-**required secret** are declared under `secrets.required` in `wrangler.jsonc`; they must never
-appear under plaintext `vars`:
+**secret binding** are also listed under `secrets.required` in `wrangler.jsonc`, but that field is
+schema/type/local-warning metadata only: it does not inspect remote bindings or block deployment.
+The four secret names must never appear under plaintext `vars`:
 
 - `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED`
-- `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256` (**required secret**)
+- `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256` (**secret binding**)
 - `TRADINGVIEW_OBSERVATION_MAX_BODY_BYTES`
 - `PAPER_LEDGER_ENABLED`
-- `PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256` (**required secret**)
+- `PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256` (**secret binding**)
 - `RD_ENTRY_PAPER_ACCOUNT_IDS`
 - `RD_ENTRY_PAPER_RISK_BPS`
-- `RD_ENTRY_V3_DETECTOR_CODE_HASH` (**required secret**)
-- `RD_ENTRY_V3_SETTINGS_HASH` (**required secret**)
+- `RD_ENTRY_V3_DETECTOR_CODE_HASH` (**secret binding**)
+- `RD_ENTRY_V3_SETTINGS_HASH` (**secret binding**)
 - `NEXT_PUBLIC_API_BASE_URL` (only when the console is built for a different API origin)
 
 Never record a raw ingress or paper-admin credential in Git, shell history, command output, D1, a
@@ -117,16 +118,16 @@ npx wrangler secret bulk < /absolute/owner-only/path/rd-entry-v3-secrets.json
 `wrangler secret bulk` mutates the remote Worker and creates a deployment. Do not run it during
 local verification. Remove the owner-only file according to operator policy after the binding is
 confirmed. The reviewed hashes are absent from `vars`, so a later `wrangler deploy` cannot replace
-them with empty plaintext values. The `secrets.required` declaration also makes deployment fail
-closed when a required secret binding is absent.
+them with empty plaintext values. The `secrets.required` list provides local metadata and warnings
+only; it is not a deployment gate.
 
-List the effective binding names:
+Before proceeding to the application deployment, list the remote binding names:
 
 ```sh
 npx wrangler secret list
 ```
 
-Confirm that all four required names are present with type `secret_text`:
+Confirm that all four names are present with type `secret_text`:
 
 ```text
 TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256
@@ -135,19 +136,9 @@ RD_ENTRY_V3_DETECTOR_CODE_HASH
 RD_ENTRY_V3_SETTINGS_HASH
 ```
 
-Secret listing does not reveal or prove values. Before Pine emission, send one signed synthetic
-strict `ENTRY_DECISION` payload containing the two reviewed digests while the paper kill switch
-remains engaged. Query its decision row and require all of the following:
-
-- the audit event is accepted;
-- zero paper intents are created;
-- `effective_action_reason` is `PAPER_CONFIGURATION_UNAVAILABLE`; and
-- `effective_action_reason` is not `PROMOTION_IDENTITY_MISMATCH`.
-
-This proves that the effective Worker secret bindings match the reviewed payload without exposing
-their values. Stop if any outcome differs. Only after this check should the same digests be pasted
-into Pine's **Reviewed detector SHA-256** and **Reviewed settings SHA-256** inputs. Unreviewed or
-mismatched identities are intentionally retained as blocked audit only.
+Stop before deployment continuation if any name is absent. Secret listing does not reveal or prove
+values. The post-deployment signed DIR_CLOSE gate in step 7 is the effective-value proof.
+Unreviewed or mismatched identities are intentionally retained as blocked audit only.
 
 ## 4. Deploy the edge and console
 
@@ -187,8 +178,8 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
    **Contract-v3 ingress credential**.
 5. Enter the reviewed detector/settings digests from step 3.
 6. Keep diagnostics and legacy setup export disabled.
-7. Enable **Emit contract-v3 entry events** only after the effective secret-binding, edge, D1, and
-   paper account checks pass.
+7. Keep **Emit contract-v3 entry events** disabled until the signed DIR_CLOSE and replay gate in
+   step 7 passes.
 8. Create one alert with condition **Any alert() function call**, the stable v3 observation webhook,
    and no separately composed message body.
 
@@ -203,24 +194,32 @@ Use synthetic LAB payloads only. Send them to the v3
 outer envelope. Never paste the credential into logs or saved payload files. Use a unique setup,
 producer sequence, and event ID per non-replay smoke.
 
-Run this sequence and capture only status codes, bounded response fields, and resulting row IDs:
+After the account/risk review, disengage the paper kill switch for this signed synthetic gate only;
+keep Pine emission disabled. Run this sequence and capture only status codes, bounded response
+fields, and resulting row IDs:
 
-1. Send one exact `DIR_CLOSE` entry-decision payload. Expect `202`, one
-   `PAPER_ELIGIBLE` decision, and one paper intent.
-2. Replay the identical bytes. Expect `200/DUPLICATE` and no additional paper intent.
-3. Send a strict `HTF_TIMED` BOC payload. Expect canonical model `BOC` and at most one paper intent
+1. Send one exact `DIR_CLOSE` entry-decision payload whose producer detector/settings hashes are
+   the two reviewed digests. Expect `202`.
+2. Query the authenticated `GET /api/v1/rd-entry-decisions?limit=20` and
+   `GET /api/v1/paper-simulations/summary?limit=50` routes. Require one selected
+   `PAPER_ELIGIBLE` `DIR_CLOSE` decision and exactly one paper intent for that setup. This is the
+   effective-value proof: a reviewed-hash mismatch must not satisfy it.
+3. Replay the identical bytes. Expect `200/DUPLICATE`; query both routes again and require the same
+   decision and exactly one intent, with no additional intent.
+4. Send a strict `HTF_TIMED` BOC payload. Expect canonical model `BOC` and at most one paper intent
    for that setup.
-4. Send an exact flip payload. Expect canonical model `HTF_FLIP`.
-5. Send an atomic BOC/flip payload. Expect `CO_TRIGGER_SAME_EVENT`, both candidate identities, one
+5. Send an exact flip payload. Expect canonical model `HTF_FLIP`.
+6. Send an atomic BOC/flip payload. Expect `CO_TRIGGER_SAME_EVENT`, both candidate identities, one
    entry price, and one paper intent.
-6. Send a `DISCRETIONARY_5M` BOC payload. Expect `SHADOW_ONLY`,
+7. Send a `DISCRETIONARY_5M` BOC payload. Expect `SHADOW_ONLY`,
    `BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED`, and no paper intent.
-7. Query `GET /api/v1/rd-entry-decisions?limit=20`. Each setup must display rows for `BOC`,
+8. Query `GET /api/v1/rd-entry-decisions?limit=20`. Each setup must display rows for `BOC`,
    `DIR_CLOSE`, and `HTF_FLIP`, including waiting or blocked placeholders.
-8. Query the paper summary. Confirm no setup attempt has more than one initial position.
+9. Query the paper summary. Confirm no setup attempt has more than one initial position.
 
 Stop immediately on a different result. Disable v3 Pine emission and keep the paper kill switch
-engaged until the mismatch is reviewed; do not “fix” smoke data in D1.
+engaged until the mismatch is reviewed; do not “fix” smoke data in D1. Enable Pine emission only
+after the DIR_CLOSE/replay effective-value gate and the remaining smoke sequence pass.
 
 ## 8. Acceptance
 
@@ -231,7 +230,7 @@ The rollout is accepted only when all of the following are recorded:
 - detector and settings digests match across source, edge, and Pine;
 - the paper account and risk configuration are reviewed;
 - Pine compiled, was added to the five-minute chart, and produced an actual realtime event;
-- all six smoke outcomes match the sequence above;
+- all signed smoke outcomes match the sequence above;
 - the console shows all three models and one selected paper position at most; and
 - broker/live execution remains disabled.
 

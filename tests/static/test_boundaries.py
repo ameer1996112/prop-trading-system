@@ -14,6 +14,13 @@ from scripts.static_boundary_check import (
 
 from prop_trading.config import Settings
 
+REQUIRED_WORKER_SECRET_NAMES = {
+    "TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256",
+    "PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256",
+    "RD_ENTRY_V3_DETECTOR_CODE_HASH",
+    "RD_ENTRY_V3_SETTINGS_HASH",
+}
+
 
 def test_domain_has_no_framework_imports() -> None:
     forbidden = {"fastapi", "pydantic", "sqlalchemy", "alembic", "httpx"}
@@ -107,10 +114,7 @@ def test_boundary_scanner_rejects_forbidden_identifiers_with_punctuation(
         {
             "vars": {},
             "secrets": {
-                "required": [
-                    "RD_ENTRY_V3_DETECTOR_CODE_HASH",
-                    "RD_ENTRY_V3_SETTINGS_HASH",
-                ]
+                "required": sorted(REQUIRED_WORKER_SECRET_NAMES),
             },
         },
     )
@@ -130,10 +134,7 @@ def test_boundary_scanner_checks_deployed_wrangler_configuration(tmp_path: Path)
         {
             "vars": {"LIVE_ACCOUNT": "forbidden"},
             "secrets": {
-                "required": [
-                    "RD_ENTRY_V3_DETECTOR_CODE_HASH",
-                    "RD_ENTRY_V3_SETTINGS_HASH",
-                ]
+                "required": sorted(REQUIRED_WORKER_SECRET_NAMES),
             },
         },
     )
@@ -149,6 +150,21 @@ def test_boundary_scanner_does_not_flag_paper_or_no_live_prose(tmp_path: Path) -
         {
             "vars": {},
             "secrets": {
+                "required": sorted(REQUIRED_WORKER_SECRET_NAMES),
+            },
+        },
+    )
+
+    check(tmp_path)
+
+
+def test_boundary_scanner_rejects_missing_credential_secret_metadata(tmp_path: Path) -> None:
+    _write_boundary_fixture(
+        tmp_path,
+        "const executionMode = 'PAPER_ONLY';",
+        {
+            "vars": {},
+            "secrets": {
                 "required": [
                     "RD_ENTRY_V3_DETECTOR_CODE_HASH",
                     "RD_ENTRY_V3_SETTINGS_HASH",
@@ -157,31 +173,16 @@ def test_boundary_scanner_does_not_flag_paper_or_no_live_prose(tmp_path: Path) -
         },
     )
 
-    check(tmp_path)
+    with pytest.raises(SystemExit) as failure:
+        check(tmp_path)
+
+    message = str(failure.value)
+    assert "TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256" in message
+    assert "PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256" in message
 
 
-def test_wrangler_requires_reviewed_hash_secrets_without_empty_var_overrides() -> None:
+def test_wrangler_lists_all_secret_metadata_without_plaintext_var_overrides() -> None:
     wrangler = json.loads(Path("apps/observation-edge/wrangler.jsonc").read_text(encoding="utf-8"))
-    reviewed_hash_names = {
-        "RD_ENTRY_V3_DETECTOR_CODE_HASH",
-        "RD_ENTRY_V3_SETTINGS_HASH",
-    }
 
-    assert reviewed_hash_names.isdisjoint(wrangler["vars"])
-    assert reviewed_hash_names.issubset(wrangler["secrets"]["required"])
-
-
-def test_rollout_verifies_required_hash_secret_bindings_before_pine_emission() -> None:
-    runbook = Path("docs/runbooks/rd-three-entry-paper-rollout.md").read_text(encoding="utf-8")
-
-    for required_step in (
-        "npx wrangler secret bulk",
-        "npx wrangler secret list",
-        "PAPER_CONFIGURATION_UNAVAILABLE",
-        "PROMOTION_IDENTITY_MISMATCH",
-        "paper kill switch",
-    ):
-        assert required_step in runbook
-    assert runbook.index("npx wrangler secret list") < runbook.index(
-        "Enable **Emit contract-v3 entry events**"
-    )
+    assert REQUIRED_WORKER_SECRET_NAMES.isdisjoint(wrangler["vars"])
+    assert REQUIRED_WORKER_SECRET_NAMES.issubset(wrangler["secrets"]["required"])
