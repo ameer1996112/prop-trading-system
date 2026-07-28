@@ -82,6 +82,24 @@ def test_reviewed_outcomes_cover_chronology_co_trigger_and_fail_closed_paths() -
     )
 
 
+def test_atomic_boc_flip_vector_retains_shared_actual_tick_beyond_threshold() -> None:
+    case = cases_by_id()["boc_flip_same_event"]
+    input_data = case["input"]
+    expected = case["expected"]
+    boc_proof = input_data["boc_proof"]
+    flip_proof = input_data["htf_flip_proof"]
+    selection = expected["selection"]
+
+    assert boc_proof["trigger_epoch"] == flip_proof["trigger_epoch"]
+    assert boc_proof["trigger_sequence"] == flip_proof["trigger_sequence"]
+    assert boc_proof["trigger_ticks"] == flip_proof["trigger_ticks"]
+    assert flip_proof["trigger_ticks"] == flip_proof["recross_candle"]["close_ticks"]
+    assert flip_proof["trigger_ticks"] > flip_proof["htf_open_ticks"]
+    assert selection["reason"] == "CO_TRIGGER_SAME_EVENT"
+    assert selection["action"] == "PAPER_ELIGIBLE"
+    assert selection["co_triggered_models"] == ["BOC", "HTF_FLIP"]
+
+
 def test_checked_in_vectors_are_a_stable_regeneration() -> None:
     checked_in: object = json.loads(VECTORS.read_text(encoding="utf-8"))
 
@@ -110,6 +128,49 @@ def _rehash_selection(selection: dict[str, object]) -> None:
             "reason": selection["reason"],
             "revision": selection["revision"],
             "setup_id": selection["setup_id"],
+        }
+    )
+
+
+def _rehash_evidence(evidence: dict[str, object]) -> None:
+    payload_keys = (
+        "ambiguity_codes",
+        "boc_tier",
+        "candidate_id",
+        "contact_candle",
+        "coverage_end_epoch",
+        "coverage_gap_detected",
+        "coverage_start_epoch",
+        "destination_seen_before_contact",
+        "failed_rule_ids",
+        "fidelity",
+        "full_lifecycle_ordered",
+        "htf_context_minutes",
+        "htf_open_ticks",
+        "observed_trigger_epoch",
+        "observed_trigger_ticks",
+        "passed_rule_ids",
+        "proof_plane",
+        "reference_candle_close_ticks",
+        "reference_candle_high_ticks",
+        "reference_candle_low_ticks",
+        "reference_candle_open_epoch",
+        "reference_candle_open_ticks",
+        "recross_candle",
+        "replayability",
+        "source_claim_ids",
+        "trigger_sequence",
+    )
+    evidence["payload_sha256"] = canonical_sha256({key: evidence[key] for key in payload_keys})
+    evidence["evidence_id"] = canonical_sha256(
+        {
+            "candidate_id": evidence["candidate_id"],
+            "coverage_end_epoch": evidence["coverage_end_epoch"],
+            "coverage_start_epoch": evidence["coverage_start_epoch"],
+            "observed_trigger_epoch": evidence["observed_trigger_epoch"],
+            "payload_sha256": evidence["payload_sha256"],
+            "proof_plane": evidence["proof_plane"],
+            "trigger_sequence": evidence["trigger_sequence"],
         }
     )
 
@@ -187,6 +248,33 @@ def test_vector_contract_rejects_flip_anchor_after_contact() -> None:
     case["input"]["htf_flip_proof"]["event_anchor_epoch"] = 2_700
 
     with pytest.raises(ValueError, match="anchor.*contact"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_exact_flip_without_actual_close_cross() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    input_data = case["input"]
+    flip_proof = input_data["htf_flip_proof"]
+    flip_proof["trigger_ticks"] = 109
+    flip_proof["recross_candle"]["close_ticks"] = 109
+    expected = case["expected"]
+    selection = _selection(case)
+    evidence = next(
+        item
+        for item in expected["evidence"]
+        if item["candidate_id"] == selection["canonical_candidate_id"]
+    )
+    evidence["observed_trigger_ticks"] = 109
+    evidence["recross_candle"]["close_ticks"] = 109
+    _rehash_evidence(evidence)
+    expected["evidence"].sort(key=lambda item: item["evidence_id"])
+    selection["canonical_evidence_id"] = evidence["evidence_id"]
+    _rehash_selection(selection)
+
+    with pytest.raises(ValueError, match="cross|side|HTF open"):
         _validate_forged(forged)
 
 

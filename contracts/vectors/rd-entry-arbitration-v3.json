@@ -605,6 +605,62 @@
         "evidence": [
           {
             "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
+            "contact_candle": {
+              "close_epoch": 1801,
+              "close_ticks": 105,
+              "high_ticks": 110,
+              "low_ticks": 100,
+              "open_epoch": 1800,
+              "open_ticks": 105
+            },
+            "coverage_end_epoch": 2400,
+            "coverage_gap_detected": false,
+            "coverage_start_epoch": 900,
+            "destination_seen_before_contact": false,
+            "evidence_id": "0e68d8b312bd5edd19a85c65235b96c9ade80cc975db77a2ce5c27ed86695346",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "full_lifecycle_ordered": true,
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "htf_open_ticks": 110,
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1802,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_HTF_FLIP"
+            ],
+            "payload_sha256": "2c57f97c3e54b3d3f093ea38b1ad8f846a02855a0940de98b211c7cf15cf6672",
+            "proof_plane": "REALTIME_TICK",
+            "recross_candle": {
+              "close_epoch": 1802,
+              "close_ticks": 111,
+              "high_ticks": 112,
+              "low_ticks": 109,
+              "open_epoch": 1801,
+              "open_ticks": 110
+            },
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 5
+          },
+          {
+            "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "0e63ae62e919b1d3292271b38a5a221d9f765929223771ea595aa116c7557cb8",
             "contact_candle": null,
@@ -642,62 +698,6 @@
               "htf-timed-boc-2026-06"
             ],
             "trigger_sequence": 6
-          },
-          {
-            "ambiguity_codes": [],
-            "boc_tier": null,
-            "candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
-            "contact_candle": {
-              "close_epoch": 1801,
-              "close_ticks": 105,
-              "high_ticks": 110,
-              "low_ticks": 100,
-              "open_epoch": 1800,
-              "open_ticks": 105
-            },
-            "coverage_end_epoch": 2400,
-            "coverage_gap_detected": false,
-            "coverage_start_epoch": 900,
-            "destination_seen_before_contact": false,
-            "evidence_id": "21f749dc41e7d25a45f018befb471ad74e2fc100543b3948c6e165dccdeef3c9",
-            "failed_rule_ids": [],
-            "fidelity": "EXACT",
-            "full_lifecycle_ordered": true,
-            "htf_context_minutes": [
-              15,
-              30
-            ],
-            "htf_open_ticks": 111,
-            "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1802,
-            "observed_trigger_ticks": 111,
-            "passed_rule_ids": [
-              "ENTRY_HTF_FLIP"
-            ],
-            "payload_sha256": "fe97379619bf03e29c0e9ab76f37ab1dd274084398d15c084f8e6d2d227d90ef",
-            "proof_plane": "REALTIME_TICK",
-            "recross_candle": {
-              "close_epoch": 1802,
-              "close_ticks": 111,
-              "high_ticks": 112,
-              "low_ticks": 109,
-              "open_epoch": 1801,
-              "open_ticks": 110
-            },
-            "reference_candle_close_ticks": null,
-            "reference_candle_high_ticks": null,
-            "reference_candle_low_ticks": null,
-            "reference_candle_open_epoch": null,
-            "reference_candle_open_ticks": null,
-            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
-            "source_claim_ids": [
-              "htf-flip-2024-03",
-              "htf-context-set-2025-08",
-              "htf-flip-definition-2025-08",
-              "pure-flip-narrowing-2026-05",
-              "model-continuation-2026-07"
-            ],
-            "trigger_sequence": 5
           }
         ],
         "selection": {
@@ -707,7 +707,7 @@
             "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26"
           ],
           "canonical_candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
-          "canonical_evidence_id": "21f749dc41e7d25a45f018befb471ad74e2fc100543b3948c6e165dccdeef3c9",
+          "canonical_evidence_id": "0e68d8b312bd5edd19a85c65235b96c9ade80cc975db77a2ce5c27ed86695346",
           "canonical_model": "HTF_FLIP",
           "co_triggered_models": [],
           "evaluated_at_epoch": 2400,
@@ -715,7 +715,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "EARLIEST_EXACT_TRIGGER",
           "revision": 0,
-          "selection_id": "e8570f8c4e5b749ca7f270a77e6a6e32d7d4ba816fc77f5a7ebc47ab3a265cdc",
+          "selection_id": "0edafd69cfd10e8d1ba9d062e307f428d25db4657110d600d6851177c5829e74",
           "setup_id": "setup-flip-before-boc"
         }
       },
@@ -772,7 +772,7 @@
             15,
             30
           ],
-          "htf_open_ticks": 111,
+          "htf_open_ticks": 110,
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
           "recross_candle": {
@@ -897,7 +897,7 @@
             "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": false,
-            "evidence_id": "c1532504ec35f40913141de107d7f7274c7f1ed47e2bc28f41e93b3f83331b18",
+            "evidence_id": "bdacb4f6a77d8c2879ae88e7d28a75a3180800c56c55977e01c873a528535ebc",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
             "full_lifecycle_ordered": true,
@@ -905,14 +905,14 @@
               15,
               30
             ],
-            "htf_open_ticks": 111,
+            "htf_open_ticks": 110,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_HTF_FLIP"
             ],
-            "payload_sha256": "71980dad018e9e127f5b01d65310d2a1555ba7ee9df3fb195a3de5012fe92708",
+            "payload_sha256": "60daa92953f4f11afee265af67dfb84e1b607a089a74366b8089ae3b888afbe7",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": {
               "close_epoch": 1802,
@@ -945,7 +945,7 @@
             "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a"
           ],
           "canonical_candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
-          "canonical_evidence_id": "c1532504ec35f40913141de107d7f7274c7f1ed47e2bc28f41e93b3f83331b18",
+          "canonical_evidence_id": "bdacb4f6a77d8c2879ae88e7d28a75a3180800c56c55977e01c873a528535ebc",
           "canonical_model": "HTF_FLIP",
           "co_triggered_models": [
             "BOC",
@@ -956,7 +956,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "CO_TRIGGER_SAME_EVENT",
           "revision": 0,
-          "selection_id": "24e74cfeb78e651d7d1933395bca9b112ede78207f617fc3a436227a1b79b815",
+          "selection_id": "3332d07d386f950618ac9ac8352b2ce84274113a0066b32190df046e4cc26e51",
           "setup_id": "setup-boc-flip-same"
         }
       },
@@ -1013,7 +1013,7 @@
             15,
             30
           ],
-          "htf_open_ticks": 111,
+          "htf_open_ticks": 110,
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
           "recross_candle": {
@@ -1084,6 +1084,62 @@
         "evidence": [
           {
             "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "ccbb66fc6948864e19b8d2ada69c2184e127d0755346d469b76b10babd5851ca",
+            "contact_candle": {
+              "close_epoch": 1801,
+              "close_ticks": 105,
+              "high_ticks": 111,
+              "low_ticks": 100,
+              "open_epoch": 1800,
+              "open_ticks": 105
+            },
+            "coverage_end_epoch": 2400,
+            "coverage_gap_detected": false,
+            "coverage_start_epoch": 900,
+            "destination_seen_before_contact": false,
+            "evidence_id": "69a4f642bcc9ff5b8b4bcac84a9f06c9ecda2d51ffb934fe42f7005e3732f04a",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "full_lifecycle_ordered": true,
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "htf_open_ticks": 111,
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1802,
+            "observed_trigger_ticks": 112,
+            "passed_rule_ids": [
+              "ENTRY_HTF_FLIP"
+            ],
+            "payload_sha256": "c71c952ade5c9532994c988ef34f81e45acef2a0b541f1f988db927227a79e56",
+            "proof_plane": "REALTIME_TICK",
+            "recross_candle": {
+              "close_epoch": 1802,
+              "close_ticks": 112,
+              "high_ticks": 113,
+              "low_ticks": 110,
+              "open_epoch": 1801,
+              "open_ticks": 111
+            },
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "htf-flip-2024-03",
+              "htf-context-set-2025-08",
+              "htf-flip-definition-2025-08",
+              "pure-flip-narrowing-2026-05",
+              "model-continuation-2026-07"
+            ],
+            "trigger_sequence": 5
+          },
+          {
+            "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "a3f20db91ad489a457bc71b4f58fec293f5a53c903336c1a7665bac005707db6",
             "contact_candle": null,
@@ -1119,62 +1175,6 @@
               "discretionary-break-2025-11",
               "reject-non-htf-break-2026-05",
               "htf-timed-boc-2026-06"
-            ],
-            "trigger_sequence": 5
-          },
-          {
-            "ambiguity_codes": [],
-            "boc_tier": null,
-            "candidate_id": "ccbb66fc6948864e19b8d2ada69c2184e127d0755346d469b76b10babd5851ca",
-            "contact_candle": {
-              "close_epoch": 1801,
-              "close_ticks": 105,
-              "high_ticks": 111,
-              "low_ticks": 100,
-              "open_epoch": 1800,
-              "open_ticks": 105
-            },
-            "coverage_end_epoch": 2400,
-            "coverage_gap_detected": false,
-            "coverage_start_epoch": 900,
-            "destination_seen_before_contact": false,
-            "evidence_id": "f4f8b67fc3c0f1049288f3fed7da5320e06da15af8ed9c2b28bb44f3c4a6fadd",
-            "failed_rule_ids": [],
-            "fidelity": "EXACT",
-            "full_lifecycle_ordered": true,
-            "htf_context_minutes": [
-              15,
-              30
-            ],
-            "htf_open_ticks": 112,
-            "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1802,
-            "observed_trigger_ticks": 112,
-            "passed_rule_ids": [
-              "ENTRY_HTF_FLIP"
-            ],
-            "payload_sha256": "16857d79cfc13ecb11e1b2e7f96e905588c0d868f254d41b345142382033e067",
-            "proof_plane": "REALTIME_TICK",
-            "recross_candle": {
-              "close_epoch": 1802,
-              "close_ticks": 112,
-              "high_ticks": 113,
-              "low_ticks": 110,
-              "open_epoch": 1801,
-              "open_ticks": 111
-            },
-            "reference_candle_close_ticks": null,
-            "reference_candle_high_ticks": null,
-            "reference_candle_low_ticks": null,
-            "reference_candle_open_epoch": null,
-            "reference_candle_open_ticks": null,
-            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
-            "source_claim_ids": [
-              "htf-flip-2024-03",
-              "htf-context-set-2025-08",
-              "htf-flip-definition-2025-08",
-              "pure-flip-narrowing-2026-05",
-              "model-continuation-2026-07"
             ],
             "trigger_sequence": 5
           }
@@ -1251,7 +1251,7 @@
             15,
             30
           ],
-          "htf_open_ticks": 112,
+          "htf_open_ticks": 111,
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
           "recross_candle": {
@@ -1395,7 +1395,7 @@
             "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": false,
-            "evidence_id": "6890274a432dee930113199cf948a53d2090ae7d430e29cb150f50a43e2602e5",
+            "evidence_id": "2bcccbe605397ba9d952306044443702458fc4c0f1b37732d1d1b102c31b5c0c",
             "failed_rule_ids": [
               "REALTIME_EVIDENCE_NOT_LIVE"
             ],
@@ -1405,12 +1405,12 @@
               15,
               30
             ],
-            "htf_open_ticks": 112,
+            "htf_open_ticks": 111,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 112,
             "passed_rule_ids": [],
-            "payload_sha256": "e6983bfe57782482005a6b783624c13543c87c59c00c9762ab4edcd387af9a5a",
+            "payload_sha256": "e1ab986aed15d98d8c76cdc4ea11e8902833fb7a8cecf7b1489abc07e3d7ea06",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": {
               "close_epoch": 1802,
@@ -1555,7 +1555,7 @@
             15,
             30
           ],
-          "htf_open_ticks": 112,
+          "htf_open_ticks": 111,
           "is_realtime": false,
           "proof_plane": "REALTIME_TICK",
           "recross_candle": {

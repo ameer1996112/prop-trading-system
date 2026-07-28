@@ -84,27 +84,48 @@ def flip(
     trigger_epoch: int = 1_802,
     trigger_sequence: int = 8,
     trigger_ticks: int = 112,
+    htf_open_ticks: int | None = None,
+    direction: EntryDirection = EntryDirection.LONG,
     plane: ProofPlane = ProofPlane.REALTIME_TICK,
     replayability: EvidenceReplayability = (EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE),
     is_realtime: bool = True,
     coverage_gap_detected: bool = False,
     full_lifecycle_ordered: bool = True,
     contact_already_recrossed: bool = False,
+    recross_wick_crossed: bool = False,
 ) -> EntryTriggerProofV3:
+    threshold = (
+        htf_open_ticks
+        if htf_open_ticks is not None
+        else (trigger_ticks - 1 if direction is EntryDirection.LONG else trigger_ticks + 1)
+    )
+    contact_high = (
+        threshold + 1 if direction is EntryDirection.LONG and contact_already_recrossed else 110
+    )
+    contact_low = (
+        threshold - 1 if direction is EntryDirection.SHORT and contact_already_recrossed else 100
+    )
+    recross_high = max(trigger_ticks, threshold)
+    recross_low = min(trigger_ticks, threshold)
+    if recross_wick_crossed:
+        if direction is EntryDirection.LONG:
+            recross_high = threshold + 1
+        else:
+            recross_low = threshold - 1
     contact = OrderedCandle(
         open_epoch=trigger_epoch - 2,
         close_epoch=trigger_epoch - 1,
         open_ticks=105,
-        high_ticks=(trigger_ticks + 1 if contact_already_recrossed else 110),
-        low_ticks=100,
+        high_ticks=contact_high,
+        low_ticks=contact_low,
         close_ticks=105,
     )
     recross = OrderedCandle(
         open_epoch=trigger_epoch - 1,
         close_epoch=trigger_epoch,
-        open_ticks=110,
-        high_ticks=max(trigger_ticks + 1, 112),
-        low_ticks=109,
+        open_ticks=threshold,
+        high_ticks=recross_high,
+        low_ticks=recross_low,
         close_ticks=trigger_ticks,
     )
     return EntryTriggerProofV3(
@@ -112,7 +133,7 @@ def flip(
         trigger_epoch=trigger_epoch,
         trigger_sequence=trigger_sequence,
         trigger_ticks=trigger_ticks,
-        htf_open_ticks=trigger_ticks,
+        htf_open_ticks=threshold,
         htf_context_minutes=(15, 30),
         proof_plane=plane,
         replayability=replayability,
@@ -355,6 +376,67 @@ def test_flip_requires_ordered_contact_then_open_recross() -> None:
     evidence = only(result.evidence, candidate_id=candidate.candidate_id)
     assert candidate.state is CandidateState.MATCHED
     assert evidence.passed_rule_ids == ("ENTRY_HTF_FLIP",)
+
+
+@pytest.mark.parametrize(
+    ("direction", "actual_ticks", "htf_open_ticks"),
+    [
+        (EntryDirection.LONG, 112, 111),
+        (EntryDirection.SHORT, 99, 100),
+    ],
+)
+def test_flip_retains_actual_market_tick_beyond_htf_threshold(
+    direction: EntryDirection,
+    actual_ticks: int,
+    htf_open_ticks: int,
+) -> None:
+    result = match_entry_candidates_v3(
+        request(
+            direction=direction,
+            htf_flip_proof=flip(
+                direction=direction,
+                trigger_ticks=actual_ticks,
+                htf_open_ticks=htf_open_ticks,
+            ),
+        )
+    )
+
+    candidate = only(result.candidates, model=EntryModelV3.HTF_FLIP)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.MATCHED
+    assert evidence.htf_open_ticks == htf_open_ticks
+    assert evidence.observed_trigger_ticks == actual_ticks
+    assert evidence.recross_candle.close_ticks == actual_ticks
+
+
+@pytest.mark.parametrize(
+    ("direction", "actual_ticks", "htf_open_ticks"),
+    [
+        (EntryDirection.LONG, 110, 111),
+        (EntryDirection.SHORT, 101, 100),
+    ],
+)
+def test_flip_rejects_wrong_side_close_even_when_candle_wick_crossed(
+    direction: EntryDirection,
+    actual_ticks: int,
+    htf_open_ticks: int,
+) -> None:
+    result = match_entry_candidates_v3(
+        request(
+            direction=direction,
+            htf_flip_proof=flip(
+                direction=direction,
+                trigger_ticks=actual_ticks,
+                htf_open_ticks=htf_open_ticks,
+                recross_wick_crossed=True,
+            ),
+        )
+    )
+
+    candidate = only(result.candidates, model=EntryModelV3.HTF_FLIP)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.BLOCKED
+    assert evidence.failed_rule_ids == ("HTF_FLIP_OPEN_NOT_RECROSSED",)
 
 
 def test_flip_with_coverage_gap_is_blocked() -> None:

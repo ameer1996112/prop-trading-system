@@ -289,9 +289,9 @@ class EntryTriggerProofV3:
                 raise ValueError("contact must precede recross")
             if (
                 self.trigger_epoch != self.recross_candle.close_epoch
-                or self.trigger_ticks != self.htf_open_ticks
+                or self.trigger_ticks != self.recross_candle.close_ticks
             ):
-                raise ValueError("trigger must be the retained HTF-open recross")
+                raise ValueError("trigger must equal the retained recross market close")
         if self.htf_context_minutes and any(
             self.trigger_epoch >= self.event_anchor_epoch + context * 60
             for context in self.htf_context_minutes
@@ -531,9 +531,9 @@ class EntryCandidateEvidenceV3:
                 raise ValueError("flip contact must precede recross")
             if (
                 self.observed_trigger_epoch != self.recross_candle.close_epoch
-                or self.observed_trigger_ticks != self.htf_open_ticks
+                or self.observed_trigger_ticks != self.recross_candle.close_ticks
             ):
-                raise ValueError("flip trigger must be the retained HTF-open recross")
+                raise ValueError("flip trigger must equal the retained recross market close")
         _require_unique_texts(self.passed_rule_ids, "passed_rule_ids")
         _require_unique_texts(self.failed_rule_ids, "failed_rule_ids")
         if set(self.passed_rule_ids) & set(self.failed_rule_ids):

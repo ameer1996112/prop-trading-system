@@ -141,9 +141,9 @@ def _exact_eligible(
         ):
             return False
         recrossed = (
-            evidence.recross_candle.high_ticks > evidence.htf_open_ticks
+            evidence.recross_candle.close_ticks > evidence.htf_open_ticks
             if candidate.direction.value == "LONG"
-            else evidence.recross_candle.low_ticks < evidence.htf_open_ticks
+            else evidence.recross_candle.close_ticks < evidence.htf_open_ticks
         )
         if not recrossed:
             return False

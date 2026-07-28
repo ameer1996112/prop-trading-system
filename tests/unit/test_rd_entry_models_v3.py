@@ -220,6 +220,19 @@ def test_flip_trigger_must_remain_inside_every_htf_context() -> None:
         replace(_flip_proof(), event_anchor_epoch=0)
 
 
+def test_flip_proof_retains_threshold_and_actual_market_tick_separately() -> None:
+    proof = replace(_flip_proof(), htf_open_ticks=110)
+
+    assert proof.htf_open_ticks == 110
+    assert proof.trigger_ticks == 111
+    assert proof.trigger_ticks == proof.recross_candle.close_ticks  # type: ignore[union-attr]
+
+
+def test_flip_proof_trigger_must_equal_recross_market_close() -> None:
+    with pytest.raises(ValueError, match="trigger.*recross.*close"):
+        replace(_flip_proof(), htf_open_ticks=112, trigger_ticks=112)
+
+
 @pytest.mark.parametrize(
     ("canonical", "fidelity", "reason", "action"),
     [
@@ -380,6 +393,111 @@ def _close_evidence(
         payload_sha256=payload_sha256,
         observed_at_epoch=observed_at_epoch,
     )
+
+
+def _flip_evidence(
+    *,
+    htf_open_ticks: int = 110,
+    trigger_ticks: int = 111,
+    recross_close_ticks: int = 111,
+) -> EntryCandidateEvidenceV3:
+    candidate_id = "c" * 64
+    contact = OrderedCandle(
+        open_epoch=1_800,
+        close_epoch=1_801,
+        open_ticks=105,
+        high_ticks=110,
+        low_ticks=100,
+        close_ticks=105,
+    )
+    recross = OrderedCandle(
+        open_epoch=1_801,
+        close_epoch=1_802,
+        open_ticks=110,
+        high_ticks=112,
+        low_ticks=109,
+        close_ticks=recross_close_ticks,
+    )
+    payload_sha256 = evidence_payload_sha256_v3(
+        candidate_id=candidate_id,
+        observed_trigger_epoch=1_802,
+        trigger_sequence=8,
+        observed_trigger_ticks=trigger_ticks,
+        htf_context_minutes=(15, 30),
+        fidelity=CandidateFidelity.EXACT,
+        proof_plane=ProofPlane.REALTIME_TICK,
+        replayability=EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE,
+        coverage_start_epoch=900,
+        coverage_end_epoch=2_400,
+        ambiguity_codes=(),
+        boc_tier=None,
+        reference_candle_open_epoch=None,
+        reference_candle_open_ticks=None,
+        reference_candle_high_ticks=None,
+        reference_candle_low_ticks=None,
+        reference_candle_close_ticks=None,
+        htf_open_ticks=htf_open_ticks,
+        contact_candle=contact,
+        recross_candle=recross,
+        coverage_gap_detected=False,
+        full_lifecycle_ordered=True,
+        destination_seen_before_contact=False,
+        passed_rule_ids=("ENTRY_HTF_FLIP",),
+        failed_rule_ids=(),
+        source_claim_ids=("claim-1",),
+    )
+    identity = EntryEvidenceIdentityV3(
+        candidate_id=candidate_id,
+        proof_plane=ProofPlane.REALTIME_TICK,
+        coverage_start_epoch=900,
+        coverage_end_epoch=2_400,
+        observed_trigger_epoch=1_802,
+        trigger_sequence=8,
+        payload_sha256=payload_sha256,
+    )
+    return EntryCandidateEvidenceV3(
+        evidence_id=evidence_id_v3(identity),
+        candidate_id=candidate_id,
+        observed_trigger_epoch=1_802,
+        trigger_sequence=8,
+        observed_trigger_ticks=trigger_ticks,
+        htf_context_minutes=(15, 30),
+        fidelity=CandidateFidelity.EXACT,
+        proof_plane=ProofPlane.REALTIME_TICK,
+        replayability=EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE,
+        coverage_start_epoch=900,
+        coverage_end_epoch=2_400,
+        ambiguity_codes=(),
+        boc_tier=None,
+        reference_candle_open_epoch=None,
+        reference_candle_open_ticks=None,
+        reference_candle_high_ticks=None,
+        reference_candle_low_ticks=None,
+        reference_candle_close_ticks=None,
+        htf_open_ticks=htf_open_ticks,
+        contact_candle=contact,
+        recross_candle=recross,
+        coverage_gap_detected=False,
+        full_lifecycle_ordered=True,
+        destination_seen_before_contact=False,
+        passed_rule_ids=("ENTRY_HTF_FLIP",),
+        failed_rule_ids=(),
+        source_claim_ids=("claim-1",),
+        payload_sha256=payload_sha256,
+        observed_at_epoch=2_400,
+    )
+
+
+def test_flip_evidence_retains_threshold_and_actual_market_tick_separately() -> None:
+    evidence = _flip_evidence()
+
+    assert evidence.htf_open_ticks == 110
+    assert evidence.observed_trigger_ticks == 111
+
+
+def test_flip_evidence_trigger_must_equal_recross_market_close() -> None:
+    with pytest.raises(ValueError, match="trigger.*recross.*close"):
+        _flip_evidence(htf_open_ticks=112, trigger_ticks=112)
 
 
 def test_evidence_trigger_must_be_inside_coverage() -> None:

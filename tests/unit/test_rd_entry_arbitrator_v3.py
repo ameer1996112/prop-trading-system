@@ -47,6 +47,7 @@ def candidate_evidence(
     coverage_start_epoch: int | None = None,
     coverage_end_epoch: int | None = None,
     event_anchor_epoch_override: int | None = None,
+    htf_open_ticks: int | None = None,
 ) -> tuple[EntryCandidateV3, EntryCandidateEvidenceV3]:
     tier = BocTier.HTF_TIMED if model is EntryModelV3.BOC else None
     reference_open_epoch = 600 + anchor_salt if model is EntryModelV3.BOC else None
@@ -112,22 +113,23 @@ def candidate_evidence(
     )
     flip_fields: dict[str, object]
     if model is EntryModelV3.HTF_FLIP:
+        threshold = htf_open_ticks if htf_open_ticks is not None else ticks - 1
         flip_fields = {
-            "htf_open_ticks": ticks,
+            "htf_open_ticks": threshold,
             "contact_candle": OrderedCandle(
                 open_epoch=900,
                 close_epoch=trigger_epoch - 1,
                 open_ticks=100,
-                high_ticks=ticks - 1,
+                high_ticks=threshold,
                 low_ticks=90,
                 close_ticks=100,
             ),
             "recross_candle": OrderedCandle(
                 open_epoch=trigger_epoch - 1,
                 close_epoch=trigger_epoch,
-                open_ticks=ticks - 1,
-                high_ticks=ticks + 1,
-                low_ticks=ticks - 2,
+                open_ticks=threshold,
+                high_ticks=max(ticks, threshold) + 1,
+                low_ticks=min(ticks, threshold) - 1,
                 close_ticks=ticks,
             ),
             "coverage_gap_detected": False,
@@ -328,19 +330,34 @@ def test_sequence_orders_candidates_within_same_epoch() -> None:
 
 
 def test_same_event_boc_and_flip_create_a_co_trigger() -> None:
-    selection = arbitrate_entry_candidates_v3(
-        arbitration(
-            exact_boc(trigger_epoch=1_001, sequence=2),
-            exact_flip(trigger_epoch=1_001, sequence=2),
-        )
-    )
+    boc_pair = exact_boc(trigger_epoch=1_001, sequence=2, ticks=111)
+    flip_pair = exact_flip(trigger_epoch=1_001, sequence=2, ticks=111)
 
+    selection = arbitrate_entry_candidates_v3(arbitration(boc_pair, flip_pair))
+
+    assert flip_pair[1].htf_open_ticks == 110
+    assert flip_pair[1].observed_trigger_ticks == 111
     assert selection.reason is SelectionReason.CO_TRIGGER_SAME_EVENT
     assert selection.co_triggered_models == (
         EntryModelV3.BOC,
         EntryModelV3.HTF_FLIP,
     )
     assert selection.action is SelectionAction.PAPER_ELIGIBLE
+
+
+def test_flip_wick_without_actual_close_cross_is_not_exact_eligible() -> None:
+    forged = candidate_evidence(
+        EntryModelV3.HTF_FLIP,
+        trigger_epoch=1_001,
+        sequence=2,
+        ticks=110,
+        htf_open_ticks=111,
+    )
+
+    selection = arbitrate_entry_candidates_v3(arbitration(forged))
+
+    assert selection.reason is SelectionReason.NO_EXACT_CANDIDATE
+    assert selection.action is SelectionAction.SHADOW_ONLY
 
 
 def test_same_event_price_conflict_is_shadow_only() -> None:

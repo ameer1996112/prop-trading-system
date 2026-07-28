@@ -193,7 +193,7 @@ def _contacts_zone(setup: SetupEntryFactsV3, candle: OrderedCandle) -> bool:
     return candle.low_ticks <= setup.zone_top_ticks and candle.high_ticks >= setup.zone_bottom_ticks
 
 
-def _recrosses_htf_open(
+def _candle_crosses_htf_open(
     direction: EntryDirection,
     htf_open_ticks: int,
     candle: OrderedCandle,
@@ -201,6 +201,16 @@ def _recrosses_htf_open(
     if direction is EntryDirection.LONG:
         return candle.high_ticks > htf_open_ticks
     return candle.low_ticks < htf_open_ticks
+
+
+def _actual_tick_crosses_htf_open(
+    direction: EntryDirection,
+    htf_open_ticks: int,
+    candle: OrderedCandle,
+) -> bool:
+    if direction is EntryDirection.LONG:
+        return candle.close_ticks > htf_open_ticks
+    return candle.close_ticks < htf_open_ticks
 
 
 def _flip_lifecycle_failure(
@@ -226,13 +236,13 @@ def _flip_lifecycle_failure(
         return ("HTF_FLIP_TRIGGER_OUTSIDE_CONTEXT",)
     if not _contacts_zone(setup, proof.contact_candle):
         return ("HTF_FLIP_CONTACT_OUTSIDE_ZONE",)
-    if _recrosses_htf_open(
+    if _candle_crosses_htf_open(
         setup.direction,
         proof.htf_open_ticks,
         proof.contact_candle,
     ):
         return ("HTF_FLIP_CONTACT_ALREADY_RECROSSED",)
-    if not _recrosses_htf_open(
+    if not _actual_tick_crosses_htf_open(
         setup.direction,
         proof.htf_open_ticks,
         proof.recross_candle,

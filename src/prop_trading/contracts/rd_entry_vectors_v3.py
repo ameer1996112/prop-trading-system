@@ -502,6 +502,13 @@ class RDEntryExpectedVectorV3(ContractModel):
                 )
                 if contact_crossed:
                     raise ValueError("flip contact already crossed the HTF open")
+                actual_close_crossed = (
+                    item.recross_candle.close_ticks > item.htf_open_ticks
+                    if candidate.direction == "LONG"
+                    else item.recross_candle.close_ticks < item.htf_open_ticks
+                )
+                if not actual_close_crossed:
+                    raise ValueError("flip actual close did not cross the HTF open")
         canonical_candidate_id = self.selection.canonical_candidate_id
         canonical_evidence_id = self.selection.canonical_evidence_id
         if canonical_candidate_id is None:
