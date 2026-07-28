@@ -294,6 +294,11 @@
     "automation_policy": {
       "$ref": "#/$defs/RDStrategyAutomationPolicyV3"
     },
+    "base_contract_sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "title": "Base Contract Sha256",
+      "type": "string"
+    },
     "claims_by_id": {
       "maxProperties": 128,
       "minProperties": 1,
@@ -323,6 +328,18 @@
       "const": "3.0.0",
       "title": "Contract Version",
       "type": "string"
+    },
+    "inherited_rule_ids": {
+      "items": {
+        "maxLength": 160,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9_.:@|+/-]+$",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Inherited Rule Ids",
+      "type": "array"
     },
     "producer_strategy_version": {
       "const": "3.0.0-contract3",
@@ -377,6 +394,8 @@
     "producer_strategy_version",
     "strategy_id",
     "confirmed_timeframe_minutes",
+    "base_contract_sha256",
+    "inherited_rule_ids",
     "sources_by_id",
     "claims_by_id",
     "rules_by_id",

@@ -5,6 +5,10 @@
   "producer_strategy_version": "3.0.0-contract3",
   "strategy_id": "rd_liquidity_sd_5m_v1",
   "confirmed_timeframe_minutes": 5,
+  "base_contract_sha256": "289cbf0bd1a59f3e3ca3ec12450f27bb326d210ec1e2444e17e7f90d10f17e28",
+  "inherited_rule_ids": [
+    "TIMEFRAME_FIVE_MINUTE_ONLY", "ZONE_ORIGIN_OPPOSITE_CANDLE", "ZONE_ACCURACY_BOUNDS", "ZONE_FRESH_UNTAPPED", "ZONE_PRE_ENTRY_CLOSE_OUTSIDE", "LIQ_NORMAL_TWO_OPPOSITE_CANDLES", "LIQ_ONE_CANDLE_EXCEPTION", "LIQ_OWN_EXTREME_SAME_LEG", "LIQ_STRICT_OWN_EXTREME_BREAK", "LIQ_ACTUAL_EXTREME_SWEPT", "LIQ_EVENT_ORDER", "LIQ_INTERNAL_REBREAK", "LIQ_DISTANCE_INFLUENCES_ZONE", "LIQ_REPLACEMENT_AFTER_STALE_MOVE"
+  ],
   "sources_by_id": {
     "rd-course-2024-03": {"youtube_video_id": "kxh_3__oAqg", "published_date": "2024-03-25", "title_snapshot": "FULL course for LIQUIDITY supply and demand best NEW trading strategy 2026", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},
     "rd-first-5m-live-2025-03": {"youtube_video_id": "Gr0njSOtC10", "published_date": "2025-03-20", "title_snapshot": "First 5m livestream (1 win 1 loss) 1:2.5r trade on gj", "channel_id": "UC54xbL96tU58iez3YbTVTAg", "channel_handle": "@RD_Forex"},

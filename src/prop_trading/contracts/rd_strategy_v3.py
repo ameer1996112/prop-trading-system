@@ -13,6 +13,7 @@ from prop_trading.contracts.models import (
     Identifier,
     LocalDate,
     RuleFidelity,
+    Sha256,
 )
 
 
@@ -96,6 +97,25 @@ REQUIRED_V3_RULE_IDS = frozenset(
         "ENTRY_REJECTION_RESPECT_DISABLED",
     }
 )
+BASE_CONTRACT_SHA256 = "289cbf0bd1a59f3e3ca3ec12450f27bb326d210ec1e2444e17e7f90d10f17e28"
+REQUIRED_INHERITED_RULE_IDS = frozenset(
+    {
+        "TIMEFRAME_FIVE_MINUTE_ONLY",
+        "ZONE_ORIGIN_OPPOSITE_CANDLE",
+        "ZONE_ACCURACY_BOUNDS",
+        "ZONE_FRESH_UNTAPPED",
+        "ZONE_PRE_ENTRY_CLOSE_OUTSIDE",
+        "LIQ_NORMAL_TWO_OPPOSITE_CANDLES",
+        "LIQ_ONE_CANDLE_EXCEPTION",
+        "LIQ_OWN_EXTREME_SAME_LEG",
+        "LIQ_STRICT_OWN_EXTREME_BREAK",
+        "LIQ_ACTUAL_EXTREME_SWEPT",
+        "LIQ_EVENT_ORDER",
+        "LIQ_INTERNAL_REBREAK",
+        "LIQ_DISTANCE_INFLUENCES_ZONE",
+        "LIQ_REPLACEMENT_AFTER_STALE_MOVE",
+    }
+)
 REQUIRED_V3_RULE_EVIDENCE_POLICIES = {
     "ZONE_FIRST_ENGAGEMENT": (RuleFidelity.EXACT, "SHADOW_ONLY", "NOT_ELIGIBLE"),
     "ENTRY_BOC_HTF_TIMED": (RuleFidelity.EXACT, "PAPER_EVALUATE", "ORDERED_EXACT"),
@@ -108,6 +128,34 @@ REQUIRED_V3_RULE_EVIDENCE_POLICIES = {
     "ENTRY_HTF_FLIP": (RuleFidelity.EXACT, "PAPER_EVALUATE", "ORDERED_EXACT"),
     "ENTRY_REJECTION_RESPECT_DISABLED": (RuleFidelity.EXACT, "DISABLED", "NOT_ELIGIBLE"),
 }
+REQUIRED_V3_RULE_SOURCE_CLAIM_IDS = {
+    "ZONE_FIRST_ENGAGEMENT": ("zone-untapped-2024-03",),
+    "ENTRY_BOC_HTF_TIMED": (
+        "discretionary-break-2025-11",
+        "reject-non-htf-break-2026-05",
+        "htf-timed-boc-2026-06",
+    ),
+    "ENTRY_BOC_DISCRETIONARY_5M": ("discretionary-break-2025-11",),
+    "ENTRY_DIR_CLOSE": (
+        "standard-close-2024-03",
+        "closure-or-flip-2025-03",
+        "directional-close-2025-08",
+        "directional-close-required-2026-06",
+        "model-continuation-2026-07",
+    ),
+    "ENTRY_HTF_FLIP": (
+        "htf-flip-2024-03",
+        "htf-context-set-2025-08",
+        "htf-flip-definition-2025-08",
+        "pure-flip-narrowing-2026-05",
+        "model-continuation-2026-07",
+    ),
+    "ENTRY_REJECTION_RESPECT_DISABLED": (
+        "closure-or-flip-2025-03",
+        "directional-close-2025-08",
+        "directional-close-required-2026-06",
+    ),
+}
 
 
 class RDStrategyRuleContractV3(ContractModel):
@@ -117,6 +165,8 @@ class RDStrategyRuleContractV3(ContractModel):
     producer_strategy_version: Literal["3.0.0-contract3"]
     strategy_id: Literal["rd_liquidity_sd_5m_v1"]
     confirmed_timeframe_minutes: Literal[5]
+    base_contract_sha256: Sha256
+    inherited_rule_ids: tuple[Identifier, ...] = Field(min_length=1, max_length=32)
     sources_by_id: dict[Identifier, RDStrategySourceV3] = Field(min_length=1, max_length=32)
     claims_by_id: dict[Identifier, RDStrategySourceClaimV3] = Field(
         min_length=1,
@@ -127,6 +177,12 @@ class RDStrategyRuleContractV3(ContractModel):
 
     @model_validator(mode="after")
     def _closed_v3_contract(self) -> Self:
+        if self.base_contract_sha256 != BASE_CONTRACT_SHA256:
+            raise ValueError("base contract sha256 digest is not the frozen contract")
+        if len(self.inherited_rule_ids) != len(set(self.inherited_rule_ids)):
+            raise ValueError("inherited qualification rule IDs contain duplicates")
+        if set(self.inherited_rule_ids) != REQUIRED_INHERITED_RULE_IDS:
+            raise ValueError("inherited qualification rule set is not exact")
         if set(self.rules_by_id) != REQUIRED_V3_RULE_IDS:
             raise ValueError("v3 entry rule set is not exact")
         if {
@@ -134,6 +190,10 @@ class RDStrategyRuleContractV3(ContractModel):
             for rule_id, rule in self.rules_by_id.items()
         } != REQUIRED_V3_RULE_EVIDENCE_POLICIES:
             raise ValueError("v3 rule evidence policy is not exact")
+        if {
+            rule_id: rule.source_claim_ids for rule_id, rule in self.rules_by_id.items()
+        } != REQUIRED_V3_RULE_SOURCE_CLAIM_IDS:
+            raise ValueError("v3 rule source claims are not exact")
         if self.automation_policy.active_entry_models != (
             "BOC",
             "DIR_CLOSE",
