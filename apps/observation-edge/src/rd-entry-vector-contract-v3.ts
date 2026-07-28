@@ -1,5 +1,6 @@
 import {
   POLICY_VERSION_V3,
+  validateEntryArbitrationInputV3,
   validateEntryEvaluationV3,
   validateOrderedCandleV3,
   type BocProofV3,
@@ -291,7 +292,9 @@ function validateInput(value: unknown): EntryArbitrationInputV3 {
     integer(seed.revision, "opened revision", 0);
     integer(seed.evaluated_at_epoch, "opened evaluation epoch", 0);
   }
-  return input as unknown as EntryArbitrationInputV3;
+  const parsed = input as unknown as EntryArbitrationInputV3;
+  validateEntryArbitrationInputV3(parsed);
+  return parsed;
 }
 
 export function parseEntryV3Vector(

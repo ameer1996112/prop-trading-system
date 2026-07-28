@@ -19,7 +19,11 @@ import {
   validateEntryV2BodySize,
   validateEntryV2Payload,
 } from "./rd-entry-wire";
-import { validateEntryV3Payload } from "./rd-entry-wire-v3";
+import {
+  validateEntryV3BodySize,
+  validateEntryV3Payload,
+  type EntryV3ReviewedProducerHashes,
+} from "./rd-entry-wire-v3";
 
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const MAX_OBSERVATIONS_PER_MESSAGE = 1_024;
@@ -1012,6 +1016,7 @@ function validatePayload(value: StrictJsonValue): {
 export async function validateObservationEnvelope(
   value: StrictJsonValue,
   rawBody?: Uint8Array,
+  entryV3ReviewedHashes?: EntryV3ReviewedProducerHashes,
 ): Promise<ValidatedObservation> {
   const envelope = asObject(value);
   exactKeys(envelope, ["credential", "payload"]);
@@ -1031,7 +1036,13 @@ export async function validateObservationEnvelope(
     };
   }
   if (field(payloadObject, "schema_version") === "3.0") {
-    const payload = await validateEntryV3Payload(payloadValue);
+    if (rawBody !== undefined) {
+      validateEntryV3BodySize(rawBody);
+    }
+    const payload = await validateEntryV3Payload(
+      payloadValue,
+      entryV3ReviewedHashes,
+    );
     return {
       version: "entry-v3",
       credential,

@@ -1118,6 +1118,13 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
     observation = await validateObservationEnvelope(
       parseStrictJson(body),
       body,
+      env.RD_ENTRY_V3_DETECTOR_CODE_HASH !== undefined &&
+        env.RD_ENTRY_V3_SETTINGS_HASH !== undefined
+        ? {
+            detector_code_hash: env.RD_ENTRY_V3_DETECTOR_CODE_HASH,
+            settings_hash: env.RD_ENTRY_V3_SETTINGS_HASH,
+          }
+        : undefined,
     );
   } catch (error) {
     if (error instanceof EntryV2MessageTooLargeError) {

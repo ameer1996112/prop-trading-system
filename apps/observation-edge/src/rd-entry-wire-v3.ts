@@ -189,6 +189,11 @@ export interface EntryV3CommonRuleResult {
   readonly passed: true;
 }
 
+export interface EntryV3ReviewedProducerHashes {
+  readonly detector_code_hash: string;
+  readonly settings_hash: string;
+}
+
 export interface EntryV3MarketEvent {
   readonly epoch: number;
   readonly sequence: number;
@@ -676,6 +681,131 @@ async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
   };
 }
 
+function selectedAuthoritativePairs(
+  evaluation: EntryEvaluationV3,
+): readonly {
+  readonly candidate: EntryCandidateV3;
+  readonly evidence: EntryCandidateEvidenceV3;
+}[] {
+  const selection = evaluation.selection;
+  if (
+    selection.action !== "PAPER_ELIGIBLE" ||
+    selection.canonical_candidate_id === null ||
+    selection.canonical_evidence_id === null
+  ) {
+    return [];
+  }
+  const canonicalEvidence = evaluation.evidence.find(
+    (item) => item.evidence_id === selection.canonical_evidence_id,
+  );
+  if (
+    canonicalEvidence === undefined ||
+    canonicalEvidence.observed_trigger_epoch === null
+  ) {
+    return fail();
+  }
+  const candidateById = new Map(
+    evaluation.candidates.map((item) => [item.candidate_id, item]),
+  );
+  const selectedModels =
+    selection.co_triggered_models.length === 0
+      ? [selection.canonical_model]
+      : selection.co_triggered_models;
+  return evaluation.evidence
+    .filter(
+      (item) =>
+        item.fidelity === "EXACT" &&
+        item.observed_trigger_epoch ===
+          canonicalEvidence.observed_trigger_epoch &&
+        item.trigger_sequence === canonicalEvidence.trigger_sequence,
+    )
+    .map((evidence) => {
+      const candidate = candidateById.get(evidence.candidate_id);
+      return candidate === undefined ? fail() : { candidate, evidence };
+    })
+    .filter(({ candidate }) => selectedModels.includes(candidate.model));
+}
+
+function validateAuthoritativePaperFacts(
+  setup: SetupEntryFactsV3,
+  evaluation: EntryEvaluationV3,
+  marketEvent: EntryV3MarketEvent,
+  tradePlan: EntryV3TradePlan,
+): void {
+  const pairs = selectedAuthoritativePairs(evaluation);
+  if (evaluation.selection.action !== "PAPER_ELIGIBLE") return;
+  if (
+    pairs.length === 0 ||
+    pairs.some(
+      ({ evidence }) =>
+        evidence.observed_trigger_epoch !== marketEvent.epoch ||
+        evidence.trigger_sequence !== marketEvent.sequence ||
+        evidence.observed_trigger_ticks !== marketEvent.tick_price_ticks,
+    ) ||
+    tradePlan.entry_ticks !== marketEvent.tick_price_ticks
+  ) {
+    fail();
+  }
+  for (const { candidate, evidence } of pairs) {
+    if (candidate.model === "BOC") {
+      if (
+        evidence.reference_candle_high_ticks === null ||
+        evidence.reference_candle_low_ticks === null ||
+        evidence.observed_trigger_ticks === null ||
+        (candidate.direction === "LONG"
+          ? evidence.observed_trigger_ticks <=
+            evidence.reference_candle_high_ticks
+          : evidence.observed_trigger_ticks >=
+            evidence.reference_candle_low_ticks)
+      ) {
+        fail();
+      }
+      continue;
+    }
+    if (candidate.model === "DIR_CLOSE") {
+      const bar = marketEvent.confirmed_bar;
+      if (
+        !marketEvent.barstate_isconfirmed ||
+        bar === null ||
+        bar.open_epoch !== evidence.coverage_start_epoch ||
+        bar.close_epoch !== evidence.coverage_end_epoch ||
+        evidence.observed_trigger_epoch !== bar.close_epoch ||
+        evidence.observed_trigger_ticks !== bar.close_ticks ||
+        (candidate.direction === "LONG"
+          ? bar.close_ticks <= setup.zone_top_ticks
+          : bar.close_ticks >= setup.zone_bottom_ticks)
+      ) {
+        fail();
+      }
+      continue;
+    }
+    const contact = evidence.contact_candle;
+    const recross = evidence.recross_candle;
+    const triggerEpoch = evidence.observed_trigger_epoch;
+    if (
+      contact === null ||
+      recross === null ||
+      triggerEpoch === null ||
+      evidence.htf_context_minutes.length === 0 ||
+      evidence.htf_context_minutes.some(
+        (context) =>
+          candidate.event_anchor_epoch % (context * 60) !== 0 ||
+          contact.open_epoch < candidate.event_anchor_epoch ||
+          triggerEpoch >=
+            candidate.event_anchor_epoch + context * 60,
+      ) ||
+      contact.open_epoch < evidence.coverage_start_epoch ||
+      contact.close_epoch > evidence.coverage_end_epoch ||
+      recross.open_epoch < evidence.coverage_start_epoch ||
+      recross.close_epoch > evidence.coverage_end_epoch ||
+      contact.low_ticks > setup.zone_top_ticks ||
+      contact.high_ticks < setup.zone_bottom_ticks
+    ) {
+      fail();
+    }
+  }
+}
+
 function parseMarketEvent(value: unknown): EntryV3MarketEvent {
   const result = object(value);
   exactKeys(result, MARKET_EVENT_KEYS);
@@ -719,6 +849,7 @@ function parseExitEvent(value: unknown): EntryV3ExitEvent {
 
 export async function validateEntryV3Payload(
   raw: StrictJsonValue,
+  reviewedHashes?: EntryV3ReviewedProducerHashes,
 ): Promise<ValidatedEntryV3Payload> {
   const decoded = plain(raw);
   const serialized = JSON.stringify(decoded);
@@ -748,6 +879,13 @@ export async function validateEntryV3Payload(
   if (!POSITIVE_DECIMAL.test(tickSize)) fail();
   const detectorCodeHash = digest(payload.detector_code_hash);
   const settingsHash = digest(payload.settings_hash);
+  if (
+    reviewedHashes === undefined ||
+    digest(reviewedHashes.detector_code_hash) !== detectorCodeHash ||
+    digest(reviewedHashes.settings_hash) !== settingsHash
+  ) {
+    fail("ENTRY_V3_PROMOTION_IDENTITY_MISMATCH");
+  }
   const observedAtEpoch = integer(payload.observed_at_epoch);
   const marketEvent = parseMarketEvent(payload.market_event);
   if (marketEvent.epoch > observedAtEpoch) fail();
@@ -775,6 +913,12 @@ export async function validateEntryV3Payload(
     ) {
       fail();
     }
+    validateAuthoritativePaperFacts(
+      bundle.setup,
+      bundle.evaluation,
+      marketEvent,
+      bundle.tradePlan,
+    );
   }
   const canonicalPayload = decoded as CanonicalObject;
   return {

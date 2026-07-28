@@ -241,6 +241,12 @@ const PROOF_PLANES = new Set<string>([
   "REALTIME_TICK",
   "EXTERNAL_ARCHIVED_TICK",
 ]);
+const BOC_TIERS = new Set<string>(["HTF_TIMED", "DISCRETIONARY_5M"]);
+const AMBIGUITY_CODES = new Set<string>([
+  "SHADOW_SAME_CHILD_BAR_ORDER",
+  "SHADOW_MISSING_INTRABAR_COVERAGE",
+  "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE",
+]);
 const EXPECTED_RULES: Readonly<Record<EntryModelV3, string>> = {
   BOC: "ENTRY_BOC_HTF_TIMED",
   DIR_CLOSE: "ENTRY_DIR_CLOSE",
@@ -305,6 +311,293 @@ export function validateOrderedCandleV3(
       )
   ) {
     fail(`${name} chronology or OHLC is invalid`);
+  }
+}
+
+function exactRuntimeKeys(
+  value: object,
+  keys: readonly string[],
+  name: string,
+): void {
+  if (
+    Object.keys(value).sort().join("\u0000") !==
+    [...keys].sort().join("\u0000")
+  ) {
+    fail(`${name} has unknown or missing fields`);
+  }
+}
+
+function validateContextsV3(
+  value: readonly number[],
+  name: string,
+): void {
+  if (
+    !Array.isArray(value) ||
+    value.length > 3 ||
+    value.some((context) => context !== 15 && context !== 30 && context !== 60) ||
+    [...value].sort((a, b) => a - b).join() !== value.join() ||
+    new Set(value).size !== value.length
+  ) {
+    fail(`${name} must be sorted unique supported HTF contexts`);
+  }
+}
+
+function validateBocProofV3(proof: BocProofV3, observedAtEpoch: number): void {
+  exactRuntimeKeys(
+    proof,
+    [
+      "reference_candle",
+      "trigger_candle_open_epoch",
+      "trigger_epoch",
+      "trigger_sequence",
+      "trigger_ticks",
+      "htf_boundary_epoch",
+      "htf_context_minutes",
+      "proof_plane",
+      "replayability",
+      "fidelity",
+      "coverage_start_epoch",
+      "coverage_end_epoch",
+      "is_realtime",
+    ],
+    "boc_proof",
+  );
+  validateOrderedCandleV3(proof.reference_candle, "reference_candle");
+  safeInteger(proof.trigger_candle_open_epoch, "trigger_candle_open_epoch", 0);
+  safeInteger(proof.trigger_epoch, "trigger_epoch", 0);
+  safeInteger(proof.trigger_sequence, "trigger_sequence", 0);
+  safeInteger(proof.trigger_ticks, "trigger_ticks");
+  if (proof.htf_boundary_epoch !== null) {
+    safeInteger(proof.htf_boundary_epoch, "htf_boundary_epoch", 0);
+  }
+  validateContextsV3(proof.htf_context_minutes, "htf_context_minutes");
+  if (
+    !PROOF_PLANES.has(proof.proof_plane) ||
+    !["REPLAYABLE", "LIVE_EXACT_NON_REPLAYABLE"].includes(
+      proof.replayability,
+    ) ||
+    !FIDELITIES.has(proof.fidelity) ||
+    typeof proof.is_realtime !== "boolean"
+  ) {
+    fail("BOC proof enums are unsupported");
+  }
+  safeInteger(proof.coverage_start_epoch, "coverage_start_epoch", 0);
+  safeInteger(proof.coverage_end_epoch, "coverage_end_epoch", 0);
+  if (
+    proof.coverage_end_epoch <= proof.coverage_start_epoch ||
+    proof.coverage_end_epoch > observedAtEpoch ||
+    proof.trigger_epoch < proof.coverage_start_epoch ||
+    proof.trigger_epoch > proof.coverage_end_epoch ||
+    proof.reference_candle.close_epoch - proof.reference_candle.open_epoch !==
+      300 ||
+    proof.reference_candle.open_epoch % 300 !== 0 ||
+    proof.trigger_candle_open_epoch % 300 !== 0 ||
+    proof.reference_candle.close_epoch > proof.trigger_candle_open_epoch ||
+    proof.trigger_epoch < proof.trigger_candle_open_epoch ||
+    proof.trigger_epoch >= proof.trigger_candle_open_epoch + 300
+  ) {
+    fail("BOC proof chronology is invalid");
+  }
+}
+
+function validateFlipProofV3(
+  proof: EntryTriggerProofV3,
+  observedAtEpoch: number,
+): void {
+  exactRuntimeKeys(
+    proof,
+    [
+      "event_anchor_epoch",
+      "trigger_epoch",
+      "trigger_sequence",
+      "trigger_ticks",
+      "htf_open_ticks",
+      "htf_context_minutes",
+      "proof_plane",
+      "replayability",
+      "fidelity",
+      "coverage_start_epoch",
+      "coverage_end_epoch",
+      "is_realtime",
+      "contact_candle",
+      "recross_candle",
+      "coverage_gap_detected",
+      "full_lifecycle_ordered",
+      "destination_seen_before_contact",
+      "ambiguity_codes",
+    ],
+    "htf_flip_proof",
+  );
+  for (const [name, value] of [
+    ["event_anchor_epoch", proof.event_anchor_epoch],
+    ["trigger_epoch", proof.trigger_epoch],
+    ["trigger_sequence", proof.trigger_sequence],
+    ["coverage_start_epoch", proof.coverage_start_epoch],
+    ["coverage_end_epoch", proof.coverage_end_epoch],
+  ] as const) {
+    safeInteger(value, name, 0);
+  }
+  safeInteger(proof.trigger_ticks, "trigger_ticks");
+  safeInteger(proof.htf_open_ticks, "htf_open_ticks");
+  validateContextsV3(proof.htf_context_minutes, "htf_context_minutes");
+  if (
+    !PROOF_PLANES.has(proof.proof_plane) ||
+    !["REPLAYABLE", "LIVE_EXACT_NON_REPLAYABLE"].includes(
+      proof.replayability,
+    ) ||
+    !FIDELITIES.has(proof.fidelity) ||
+    typeof proof.is_realtime !== "boolean" ||
+    typeof proof.coverage_gap_detected !== "boolean" ||
+    typeof proof.full_lifecycle_ordered !== "boolean" ||
+    typeof proof.destination_seen_before_contact !== "boolean" ||
+    proof.ambiguity_codes.some((code) => !AMBIGUITY_CODES.has(code)) ||
+    new Set(proof.ambiguity_codes).size !== proof.ambiguity_codes.length
+  ) {
+    fail("HTF flip proof enums are unsupported");
+  }
+  if (
+    proof.coverage_end_epoch <= proof.coverage_start_epoch ||
+    proof.coverage_end_epoch > observedAtEpoch ||
+    proof.trigger_epoch < proof.coverage_start_epoch ||
+    proof.trigger_epoch > proof.coverage_end_epoch
+  ) {
+    fail("HTF flip coverage is invalid");
+  }
+  for (const [name, candle] of [
+    ["contact_candle", proof.contact_candle],
+    ["recross_candle", proof.recross_candle],
+  ] as const) {
+    if (candle !== null) {
+      validateOrderedCandleV3(candle, name);
+      if (
+        candle.open_epoch < proof.coverage_start_epoch ||
+        candle.close_epoch > proof.coverage_end_epoch
+      ) {
+        fail(`${name} lies outside coverage`);
+      }
+    }
+  }
+  if (
+    proof.recross_candle !== null &&
+    proof.contact_candle === null
+  ) {
+    fail("recross_candle requires contact_candle");
+  }
+  if (
+    proof.contact_candle !== null &&
+    proof.event_anchor_epoch > proof.contact_candle.open_epoch
+  ) {
+    fail("HTF anchor must precede contact");
+  }
+  if (
+    proof.htf_context_minutes.some(
+      (context) =>
+        proof.trigger_epoch >= proof.event_anchor_epoch + context * 60,
+    )
+  ) {
+    fail("HTF trigger lies outside context");
+  }
+}
+
+export function validateEntryArbitrationInputV3(
+  input: EntryArbitrationInputV3,
+): void {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    fail("entry arbitration input must be an object");
+  }
+  exactRuntimeKeys(
+    input,
+    [
+      "setup_id",
+      "direction",
+      "zone_top_ticks",
+      "zone_bottom_ticks",
+      "zone_engaged_epoch",
+      "common_fidelity",
+      "setup_invalidated",
+      "boc_proof",
+      "directional_close",
+      "confirmed_bar",
+      "close_trigger_sequence",
+      "htf_flip_proof",
+      "observed_at_epoch",
+      "policy_version",
+      "revision",
+      "evaluated_at_epoch",
+      "opened_selection_seed",
+    ],
+    "entry arbitration input",
+  );
+  if (
+    typeof input.setup_id !== "string" ||
+    input.setup_id.length === 0 ||
+    input.setup_id.trim() !== input.setup_id ||
+    (input.direction !== "LONG" && input.direction !== "SHORT") ||
+    !FIDELITIES.has(input.common_fidelity) ||
+    typeof input.setup_invalidated !== "boolean" ||
+    typeof input.directional_close !== "boolean" ||
+    input.policy_version !== POLICY_VERSION_V3
+  ) {
+    fail("entry arbitration input enums are unsupported");
+  }
+  safeInteger(input.zone_top_ticks, "zone_top_ticks");
+  safeInteger(input.zone_bottom_ticks, "zone_bottom_ticks");
+  if (input.zone_top_ticks <= input.zone_bottom_ticks) {
+    fail("zone geometry is inverted");
+  }
+  if (input.zone_engaged_epoch !== null) {
+    safeInteger(input.zone_engaged_epoch, "zone_engaged_epoch", 0);
+  }
+  safeInteger(input.close_trigger_sequence, "close_trigger_sequence", 0);
+  safeInteger(input.observed_at_epoch, "observed_at_epoch", 0);
+  safeInteger(input.revision, "revision", 0);
+  safeInteger(input.evaluated_at_epoch, "evaluated_at_epoch", 0);
+  if (input.observed_at_epoch > input.evaluated_at_epoch) {
+    fail("observation cannot follow evaluation");
+  }
+  if (input.directional_close !== (input.confirmed_bar !== null)) {
+    fail("directional_close and confirmed_bar must pair");
+  }
+  if (input.confirmed_bar !== null) {
+    validateOrderedCandleV3(input.confirmed_bar, "confirmed_bar");
+    if (
+      input.confirmed_bar.close_epoch - input.confirmed_bar.open_epoch !== 300 ||
+      input.confirmed_bar.open_epoch % 300 !== 0
+    ) {
+      fail("confirmed close must be an aligned five-minute bar");
+    }
+  }
+  if (input.boc_proof !== null) {
+    validateBocProofV3(input.boc_proof, input.observed_at_epoch);
+  }
+  if (input.htf_flip_proof !== null) {
+    validateFlipProofV3(input.htf_flip_proof, input.observed_at_epoch);
+  }
+  if (input.opened_selection_seed !== null) {
+    const seed = input.opened_selection_seed;
+    exactRuntimeKeys(
+      seed,
+      [
+        "confirmed_bar",
+        "trigger_sequence",
+        "revision",
+        "evaluated_at_epoch",
+      ],
+      "opened_selection_seed",
+    );
+    validateOrderedCandleV3(seed.confirmed_bar, "opened confirmed_bar");
+    if (
+      seed.confirmed_bar.close_epoch - seed.confirmed_bar.open_epoch !== 300 ||
+      seed.confirmed_bar.open_epoch % 300 !== 0
+    ) {
+      fail("opened confirmed bar must be aligned five-minute");
+    }
+    safeInteger(seed.trigger_sequence, "opened trigger_sequence", 0);
+    safeInteger(seed.revision, "opened revision", 0);
+    safeInteger(seed.evaluated_at_epoch, "opened evaluated_at_epoch", 0);
+    if (seed.evaluated_at_epoch > input.evaluated_at_epoch) {
+      fail("opened selection cannot follow evaluation");
+    }
   }
 }
 
@@ -426,7 +719,8 @@ export function validateEntryCandidateV3(candidate: EntryCandidateV3): void {
   if (
     candidate.model === "BOC"
       ? candidate.boc_tier === null ||
-        candidate.reference_candle_open_epoch === null
+        candidate.reference_candle_open_epoch === null ||
+        !BOC_TIERS.has(candidate.boc_tier)
       : candidate.boc_tier !== null ||
         candidate.reference_candle_open_epoch !== null
   ) {
@@ -504,6 +798,9 @@ export function validateEntryEvidenceV3(
     fail("HTF contexts must be sorted, unique, and supported");
   }
   unique(evidence.ambiguity_codes, "ambiguity_codes");
+  if (evidence.ambiguity_codes.some((code) => !AMBIGUITY_CODES.has(code))) {
+    fail("ambiguity_codes contains an unsupported value");
+  }
   unique(evidence.passed_rule_ids, "passed_rule_ids");
   unique(evidence.failed_rule_ids, "failed_rule_ids");
   unique(evidence.source_claim_ids, "source_claim_ids");
@@ -527,7 +824,8 @@ export function validateEntryEvidenceV3(
   if (
     evidence.boc_tier === null
       ? referenceValues.some((value) => value !== null)
-      : referenceValues.some((value) => value === null)
+      : !BOC_TIERS.has(evidence.boc_tier) ||
+        referenceValues.some((value) => value === null)
   ) {
     fail("BOC evidence requires complete reference OHLC");
   }
@@ -663,6 +961,18 @@ export function validateEntryEvaluationV3(
     validateEntryEvidenceV3(evidence);
   }
   validateSelectionShapeV3(evaluation.selection);
+  if (
+    evaluation.candidates.some(
+      (candidate) =>
+        candidate.observed_at_epoch > evaluation.selection.evaluated_at_epoch,
+    ) ||
+    evaluation.evidence.some(
+      (evidence) =>
+        evidence.observed_at_epoch > evaluation.selection.evaluated_at_epoch,
+    )
+  ) {
+    fail("records cannot be observed after selection evaluation");
+  }
   if (
     candidateIds.join() !== [...candidateIds].sort().join() ||
     evidenceIds.join() !== [...evidenceIds].sort().join() ||

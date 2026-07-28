@@ -2,7 +2,16 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  evidenceIdV3,
+  evidencePayloadSha256V3,
+  selectionIdV3,
+  type EntryCandidateEvidenceV3,
+  type EntrySelectionV3,
+} from "../src/rd-entry-domain-v3";
+import {
+  ENTRY_V3_MAX_PAYLOAD_CHARACTERS,
   EntryV3ValidationError,
+  validateEntryV3BodySize,
   validateEntryV3Payload,
 } from "../src/rd-entry-wire-v3";
 import { parseStrictJson } from "../src/strict-json";
@@ -24,6 +33,10 @@ const vectorDocument = JSON.parse(
   }>;
 };
 const digest = "a".repeat(64);
+const reviewedHashes = {
+  detector_code_hash: digest,
+  settings_hash: "b".repeat(64),
+} as const;
 const requiredRuleIds = [
   "LIQ_ACTUAL_EXTREME_SWEPT",
   "LIQ_DISTANCE_INFLUENCES_ZONE",
@@ -74,19 +87,11 @@ function payload(): Record<string, unknown> {
     settings_hash: "b".repeat(64),
     observed_at_epoch: 2400,
     market_event: {
-      epoch: 2100,
+      epoch: 1801,
       sequence: 7,
       tick_price_ticks: 111,
-      barstate_isconfirmed: true,
-      confirmed_bar: {
-        ...reference,
-        open_epoch: 1800,
-        close_epoch: 2100,
-        open_ticks: 105,
-        high_ticks: 112,
-        low_ticks: 101,
-        close_ticks: 111,
-      },
+      barstate_isconfirmed: false,
+      confirmed_bar: null,
     },
     exit_events: [],
     setups: [
@@ -118,9 +123,127 @@ function payload(): Record<string, unknown> {
   };
 }
 
+function payloadFor(caseId: string): Record<string, unknown> {
+  const vector = structuredClone(
+    vectorDocument.cases.find((item) => item.case_id === caseId)!,
+  );
+  const input = vector.input;
+  const expected = vector.expected as {
+    candidates: Array<Record<string, unknown>>;
+    evidence: Array<Record<string, unknown>>;
+    selection: Record<string, unknown>;
+  };
+  const selection = expected.selection;
+  const canonicalEvidence = expected.evidence.find(
+    (item) => item.evidence_id === selection.canonical_evidence_id,
+  )!;
+  const direction = input.direction as "LONG" | "SHORT";
+  const entryTicks = canonicalEvidence.observed_trigger_ticks as number;
+  const confirmedBar =
+    selection.canonical_model === "DIR_CLOSE"
+      ? ((input.opened_selection_seed as
+          | { confirmed_bar: Record<string, unknown> }
+          | null)?.confirmed_bar ??
+        input.confirmed_bar)
+      : null;
+  const observedAtEpoch = Math.max(
+    input.observed_at_epoch as number,
+    selection.evaluated_at_epoch as number,
+  );
+  return {
+    schema_version: "3.0",
+    strategy_id: "rd_liquidity_sd_5m_v1",
+    strategy_version: "3.0.0-contract3",
+    rule_contract_version: "3.0.0",
+    execution_mode: "PAPER_ONLY",
+    producer_instance_id: "pine-v3",
+    producer_sequence: canonicalEvidence.trigger_sequence,
+    event_id: `pine-v3:${caseId}`,
+    is_realtime: canonicalEvidence.proof_plane === "REALTIME_TICK",
+    symbol: "EURUSD",
+    ticker_id: "OANDA:EURUSD",
+    feed: "OANDA",
+    timeframe: "5",
+    tick_size: "0.00001",
+    detector_code_hash: reviewedHashes.detector_code_hash,
+    settings_hash: reviewedHashes.settings_hash,
+    observed_at_epoch: observedAtEpoch,
+    market_event: {
+      epoch: canonicalEvidence.observed_trigger_epoch,
+      sequence: canonicalEvidence.trigger_sequence,
+      tick_price_ticks: entryTicks,
+      barstate_isconfirmed: confirmedBar !== null,
+      confirmed_bar: confirmedBar,
+    },
+    exit_events: [],
+    setups: [
+      {
+        setup: {
+          setup_id: input.setup_id,
+          direction,
+          zone_top_ticks: input.zone_top_ticks,
+          zone_bottom_ticks: input.zone_bottom_ticks,
+          zone_engaged_epoch: input.zone_engaged_epoch,
+          invalidated_before_entry: input.setup_invalidated,
+          common_fidelity: input.common_fidelity,
+          common_rule_results: requiredRuleIds.map((rule_id) => ({
+            rule_id,
+            passed: true,
+          })),
+        },
+        candidates: expected.candidates,
+        evidence: expected.evidence,
+        selection_proposal: selection,
+        trade_plan: {
+          direction,
+          entry_ticks: entryTicks,
+          stop_ticks: direction === "LONG" ? entryTicks - 10 : entryTicks + 10,
+          target_ticks: direction === "LONG" ? entryTicks + 20 : entryTicks - 20,
+        },
+      },
+    ],
+  };
+}
+
+async function rehashEvidenceAndSelection(
+  value: Record<string, unknown>,
+  evidenceIndex: number,
+): Promise<void> {
+  const setup = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const evidence = (setup.evidence as Array<Record<string, unknown>>)[
+    evidenceIndex
+  ]!;
+  const previousEvidenceId = evidence.evidence_id;
+  const {
+    evidence_id: _,
+    payload_sha256: __,
+    observed_at_epoch: ___,
+    ...payloadFields
+  } = evidence;
+  evidence.payload_sha256 = await evidencePayloadSha256V3(
+    payloadFields as unknown as Omit<
+      EntryCandidateEvidenceV3,
+      "evidence_id" | "payload_sha256" | "observed_at_epoch"
+    >,
+  );
+  evidence.evidence_id = await evidenceIdV3(
+    evidence as unknown as EntryCandidateEvidenceV3,
+  );
+  const selection = setup.selection_proposal as Record<string, unknown>;
+  if (selection.canonical_evidence_id === previousEvidenceId) {
+    selection.canonical_evidence_id = evidence.evidence_id;
+  }
+  selection.selection_id = await selectionIdV3(
+    selection as unknown as EntrySelectionV3,
+  );
+}
+
 describe("RD entry v3 wire", () => {
   it("accepts an exact strict BOC bundle", async () => {
-    const result = await validateEntryV3Payload(strict(payload()));
+    const result = await validateEntryV3Payload(
+      strict(payload()),
+      reviewedHashes,
+    );
     expect(result.entryBundles).toHaveLength(1);
     expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
       "PAPER_ELIGIBLE",
@@ -130,6 +253,8 @@ describe("RD entry v3 wire", () => {
   it("routes schema 3.0 through the entry-v3 observation union", async () => {
     const result = await validateObservationEnvelope(
       strict({ credential: "secret", payload: payload() }),
+      undefined,
+      reviewedHashes,
     );
     expect(result.version).toBe("entry-v3");
     if (result.version === "entry-v3") {
@@ -167,8 +292,121 @@ describe("RD entry v3 wire", () => {
   ])("rejects %s", async (_name, mutate) => {
     const value = payload();
     mutate(value);
-    await expect(validateEntryV3Payload(strict(value))).rejects.toBeInstanceOf(
-      EntryV3ValidationError,
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it.each([
+    ["detector", { detector_code_hash: "c".repeat(64) }],
+    ["settings", { settings_hash: "c".repeat(64) }],
+  ])("rejects a reviewed %s hash mismatch", async (_name, overrides) => {
+    await expect(
+      validateEntryV3Payload(strict(payload()), {
+        ...reviewedHashes,
+        ...overrides,
+      }),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects a rehashed BOC that does not break the reference candle", async () => {
+    const value = payload();
+    const setup = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const evidence = (setup.evidence as Array<Record<string, unknown>>)[0]!;
+    evidence.observed_trigger_ticks = evidence.reference_candle_high_ticks;
+    (value.market_event as Record<string, unknown>).tick_price_ticks =
+      evidence.reference_candle_high_ticks;
+    (setup.trade_plan as Record<string, unknown>).entry_ticks =
+      evidence.reference_candle_high_ticks;
+    (setup.trade_plan as Record<string, unknown>).stop_ticks =
+      (evidence.reference_candle_high_ticks as number) - 10;
+    (setup.trade_plan as Record<string, unknown>).target_ticks =
+      (evidence.reference_candle_high_ticks as number) + 20;
+    await rehashEvidenceAndSelection(value, 0);
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects an exact directional close that does not clear the zone", async () => {
+    const value = payloadFor("opened_selection_is_frozen");
+    const setup = (
+      (value.setups as Array<Record<string, unknown>>)[0]!.setup as Record<
+        string,
+        unknown
+      >
     );
+    const market = value.market_event as {
+      confirmed_bar: { close_ticks: number };
+    };
+    setup.zone_top_ticks = market.confirmed_bar.close_ticks + 1;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects an exact HTF flip whose contact is outside the setup zone", async () => {
+    const value = payloadFor("flip_before_boc");
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    const flipEvidence = (
+      bundle.evidence as Array<Record<string, unknown>>
+    ).find((item) => item.htf_open_ticks !== null)!;
+    const contact = flipEvidence.contact_candle as { high_ticks: number };
+    setup.zone_bottom_ticks = contact.high_ticks + 1;
+    setup.zone_top_ticks = contact.high_ticks + 10;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it.each([
+    ["boc tier", "boc_tier", "UNKNOWN_TIER"],
+    ["ambiguity code", "ambiguity_codes", ["UNKNOWN_AMBIGUITY"]],
+  ])("rejects an unknown %s", async (_name, field, replacement) => {
+    const value = payload();
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const evidence = (bundle.evidence as Array<Record<string, unknown>>)[0]!;
+    evidence[field] = replacement;
+    if (field === "boc_tier") {
+      (bundle.candidates as Array<Record<string, unknown>>)[0]!.boc_tier =
+        replacement;
+    }
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("enforces the raw 35,000-character boundary", () => {
+    expect(() =>
+      validateEntryV3BodySize(
+        new TextEncoder().encode(
+          " ".repeat(ENTRY_V3_MAX_PAYLOAD_CHARACTERS - 1),
+        ),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateEntryV3BodySize(
+        new TextEncoder().encode(" ".repeat(ENTRY_V3_MAX_PAYLOAD_CHARACTERS)),
+      ),
+    ).toThrow(EntryV3ValidationError);
+  });
+
+  it("rejects a whitespace-inflated raw schema-3 body", async () => {
+    const compact = JSON.stringify({
+      credential: "secret",
+      payload: payload(),
+    });
+    const inflated = `${compact.slice(0, -1)}${" ".repeat(35_000)}}`;
+    await expect(
+      validateObservationEnvelope(
+        parseStrictJson(new TextEncoder().encode(inflated)),
+        new TextEncoder().encode(inflated),
+        reviewedHashes,
+      ),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
   });
 });

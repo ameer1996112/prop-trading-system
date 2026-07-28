@@ -1,6 +1,7 @@
 import {
   POLICY_VERSION_V3,
   selectionIdV3,
+  validateEntryArbitrationInputV3,
   validateEntryEvaluationV3,
   type EntryArbitrationInputV3,
   type EntryCandidateEvidenceV3,
@@ -179,7 +180,32 @@ export async function arbitrateEntryCandidatesV3(
   evaluatedAtEpoch: number,
   openedSelection: EntrySelectionV3 | null = null,
 ): Promise<EntrySelectionV3> {
-  if (openedSelection !== null) return openedSelection;
+  if (
+    typeof setupId !== "string" ||
+    setupId.length === 0 ||
+    setupId.trim() !== setupId ||
+    typeof setupInvalidated !== "boolean" ||
+    !Number.isSafeInteger(revision) ||
+    revision < 0 ||
+    !Number.isSafeInteger(evaluatedAtEpoch) ||
+    evaluatedAtEpoch < 0 ||
+    candidates.some(
+      (candidate) => candidate.observed_at_epoch > evaluatedAtEpoch,
+    ) ||
+    evidence.some((item) => item.observed_at_epoch > evaluatedAtEpoch)
+  ) {
+    throw new TypeError("invalid v3 arbitration request");
+  }
+  if (openedSelection !== null) {
+    if (
+      openedSelection.setup_id !== setupId ||
+      openedSelection.action !== "PAPER_ELIGIBLE" ||
+      openedSelection.evaluated_at_epoch > evaluatedAtEpoch
+    ) {
+      throw new TypeError("invalid opened v3 selection");
+    }
+    return openedSelection;
+  }
   const candidatesById = new Map<string, EntryCandidateV3>();
   for (const candidate of candidates) {
     if (candidate.setup_id !== setupId) {
@@ -359,6 +385,7 @@ async function evaluateWithoutOpenedSeed(
 export async function evaluateEntryV3Bundle(
   input: EntryArbitrationInputV3,
 ): Promise<EntryEvaluationV3> {
+  validateEntryArbitrationInputV3(input);
   if (input.opened_selection_seed === null) {
     return evaluateWithoutOpenedSeed(input);
   }

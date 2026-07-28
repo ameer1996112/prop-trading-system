@@ -666,6 +666,8 @@ export interface Env {
   readonly PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256?: string;
   readonly PAPER_LEDGER_ENABLED?: string;
   readonly RD_ENTRY_CANONICAL_PAPER_ENABLED?: string;
+  readonly RD_ENTRY_V3_DETECTOR_CODE_HASH?: string;
+  readonly RD_ENTRY_V3_SETTINGS_HASH?: string;
   readonly RD_ENTRY_PROMOTION_PINE_SHA256?: string;
   readonly RD_ENTRY_PROMOTION_REPORT_SHA256?: string;
   readonly RD_ENTRY_PROMOTION_SOURCE_COMMIT?: string;
