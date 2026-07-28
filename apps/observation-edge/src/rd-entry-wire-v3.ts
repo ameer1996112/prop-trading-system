@@ -13,6 +13,7 @@ import {
   type EntryCandidateV3,
   type EntryDirectionV3,
   type EntryEvaluationV3,
+  type EntryModelV3,
   type EntrySelectionV3,
   type OrderedCandleV3,
   type SetupEntryFactsV3,
@@ -173,6 +174,9 @@ const EXIT_EVENT_KEYS = [
   "price_ticks",
 ] as const;
 const SHA256 = /^[a-f0-9]{64}$/u;
+const EDGE_DERIVED_DIGEST = "EDGE_DERIVED";
+const EDGE_DERIVED_REFERENCE =
+  /^EDGE_DERIVED:(BOC|DIR_CLOSE|HTF_FLIP)$/u;
 const IDENTIFIER = /^[\x21-\x5b\x5d-\x7e]+$/u;
 const POSITIVE_DECIMAL =
   /^(?:0\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\.[0-9]+)?)$/u;
@@ -402,6 +406,33 @@ function parseCandidate(value: unknown): EntryCandidateV3 {
   return candidate;
 }
 
+function edgeDerivedModel(value: unknown): EntryModelV3 {
+  const result = text(value);
+  const match = EDGE_DERIVED_REFERENCE.exec(result);
+  return match === null ? fail() : (match[1] as EntryModelV3);
+}
+
+function edgeDerivedReference(model: EntryModelV3): string {
+  return `${EDGE_DERIVED_DIGEST}:${model}`;
+}
+
+async function parseEdgeDerivedCandidate(
+  value: unknown,
+): Promise<EntryCandidateV3> {
+  const result = object(value);
+  exactKeys(result, CANDIDATE_KEYS);
+  const referenceModel = edgeDerivedModel(result.candidate_id);
+  const provisional = parseCandidate({
+    ...result,
+    candidate_id: "a".repeat(64),
+  });
+  if (referenceModel !== provisional.model) fail();
+  return {
+    ...provisional,
+    candidate_id: await candidateIdV3(provisional),
+  };
+}
+
 function nullableInteger(value: unknown): number | null {
   return value === null ? null : signedInteger(value);
 }
@@ -472,6 +503,45 @@ function parseEvidence(value: unknown): EntryCandidateEvidenceV3 {
   return evidence;
 }
 
+async function parseEdgeDerivedEvidence(
+  value: unknown,
+  candidateByModel: ReadonlyMap<EntryModelV3, EntryCandidateV3>,
+): Promise<EntryCandidateEvidenceV3> {
+  const result = object(value);
+  exactKeys(result, EVIDENCE_KEYS);
+  const candidateModel = edgeDerivedModel(result.candidate_id);
+  const evidenceModel = edgeDerivedModel(result.evidence_id);
+  const candidate = candidateByModel.get(candidateModel);
+  if (
+    candidate === undefined ||
+    candidateModel !== evidenceModel ||
+    result.payload_sha256 !== EDGE_DERIVED_DIGEST
+  ) {
+    fail();
+  }
+  const provisional = parseEvidence({
+    ...result,
+    evidence_id: "a".repeat(64),
+    candidate_id: candidate.candidate_id,
+    payload_sha256: "b".repeat(64),
+  });
+  const {
+    evidence_id: _,
+    payload_sha256: __,
+    observed_at_epoch: ___,
+    ...payload
+  } = provisional;
+  const payloadSha256 = await evidencePayloadSha256V3(payload);
+  const withPayloadDigest = {
+    ...provisional,
+    payload_sha256: payloadSha256,
+  };
+  return {
+    ...withPayloadDigest,
+    evidence_id: await evidenceIdV3(withPayloadDigest),
+  };
+}
+
 function parseSelection(value: unknown): EntrySelectionV3 {
   const result = object(value);
   exactKeys(result, SELECTION_KEYS);
@@ -502,6 +572,164 @@ function parseSelection(value: unknown): EntrySelectionV3 {
     return fail();
   }
   return selection;
+}
+
+const ENTRY_MODELS_V3 = new Set<EntryModelV3>([
+  "BOC",
+  "DIR_CLOSE",
+  "HTF_FLIP",
+]);
+const SELECTION_REASONS_V3 = new Set([
+  "ONLY_EXACT_TRIGGER",
+  "EARLIEST_EXACT_TRIGGER",
+  "FALLBACK_TO_CONFIRMED_CLOSE",
+  "CO_TRIGGER_SAME_EVENT",
+  "CO_TRIGGER_PRICE_CONFLICT",
+  "NO_EXACT_CANDIDATE",
+  "SETUP_INVALIDATED",
+  "NO_CANDIDATE",
+]);
+const SELECTION_FIDELITIES_V3 = new Set<CandidateFidelityV3>([
+  "EXACT",
+  "CALIBRATED",
+  "DISCRETIONARY",
+  "UNRESOLVED",
+]);
+const SELECTION_ACTIONS_V3 = new Set([
+  "OBSERVE",
+  "PAPER_ELIGIBLE",
+  "SHADOW_ONLY",
+  "NONE",
+]);
+
+interface EdgeDerivedSelectionSeed {
+  readonly setup_id: string;
+  readonly revision: number;
+  readonly evaluated_at_epoch: number;
+}
+
+function parseEdgeDerivedSelectionSeed(
+  value: unknown,
+  candidateModels: readonly EntryModelV3[],
+): EdgeDerivedSelectionSeed {
+  const result = object(value);
+  exactKeys(result, SELECTION_KEYS);
+  if (
+    result.selection_id !== EDGE_DERIVED_DIGEST ||
+    result.policy_version !== "rd-entry-arbitration-v3"
+  ) {
+    fail();
+  }
+  const setupId = identifier(result.setup_id);
+  const considered = stringValues(result.candidate_ids_considered, 3);
+  const expectedConsidered = candidateModels
+    .map(edgeDerivedReference)
+    .sort();
+  if (
+    considered.join("\u0000") !== expectedConsidered.join("\u0000")
+  ) {
+    fail();
+  }
+  const candidateReference =
+    result.canonical_candidate_id === null
+      ? null
+      : edgeDerivedModel(result.canonical_candidate_id);
+  const evidenceReference =
+    result.canonical_evidence_id === null
+      ? null
+      : edgeDerivedModel(result.canonical_evidence_id);
+  if (
+    (candidateReference === null) !== (evidenceReference === null) ||
+    candidateReference !== evidenceReference ||
+    (candidateReference !== null &&
+      !candidateModels.includes(candidateReference))
+  ) {
+    fail();
+  }
+  const canonicalModel = result.canonical_model;
+  if (
+    canonicalModel !== null &&
+    (!ENTRY_MODELS_V3.has(canonicalModel as EntryModelV3) ||
+      canonicalModel !== candidateReference)
+  ) {
+    fail();
+  }
+  if (
+    (canonicalModel === null) !== (candidateReference === null) ||
+    !SELECTION_REASONS_V3.has(result.reason as string) ||
+    (result.fidelity !== null &&
+      !SELECTION_FIDELITIES_V3.has(result.fidelity as CandidateFidelityV3)) ||
+    !SELECTION_ACTIONS_V3.has(result.action as string)
+  ) {
+    fail();
+  }
+  const coTriggeredModels = stringValues(result.co_triggered_models, 3);
+  if (
+    coTriggeredModels.some(
+      (model) => !ENTRY_MODELS_V3.has(model as EntryModelV3),
+    ) ||
+    coTriggeredModels.join("\u0000") !==
+      [...coTriggeredModels].sort().join("\u0000")
+  ) {
+    fail();
+  }
+  return {
+    setup_id: setupId,
+    revision: integer(result.revision),
+    evaluated_at_epoch: integer(result.evaluated_at_epoch),
+  };
+}
+
+function isEdgeDerivedMarker(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.startsWith(EDGE_DERIVED_DIGEST);
+  }
+  return false;
+}
+
+function bundleUsesEdgeDerivedIdentity(
+  bundle: Record<string, unknown>,
+): boolean {
+  const candidates = Array.isArray(bundle.candidates)
+    ? bundle.candidates
+    : [];
+  const evidence = Array.isArray(bundle.evidence) ? bundle.evidence : [];
+  const selection =
+    bundle.selection_proposal !== null &&
+    typeof bundle.selection_proposal === "object" &&
+    !Array.isArray(bundle.selection_proposal)
+      ? (bundle.selection_proposal as Record<string, unknown>)
+      : {};
+  return (
+    candidates.some(
+      (item) =>
+        item !== null &&
+        typeof item === "object" &&
+        !Array.isArray(item) &&
+        isEdgeDerivedMarker(
+          (item as Record<string, unknown>).candidate_id,
+        ),
+    ) ||
+    evidence.some(
+      (item) =>
+        item !== null &&
+        typeof item === "object" &&
+        !Array.isArray(item) &&
+        [
+          (item as Record<string, unknown>).candidate_id,
+          (item as Record<string, unknown>).evidence_id,
+          (item as Record<string, unknown>).payload_sha256,
+        ].some(isEdgeDerivedMarker),
+    ) ||
+    [
+      selection.selection_id,
+      selection.canonical_candidate_id,
+      selection.canonical_evidence_id,
+      ...(Array.isArray(selection.candidate_ids_considered)
+        ? selection.candidate_ids_considered
+        : []),
+    ].some(isEdgeDerivedMarker)
+  );
 }
 
 async function verifyCanonicalDigests(
@@ -614,12 +842,33 @@ async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
   const result = object(value);
   exactKeys(result, SETUP_BUNDLE_KEYS);
   const setup = parseSetup(result.setup);
-  const candidates = values(result.candidates, 0, 3).map(parseCandidate);
-  const evidence = values(result.evidence, 0, 12).map(parseEvidence);
+  const usesEdgeDerivedIdentity = bundleUsesEdgeDerivedIdentity(result);
+  const candidateValues = values(result.candidates, 0, 3);
+  const candidates = usesEdgeDerivedIdentity
+    ? await Promise.all(candidateValues.map(parseEdgeDerivedCandidate))
+    : candidateValues.map(parseCandidate);
+  const candidateModels = candidates.map((item) => item.model);
+  const candidateByModel = new Map(
+    candidates.map((item) => [item.model, item] as const),
+  );
+  const evidenceValues = values(result.evidence, 0, 12);
+  const evidence = usesEdgeDerivedIdentity
+    ? await Promise.all(
+        evidenceValues.map((item) =>
+          parseEdgeDerivedEvidence(item, candidateByModel),
+        ),
+      )
+    : evidenceValues.map(parseEvidence);
   if (
     new Set(candidates.map((item) => item.candidate_id)).size !==
       candidates.length ||
+    (usesEdgeDerivedIdentity &&
+      new Set(candidateModels).size !== candidates.length) ||
     new Set(evidence.map((item) => item.evidence_id)).size !== evidence.length ||
+    (usesEdgeDerivedIdentity &&
+      (evidence.length !== candidates.length ||
+        new Set(evidence.map((item) => item.candidate_id)).size !==
+          evidence.length)) ||
     candidates.some(
       (item) =>
         item.setup_id !== setup.facts.setup_id ||
@@ -628,17 +877,21 @@ async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
   ) {
     fail();
   }
-  const selectionProposal = parseSelection(result.selection_proposal);
+  const selectionSeed = usesEdgeDerivedIdentity
+    ? parseEdgeDerivedSelectionSeed(result.selection_proposal, candidateModels)
+    : parseSelection(result.selection_proposal);
+  if (selectionSeed.setup_id !== setup.facts.setup_id) fail();
   const canonicalSelection = await arbitrateEntryCandidatesV3(
     setup.facts.setup_id,
     candidates,
     evidence,
     setup.facts.invalidated_before_entry,
-    selectionProposal.revision,
-    selectionProposal.evaluated_at_epoch,
+    selectionSeed.revision,
+    selectionSeed.evaluated_at_epoch,
   );
   if (
-    canonicalJson(canonicalSelection) !== canonicalJson(selectionProposal)
+    !usesEdgeDerivedIdentity &&
+    canonicalJson(canonicalSelection) !== canonicalJson(selectionSeed)
   ) {
     fail();
   }
@@ -658,7 +911,7 @@ async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
   }
   await verifyCanonicalDigests(evaluation);
   if (
-    selectionProposal.action === "PAPER_ELIGIBLE" &&
+    canonicalSelection.action === "PAPER_ELIGIBLE" &&
     (setup.facts.common_fidelity !== "EXACT" ||
       setup.facts.invalidated_before_entry ||
       setup.facts.zone_engaged_epoch === null ||
@@ -675,7 +928,7 @@ async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
     commonRuleResults: setup.commonRules,
     candidates: evaluation.candidates,
     evidence: evaluation.evidence,
-    selectionProposal,
+    selectionProposal: canonicalSelection,
     evaluation,
     tradePlan: parseTradePlan(result.trade_plan, setup.facts.direction),
   };
@@ -927,7 +1180,20 @@ export async function validateEntryV3Payload(
       bundle.tradePlan,
     );
   }
-  const canonicalPayload = decoded as CanonicalObject;
+  const canonicalSetups = entryBundles.map((bundle) => ({
+    setup: {
+      ...bundle.setup,
+      common_rule_results: bundle.commonRuleResults,
+    },
+    candidates: bundle.candidates,
+    evidence: bundle.evidence,
+    selection_proposal: bundle.selectionProposal,
+    trade_plan: bundle.tradePlan,
+  }));
+  const canonicalPayload = {
+    ...payload,
+    setups: canonicalSetups,
+  } as unknown as CanonicalObject;
   return {
     canonicalPayload,
     metadata: {

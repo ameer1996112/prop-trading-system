@@ -137,7 +137,7 @@ function payloadFor(caseId: string): Record<string, unknown> {
   const selection = expected.selection;
   const canonicalEvidence = expected.evidence.find(
     (item) => item.evidence_id === selection.canonical_evidence_id,
-  )!;
+  ) ?? expected.evidence[0]!;
   const direction = input.direction as "LONG" | "SHORT";
   const entryTicks = canonicalEvidence.observed_trigger_ticks as number;
   const confirmedBar =
@@ -204,6 +204,54 @@ function payloadFor(caseId: string): Record<string, unknown> {
       },
     ],
   };
+}
+
+function useEdgeDerivedReferences(value: Record<string, unknown>): void {
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const candidates = bundle.candidates as Array<Record<string, unknown>>;
+  const evidence = bundle.evidence as Array<Record<string, unknown>>;
+  const selection = bundle.selection_proposal as Record<string, unknown>;
+  const modelByCandidateId = new Map(
+    candidates.map((item) => [
+      item.candidate_id as string,
+      item.model as string,
+    ]),
+  );
+  const modelByEvidenceId = new Map(
+    evidence.map((item) => [
+      item.evidence_id as string,
+      modelByCandidateId.get(item.candidate_id as string)!,
+    ]),
+  );
+  const canonicalCandidateModel =
+    selection.canonical_candidate_id === null
+      ? null
+      : modelByCandidateId.get(selection.canonical_candidate_id as string)!;
+  const canonicalEvidenceModel =
+    selection.canonical_evidence_id === null
+      ? null
+      : modelByEvidenceId.get(selection.canonical_evidence_id as string)!;
+  for (const candidate of candidates) {
+    candidate.candidate_id = `EDGE_DERIVED:${candidate.model as string}`;
+  }
+  for (const item of evidence) {
+    const model = modelByCandidateId.get(item.candidate_id as string);
+    item.candidate_id = `EDGE_DERIVED:${model!}`;
+    item.evidence_id = `EDGE_DERIVED:${model!}`;
+    item.payload_sha256 = "EDGE_DERIVED";
+  }
+  selection.selection_id = "EDGE_DERIVED";
+  selection.candidate_ids_considered = candidates
+    .map((item) => item.candidate_id as string)
+    .sort();
+  selection.canonical_candidate_id =
+    canonicalCandidateModel === null
+      ? null
+      : `EDGE_DERIVED:${canonicalCandidateModel}`;
+  selection.canonical_evidence_id =
+    canonicalEvidenceModel === null
+      ? null
+      : `EDGE_DERIVED:${canonicalEvidenceModel}`;
 }
 
 async function rehashEvidenceAndSelection(
@@ -484,6 +532,98 @@ describe("RD entry v3 wire", () => {
         new TextEncoder().encode(inflated),
         reviewedHashes,
       ),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("canonicalizes a Pine-shaped strict BOC bundle to the Python oracle", async () => {
+    const value = payloadFor("strict_long_boc_only");
+    useEdgeDerivedReferences(value);
+    const result = await validateEntryV3Payload(
+      strict(value),
+      reviewedHashes,
+    );
+    const expected = vectorDocument.cases.find(
+      (item) => item.case_id === "strict_long_boc_only",
+    )!.expected;
+
+    expect(result.entryBundles[0]!.evaluation).toEqual(expected);
+    expect(JSON.stringify(result.canonicalPayload)).not.toContain(
+      "EDGE_DERIVED",
+    );
+  });
+
+  it("ignores a forged Pine selection and derives shadow semantics", async () => {
+    const value = payloadFor("discretionary_boc_shadow");
+    useEdgeDerivedReferences(value);
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    bundle.selection_proposal = {
+      ...(bundle.selection_proposal as Record<string, unknown>),
+      selection_id: "EDGE_DERIVED",
+      canonical_candidate_id: "EDGE_DERIVED:BOC",
+      canonical_evidence_id: "EDGE_DERIVED:BOC",
+      canonical_model: "BOC",
+      reason: "ONLY_EXACT_TRIGGER",
+      fidelity: "EXACT",
+      action: "PAPER_ELIGIBLE",
+      co_triggered_models: [],
+    };
+
+    const result = await validateEntryV3Payload(
+      strict(value),
+      reviewedHashes,
+    );
+    expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
+      canonical_candidate_id: null,
+      canonical_evidence_id: null,
+      canonical_model: null,
+      reason: "NO_EXACT_CANDIDATE",
+      fidelity: null,
+      action: "SHADOW_ONLY",
+    });
+  });
+
+  it("rejects an EDGE_DERIVED candidate-model collision", async () => {
+    const value = payload();
+    useEdgeDerivedReferences(value);
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const candidates = bundle.candidates as Array<Record<string, unknown>>;
+    candidates.push(structuredClone(candidates[0]!));
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it.each([
+    ["wrong model reference", "EDGE_DERIVED:HTF_FLIP"],
+    ["malformed reference", "EDGE_DERIVED:BOC:EXTRA"],
+  ])("rejects a Pine candidate with %s", async (_name, reference) => {
+    const value = payload();
+    useEdgeDerivedReferences(value);
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    (bundle.candidates as Array<Record<string, unknown>>)[0]!.candidate_id =
+      reference;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects mixed canonical and EDGE_DERIVED identity claims", async () => {
+    const value = payload();
+    const originalCandidateId = (
+      (
+        (value.setups as Array<Record<string, unknown>>)[0]!
+          .candidates as Array<Record<string, unknown>>
+      )[0]!.candidate_id
+    );
+    useEdgeDerivedReferences(value);
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    (bundle.candidates as Array<Record<string, unknown>>)[0]!.candidate_id =
+      originalCandidateId;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
     ).rejects.toBeInstanceOf(EntryV3ValidationError);
   });
 });
