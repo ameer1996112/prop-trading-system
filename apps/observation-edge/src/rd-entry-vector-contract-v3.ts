@@ -447,6 +447,18 @@ function bindExpectedToInput(
   const candidateByModel = new Map(
     expected.candidates.map((candidate) => [candidate.model, candidate] as const),
   );
+  if (
+    candidateByModel.size !== expected.candidates.length ||
+    expected.evidence.length !== expected.candidates.length ||
+    expected.candidates.some(
+      (candidate) =>
+        expected.evidence.filter(
+          (evidence) => evidence.candidate_id === candidate.candidate_id,
+        ).length !== 1,
+    )
+  ) {
+    fail("vector graph requires exactly one candidate and evidence per model");
+  }
   if (input.opened_selection_seed !== null) {
     const seed = input.opened_selection_seed;
     const candidate = candidateByModel.get("DIR_CLOSE");

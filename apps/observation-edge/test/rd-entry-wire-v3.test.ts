@@ -472,6 +472,27 @@ async function rehashCandidateGraph(
   );
 }
 
+async function addLaterExactBocEvidence(
+  value: Record<string, unknown>,
+): Promise<string> {
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const evidence = bundle.evidence as Array<Record<string, unknown>>;
+  const original = evidence[0]!;
+  const canonicalEvidenceId = original.evidence_id as string;
+  const later = structuredClone(original);
+  later.evidence_id = "c".repeat(64);
+  later.payload_sha256 = "d".repeat(64);
+  later.observed_trigger_epoch =
+    (original.observed_trigger_epoch as number) + 1;
+  later.trigger_sequence = (original.trigger_sequence as number) + 1;
+  later.observed_trigger_ticks =
+    (original.observed_trigger_ticks as number) + 1;
+  evidence.push(later);
+  await rehashEvidenceAndSelection(value, evidence.length - 1);
+  evidence.reverse();
+  return canonicalEvidenceId;
+}
+
 describe("RD entry v3 wire", () => {
   it("accepts an exact strict BOC bundle", async () => {
     const result = await validateEntryV3Payload(
@@ -484,6 +505,50 @@ describe("RD entry v3 wire", () => {
     );
     expect(result.eventRole).toBe("ENTRY_DECISION");
     expect(result.canonicalPayload).not.toHaveProperty("eventRole");
+  });
+
+  it("accepts multiple canonical evidence rows and selects the earliest ENTRY_DECISION", async () => {
+    const value = payload();
+    const expectedEvidenceId = await addLaterExactBocEvidence(value);
+
+    const result = await validateEntryV3Payload(strict(value), reviewedHashes);
+    expect(result.eventRole).toBe("ENTRY_DECISION");
+    expect(result.entryBundles[0]!.evidence).toHaveLength(2);
+    expect(
+      result.entryBundles[0]!.evaluation.selection.canonical_evidence_id,
+    ).toBe(expectedEvidenceId);
+    expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
+      "PAPER_ELIGIBLE",
+    );
+  });
+
+  it("accepts multiple canonical evidence rows and preserves the earliest EXIT_FOLLOWUP entry", async () => {
+    const value = laterRealtimeExitPayload("TARGET", 142);
+    const expectedEvidenceId = await addLaterExactBocEvidence(value);
+
+    const result = await validateEntryV3Payload(strict(value), reviewedHashes);
+    expect(result.eventRole).toBe("EXIT_FOLLOWUP");
+    expect(result.entryBundles[0]!.evidence).toHaveLength(2);
+    expect(
+      result.entryBundles[0]!.evaluation.selection.canonical_evidence_id,
+    ).toBe(expectedEvidenceId);
+    expect(result.exitEvents[0]!.exit_reason).toBe("TARGET");
+  });
+
+  it("rejects a rehashed comma-collision in model source claims", async () => {
+    const value = payload();
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const candidate = (bundle.candidates as Array<Record<string, unknown>>)[0]!;
+    const evidence = (bundle.evidence as Array<Record<string, unknown>>)[0]!;
+    const canonicalClaims = candidate.source_claim_ids as string[];
+    const collision = [canonicalClaims.join(",")];
+    candidate.source_claim_ids = collision;
+    evidence.source_claim_ids = collision;
+    await rehashEvidenceAndSelection(value, 0);
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
   });
 
   it("routes schema 3.0 through the entry-v3 observation union", async () => {

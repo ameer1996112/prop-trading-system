@@ -224,6 +224,18 @@ describe("RD entry v3 Python/TypeScript parity", () => {
     expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
   });
 
+  it("rejects an excess expected evidence record for one vector candidate", () => {
+    const vector = rawVector("strict_long_boc_only");
+    const expected = vector.expected as {
+      evidence: Array<Record<string, unknown>>;
+    };
+    const excess = structuredClone(expected.evidence[0]!);
+    excess.evidence_id = "c".repeat(64);
+    expected.evidence.push(excess);
+
+    expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+  });
+
   it("binds canonical source claims to the candidate model", () => {
     const vector = rawVector("flip_before_boc");
     const expected = vector.expected as {

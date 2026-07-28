@@ -756,6 +756,29 @@ function exactEvidenceRuleIsConsistent(
   );
 }
 
+function stringArraysEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+function expectedSourceClaimsV3(
+  candidate: EntryCandidateV3,
+): readonly string[] {
+  if (candidate.model === "BOC") {
+    return candidate.boc_tier === "HTF_TIMED"
+      ? SOURCE_CLAIMS_V3.BOC_HTF_TIMED
+      : SOURCE_CLAIMS_V3.BOC_DISCRETIONARY_5M;
+  }
+  return candidate.model === "DIR_CLOSE"
+    ? SOURCE_CLAIMS_V3.DIR_CLOSE
+    : SOURCE_CLAIMS_V3.HTF_FLIP;
+}
+
 export function validateEntryEvidenceV3(
   evidence: EntryCandidateEvidenceV3,
 ): void {
@@ -997,30 +1020,24 @@ export function validateEntryEvaluationV3(
   const evidenceById = new Map(
     evaluation.evidence.map((evidence) => [evidence.evidence_id, evidence]),
   );
-  if (
-    new Set(evaluation.candidates.map((candidate) => candidate.model)).size !==
-      evaluation.candidates.length ||
-    [...evaluation.evidence]
-      .map((evidence) => evidence.candidate_id)
-      .sort()
-      .join() !== [...candidateIds].sort().join()
-  ) {
-    fail("evaluation requires exactly one candidate and evidence per model");
+  for (const candidate of evaluation.candidates) {
+    if (
+      !stringArraysEqual(
+        candidate.source_claim_ids,
+        expectedSourceClaimsV3(candidate),
+      )
+    ) {
+      fail("source claims conflict with candidate model");
+    }
   }
   for (const evidence of evaluation.evidence) {
     const candidate = candidateById.get(evidence.candidate_id);
     if (candidate === undefined) fail("evidence references unknown candidate");
-    const expectedClaims =
-      candidate.model === "BOC"
-        ? candidate.boc_tier === "HTF_TIMED"
-          ? SOURCE_CLAIMS_V3.BOC_HTF_TIMED
-          : SOURCE_CLAIMS_V3.BOC_DISCRETIONARY_5M
-        : candidate.model === "DIR_CLOSE"
-          ? SOURCE_CLAIMS_V3.DIR_CLOSE
-          : SOURCE_CLAIMS_V3.HTF_FLIP;
     if (
-      candidate.source_claim_ids.join() !== expectedClaims.join() ||
-      evidence.source_claim_ids.join() !== expectedClaims.join()
+      !stringArraysEqual(
+        evidence.source_claim_ids,
+        expectedSourceClaimsV3(candidate),
+      )
     ) {
       fail("source claims conflict with candidate model");
     }
