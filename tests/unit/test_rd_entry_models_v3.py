@@ -10,6 +10,7 @@ from prop_trading.domain.rd_entry_models import (
     EntryDirection,
     OrderedCandle,
     ProofPlane,
+    SelectionAction,
 )
 from prop_trading.domain.rd_entry_models_v3 import (
     BocProof,
@@ -19,10 +20,15 @@ from prop_trading.domain.rd_entry_models_v3 import (
     EntryCandidateV3,
     EntryEvidenceIdentityV3,
     EntryModelV3,
+    EntrySelectionIdentityV3,
+    EntrySelectionV3,
+    EntryTriggerProofV3,
     EvidenceReplayability,
+    SelectionReason,
     candidate_id_v3,
     evidence_id_v3,
     evidence_payload_sha256_v3,
+    selection_id_v3,
 )
 
 
@@ -165,6 +171,133 @@ def test_boc_trigger_must_be_inside_its_five_minute_candle(
 ) -> None:
     with pytest.raises(ValueError, match="trigger.*five-minute candle"):
         replace(_boc_proof(), trigger_epoch=trigger_epoch)
+
+
+def _flip_proof() -> EntryTriggerProofV3:
+    return EntryTriggerProofV3(
+        event_anchor_epoch=1_800,
+        trigger_epoch=1_802,
+        trigger_sequence=8,
+        trigger_ticks=111,
+        htf_open_ticks=111,
+        htf_context_minutes=(15, 30),
+        proof_plane=ProofPlane.REALTIME_TICK,
+        replayability=EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE,
+        fidelity=CandidateFidelity.EXACT,
+        coverage_start_epoch=900,
+        coverage_end_epoch=2_400,
+        is_realtime=True,
+        contact_candle=OrderedCandle(
+            open_epoch=1_800,
+            close_epoch=1_801,
+            open_ticks=105,
+            high_ticks=110,
+            low_ticks=100,
+            close_ticks=105,
+        ),
+        recross_candle=OrderedCandle(
+            open_epoch=1_801,
+            close_epoch=1_802,
+            open_ticks=110,
+            high_ticks=112,
+            low_ticks=109,
+            close_ticks=111,
+        ),
+        coverage_gap_detected=False,
+        full_lifecycle_ordered=True,
+        destination_seen_before_contact=False,
+        ambiguity_codes=(),
+    )
+
+
+def test_flip_anchor_must_precede_contact() -> None:
+    with pytest.raises(ValueError, match="anchor.*contact"):
+        replace(_flip_proof(), event_anchor_epoch=2_700)
+
+
+def test_flip_trigger_must_remain_inside_every_htf_context() -> None:
+    with pytest.raises(ValueError, match="trigger.*HTF context"):
+        replace(_flip_proof(), event_anchor_epoch=0)
+
+
+@pytest.mark.parametrize(
+    ("canonical", "fidelity", "reason", "action"),
+    [
+        (False, CandidateFidelity.EXACT, SelectionReason.ONLY_EXACT_TRIGGER, SelectionAction.NONE),
+        (
+            False,
+            None,
+            SelectionReason.ONLY_EXACT_TRIGGER,
+            SelectionAction.NONE,
+        ),
+        (
+            True,
+            CandidateFidelity.UNRESOLVED,
+            SelectionReason.ONLY_EXACT_TRIGGER,
+            SelectionAction.PAPER_ELIGIBLE,
+        ),
+        (
+            True,
+            CandidateFidelity.EXACT,
+            SelectionReason.ONLY_EXACT_TRIGGER,
+            SelectionAction.SHADOW_ONLY,
+        ),
+    ],
+)
+def test_selection_identity_rejects_ineligible_action_reason_and_null_combinations(
+    canonical: bool,
+    fidelity: CandidateFidelity | None,
+    reason: SelectionReason,
+    action: SelectionAction,
+) -> None:
+    canonical_candidate_id = "a" * 64 if canonical else None
+    canonical_evidence_id = "b" * 64 if canonical else None
+
+    with pytest.raises(ValueError, match="canonical|fidelity|action|reason|paper"):
+        EntrySelectionIdentityV3(
+            setup_id="setup-1",
+            policy_version="rd-entry-arbitration-v3",
+            revision=0,
+            candidate_ids_considered=("a" * 64,),
+            canonical_candidate_id=canonical_candidate_id,
+            canonical_evidence_id=canonical_evidence_id,
+            reason=reason,
+            fidelity=fidelity,
+            action=action,
+            co_triggered_models=(),
+        )
+
+
+def test_selection_rejects_canonical_model_without_canonical_pointers() -> None:
+    identity = EntrySelectionIdentityV3(
+        setup_id="setup-1",
+        policy_version="rd-entry-arbitration-v3",
+        revision=0,
+        candidate_ids_considered=(),
+        canonical_candidate_id=None,
+        canonical_evidence_id=None,
+        reason=SelectionReason.NO_CANDIDATE,
+        fidelity=None,
+        action=SelectionAction.NONE,
+        co_triggered_models=(),
+    )
+
+    with pytest.raises(ValueError, match="canonical model"):
+        EntrySelectionV3(
+            selection_id=selection_id_v3(identity),
+            setup_id=identity.setup_id,
+            policy_version=identity.policy_version,
+            revision=identity.revision,
+            candidate_ids_considered=identity.candidate_ids_considered,
+            canonical_candidate_id=None,
+            canonical_evidence_id=None,
+            canonical_model=EntryModelV3.BOC,
+            reason=identity.reason,
+            fidelity=None,
+            action=identity.action,
+            co_triggered_models=(),
+            evaluated_at_epoch=1_000,
+        )
 
 
 def _close_evidence(

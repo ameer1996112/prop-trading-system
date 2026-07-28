@@ -648,18 +648,18 @@
             "boc_tier": null,
             "candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
             "contact_candle": {
-              "close_epoch": 1800,
+              "close_epoch": 1801,
               "close_ticks": 105,
               "high_ticks": 110,
               "low_ticks": 100,
-              "open_epoch": 1500,
+              "open_epoch": 1800,
               "open_ticks": 105
             },
             "coverage_end_epoch": 2400,
             "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": false,
-            "evidence_id": "9c890b494574008319636f63bfe3fb6a551f1a018cae19b28dee9757d8f85c13",
+            "evidence_id": "21f749dc41e7d25a45f018befb471ad74e2fc100543b3948c6e165dccdeef3c9",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
             "full_lifecycle_ordered": true,
@@ -669,19 +669,19 @@
             ],
             "htf_open_ticks": 111,
             "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1801,
+            "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_HTF_FLIP"
             ],
-            "payload_sha256": "30847e313e74a6ef9385a6df82602b6c23b701c6adb78227a26250306e9d52a7",
+            "payload_sha256": "fe97379619bf03e29c0e9ab76f37ab1dd274084398d15c084f8e6d2d227d90ef",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": {
-              "close_epoch": 1801,
+              "close_epoch": 1802,
               "close_ticks": 111,
               "high_ticks": 112,
               "low_ticks": 109,
-              "open_epoch": 1800,
+              "open_epoch": 1801,
               "open_ticks": 110
             },
             "reference_candle_close_ticks": null,
@@ -707,7 +707,7 @@
             "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26"
           ],
           "canonical_candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
-          "canonical_evidence_id": "9c890b494574008319636f63bfe3fb6a551f1a018cae19b28dee9757d8f85c13",
+          "canonical_evidence_id": "21f749dc41e7d25a45f018befb471ad74e2fc100543b3948c6e165dccdeef3c9",
           "canonical_model": "HTF_FLIP",
           "co_triggered_models": [],
           "evaluated_at_epoch": 2400,
@@ -715,7 +715,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "EARLIEST_EXACT_TRIGGER",
           "revision": 0,
-          "selection_id": "093d1b34d5308e437810bbcc95d222b25326efc180e3f997e6d3387cc4ae7a5c",
+          "selection_id": "e8570f8c4e5b749ca7f270a77e6a6e32d7d4ba816fc77f5a7ebc47ab3a265cdc",
           "setup_id": "setup-flip-before-boc"
         }
       },
@@ -754,11 +754,11 @@
         "htf_flip_proof": {
           "ambiguity_codes": [],
           "contact_candle": {
-            "close_epoch": 1800,
+            "close_epoch": 1801,
             "close_ticks": 105,
             "high_ticks": 110,
             "low_ticks": 100,
-            "open_epoch": 1500,
+            "open_epoch": 1800,
             "open_ticks": 105
           },
           "coverage_end_epoch": 2400,
@@ -776,15 +776,15 @@
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
           "recross_candle": {
-            "close_epoch": 1801,
+            "close_epoch": 1802,
             "close_ticks": 111,
             "high_ticks": 112,
             "low_ticks": 109,
-            "open_epoch": 1800,
+            "open_epoch": 1801,
             "open_ticks": 110
           },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111
         },
@@ -850,7 +850,7 @@
             "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": null,
-            "evidence_id": "9b4f3f5d93a0772bef52c30fbe700e9753d2e346745af3fb98301d406e742c18",
+            "evidence_id": "490d63846a6b8a9c23b6c577ad57ca95e96230ecc2a7dd152613d5fb52525722",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
             "full_lifecycle_ordered": null,
@@ -860,12 +860,12 @@
             ],
             "htf_open_ticks": null,
             "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1801,
+            "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_BOC_HTF_TIMED"
             ],
-            "payload_sha256": "c5c4972bc1933c4103c46270e9800d37c51a569b7c48e9c009ceb039be0a64e4",
+            "payload_sha256": "869fbe987dd3a19160878a3cca6fba8aa4b79af1108474f17eed3f64d886ed97",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": null,
             "reference_candle_close_ticks": 102,
@@ -886,18 +886,18 @@
             "boc_tier": null,
             "candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
             "contact_candle": {
-              "close_epoch": 1800,
+              "close_epoch": 1801,
               "close_ticks": 105,
               "high_ticks": 110,
               "low_ticks": 100,
-              "open_epoch": 1500,
+              "open_epoch": 1800,
               "open_ticks": 105
             },
             "coverage_end_epoch": 2400,
             "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": false,
-            "evidence_id": "d8d99413f65902a5cc9295e2798d1105478cd5a23a9409e77737dfabcd0426c7",
+            "evidence_id": "c1532504ec35f40913141de107d7f7274c7f1ed47e2bc28f41e93b3f83331b18",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
             "full_lifecycle_ordered": true,
@@ -907,19 +907,19 @@
             ],
             "htf_open_ticks": 111,
             "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1801,
+            "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_HTF_FLIP"
             ],
-            "payload_sha256": "b4dd6bfd9e684aea82e80c7264b846629067d499397d002c6aed1edf856ec988",
+            "payload_sha256": "71980dad018e9e127f5b01d65310d2a1555ba7ee9df3fb195a3de5012fe92708",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": {
-              "close_epoch": 1801,
+              "close_epoch": 1802,
               "close_ticks": 111,
               "high_ticks": 112,
               "low_ticks": 109,
-              "open_epoch": 1800,
+              "open_epoch": 1801,
               "open_ticks": 110
             },
             "reference_candle_close_ticks": null,
@@ -945,7 +945,7 @@
             "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a"
           ],
           "canonical_candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
-          "canonical_evidence_id": "d8d99413f65902a5cc9295e2798d1105478cd5a23a9409e77737dfabcd0426c7",
+          "canonical_evidence_id": "c1532504ec35f40913141de107d7f7274c7f1ed47e2bc28f41e93b3f83331b18",
           "canonical_model": "HTF_FLIP",
           "co_triggered_models": [
             "BOC",
@@ -956,7 +956,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "CO_TRIGGER_SAME_EVENT",
           "revision": 0,
-          "selection_id": "c9e0023ab988162caac606e8d9e60c0d7a6d59920352e644e259b3fdf9be9f41",
+          "selection_id": "24e74cfeb78e651d7d1933395bca9b112ede78207f617fc3a436227a1b79b815",
           "setup_id": "setup-boc-flip-same"
         }
       },
@@ -982,7 +982,7 @@
           },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "trigger_candle_open_epoch": 1800,
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111
         },
@@ -995,11 +995,11 @@
         "htf_flip_proof": {
           "ambiguity_codes": [],
           "contact_candle": {
-            "close_epoch": 1800,
+            "close_epoch": 1801,
             "close_ticks": 105,
             "high_ticks": 110,
             "low_ticks": 100,
-            "open_epoch": 1500,
+            "open_epoch": 1800,
             "open_ticks": 105
           },
           "coverage_end_epoch": 2400,
@@ -1017,15 +1017,15 @@
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
           "recross_candle": {
-            "close_epoch": 1801,
+            "close_epoch": 1802,
             "close_ticks": 111,
             "high_ticks": 112,
             "low_ticks": 109,
-            "open_epoch": 1800,
+            "open_epoch": 1801,
             "open_ticks": 110
           },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111
         },
@@ -1091,7 +1091,7 @@
             "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": null,
-            "evidence_id": "3dc61939f77783ff9fc384bf34b7a306af36212afcf545a5925909d07170237a",
+            "evidence_id": "a6c25e402e5515d166fe45303f0806b75dcd59e52e27bd6f4aebaad7cbe79275",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
             "full_lifecycle_ordered": null,
@@ -1101,12 +1101,12 @@
             ],
             "htf_open_ticks": null,
             "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1801,
+            "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_BOC_HTF_TIMED"
             ],
-            "payload_sha256": "9c9038b4a52a8356bab0b790c16292528c022e796d55727c6175962fee3a584a",
+            "payload_sha256": "1d5bb3f291cbffaab47c37844ed1b492398d3e87229707601702b5fc5cfb148a",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": null,
             "reference_candle_close_ticks": 102,
@@ -1127,18 +1127,18 @@
             "boc_tier": null,
             "candidate_id": "ccbb66fc6948864e19b8d2ada69c2184e127d0755346d469b76b10babd5851ca",
             "contact_candle": {
-              "close_epoch": 1800,
+              "close_epoch": 1801,
               "close_ticks": 105,
               "high_ticks": 111,
               "low_ticks": 100,
-              "open_epoch": 1500,
+              "open_epoch": 1800,
               "open_ticks": 105
             },
             "coverage_end_epoch": 2400,
             "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": false,
-            "evidence_id": "910e8319b93987af11fdd222fdfad6f7972cc9fe6060038c7cec63854961a0b3",
+            "evidence_id": "f4f8b67fc3c0f1049288f3fed7da5320e06da15af8ed9c2b28bb44f3c4a6fadd",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
             "full_lifecycle_ordered": true,
@@ -1148,19 +1148,19 @@
             ],
             "htf_open_ticks": 112,
             "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1801,
+            "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 112,
             "passed_rule_ids": [
               "ENTRY_HTF_FLIP"
             ],
-            "payload_sha256": "8b56307840a847df841d664552771678838ebfe3205f0a20d1e33392cd7e4bb2",
+            "payload_sha256": "16857d79cfc13ecb11e1b2e7f96e905588c0d868f254d41b345142382033e067",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": {
-              "close_epoch": 1801,
+              "close_epoch": 1802,
               "close_ticks": 112,
               "high_ticks": 113,
               "low_ticks": 110,
-              "open_epoch": 1800,
+              "open_epoch": 1801,
               "open_ticks": 111
             },
             "reference_candle_close_ticks": null,
@@ -1220,7 +1220,7 @@
           },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "trigger_candle_open_epoch": 1800,
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111
         },
@@ -1233,11 +1233,11 @@
         "htf_flip_proof": {
           "ambiguity_codes": [],
           "contact_candle": {
-            "close_epoch": 1800,
+            "close_epoch": 1801,
             "close_ticks": 105,
             "high_ticks": 111,
             "low_ticks": 100,
-            "open_epoch": 1500,
+            "open_epoch": 1800,
             "open_ticks": 105
           },
           "coverage_end_epoch": 2400,
@@ -1255,15 +1255,15 @@
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
           "recross_candle": {
-            "close_epoch": 1801,
+            "close_epoch": 1802,
             "close_ticks": 112,
             "high_ticks": 113,
             "low_ticks": 110,
-            "open_epoch": 1800,
+            "open_epoch": 1801,
             "open_ticks": 111
           },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 112
         },
@@ -1388,14 +1388,14 @@
               "close_ticks": 105,
               "high_ticks": 111,
               "low_ticks": 100,
-              "open_epoch": 1500,
+              "open_epoch": 1800,
               "open_ticks": 105
             },
             "coverage_end_epoch": 2400,
             "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
             "destination_seen_before_contact": false,
-            "evidence_id": "1832b26094925dc4abfeb2eb391c657567ba64b89a836509756c86544687d29d",
+            "evidence_id": "6890274a432dee930113199cf948a53d2090ae7d430e29cb150f50a43e2602e5",
             "failed_rule_ids": [
               "REALTIME_EVIDENCE_NOT_LIVE"
             ],
@@ -1410,7 +1410,7 @@
             "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 112,
             "passed_rule_ids": [],
-            "payload_sha256": "8a5fded9e1cacde7345cc0191e688e4faabf57e6448c49f0b0d354a6f802feb2",
+            "payload_sha256": "e6983bfe57782482005a6b783624c13543c87c59c00c9762ab4edcd387af9a5a",
             "proof_plane": "REALTIME_TICK",
             "recross_candle": {
               "close_epoch": 1802,
@@ -1541,7 +1541,7 @@
             "close_ticks": 105,
             "high_ticks": 111,
             "low_ticks": 100,
-            "open_epoch": 1500,
+            "open_epoch": 1800,
             "open_ticks": 105
           },
           "coverage_end_epoch": 2400,

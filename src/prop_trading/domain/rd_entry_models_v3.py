@@ -283,6 +283,8 @@ class EntryTriggerProofV3:
             ):
                 raise ValueError(f"{name} must be inside coverage")
         if self.contact_candle is not None and self.recross_candle is not None:
+            if self.event_anchor_epoch > self.contact_candle.open_epoch:
+                raise ValueError("HTF anchor must precede contact")
             if self.contact_candle.close_epoch > self.recross_candle.open_epoch:
                 raise ValueError("contact must precede recross")
             if (
@@ -290,6 +292,11 @@ class EntryTriggerProofV3:
                 or self.trigger_ticks != self.htf_open_ticks
             ):
                 raise ValueError("trigger must be the retained HTF-open recross")
+        if self.htf_context_minutes and any(
+            self.trigger_epoch >= self.event_anchor_epoch + context * 60
+            for context in self.htf_context_minutes
+        ):
+            raise ValueError("trigger must remain inside every HTF context")
 
 
 @dataclass(frozen=True, slots=True)
@@ -555,7 +562,10 @@ class EntryCandidateEvidenceV3:
             if self.proof_plane is ProofPlane.REALTIME_TICK
             else EvidenceReplayability.REPLAYABLE
         )
-        if self.replayability is not expected_replayability:
+        if (
+            self.replayability is not expected_replayability
+            and self.fidelity is CandidateFidelity.EXACT
+        ):
             raise ValueError("replayability is inconsistent with proof plane")
         authoritative_payload_sha256 = evidence_payload_sha256_v3(
             candidate_id=self.candidate_id,
@@ -669,6 +679,8 @@ class EntrySelectionV3:
         )
         if self.selection_id != selection_id_v3(identity):
             raise ValueError("selection_id conflicts with its domain identity")
+        if (self.canonical_model is None) != (self.canonical_candidate_id is None):
+            raise ValueError("canonical model and canonical pointers must agree")
         if self.canonical_model is not None:
             _require_enum(self.canonical_model, EntryModelV3, "canonical_model")
         _require_int(self.evaluated_at_epoch, "evaluated_at_epoch", non_negative=True)
@@ -738,6 +750,31 @@ def _validate_selection_fields(
         raise ValueError("co-trigger selection requires multiple models")
     if reason is not SelectionReason.CO_TRIGGER_SAME_EVENT and co_triggered_models:
         raise ValueError("co-triggered models require CO_TRIGGER_SAME_EVENT")
+    canonical_reasons = {
+        SelectionReason.ONLY_EXACT_TRIGGER,
+        SelectionReason.EARLIEST_EXACT_TRIGGER,
+        SelectionReason.FALLBACK_TO_CONFIRMED_CLOSE,
+        SelectionReason.CO_TRIGGER_SAME_EVENT,
+    }
+    empty_reasons_by_action = {
+        SelectionReason.CO_TRIGGER_PRICE_CONFLICT: SelectionAction.SHADOW_ONLY,
+        SelectionReason.NO_EXACT_CANDIDATE: SelectionAction.SHADOW_ONLY,
+        SelectionReason.SETUP_INVALIDATED: SelectionAction.NONE,
+        SelectionReason.NO_CANDIDATE: SelectionAction.NONE,
+    }
+    if canonical_candidate_id is not None:
+        if fidelity is not CandidateFidelity.EXACT:
+            raise ValueError("canonical paper selection requires exact fidelity")
+        if action is not SelectionAction.PAPER_ELIGIBLE:
+            raise ValueError("canonical selection action must be paper eligible")
+        if reason not in canonical_reasons:
+            raise ValueError("canonical selection reason is inconsistent")
+    else:
+        if fidelity is not None:
+            raise ValueError("selection without a canonical candidate cannot carry fidelity")
+        expected_action = empty_reasons_by_action.get(reason)
+        if expected_action is None or action is not expected_action:
+            raise ValueError("canonical-null selection reason and action are inconsistent")
 
 
 def candidate_id_v3(identity: EntryCandidateIdentityV3) -> str:

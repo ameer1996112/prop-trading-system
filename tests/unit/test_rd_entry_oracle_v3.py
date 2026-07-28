@@ -13,13 +13,7 @@ from scripts.build_rd_entry_oracle_vectors_v3 import (
 from prop_trading.contracts.rd_entry_vectors_v3 import (
     RDEntryArbitrationVectorsV3,
 )
-from prop_trading.domain.rd_entry_models import CandidateFidelity, SelectionAction
-from prop_trading.domain.rd_entry_models_v3 import (
-    EntryModelV3,
-    EntrySelectionIdentityV3,
-    SelectionReason,
-    selection_id_v3,
-)
+from prop_trading.domain.canonical import canonical_sha256
 
 FIXTURES = Path("tests/fixtures/rd_entry_arbitration_cases_v3.json")
 VECTORS = Path("contracts/vectors/rd-entry-arbitration-v3.json")
@@ -104,28 +98,19 @@ def _selection(case: dict[str, object]) -> dict[str, object]:
 
 
 def _rehash_selection(selection: dict[str, object]) -> None:
-    selection["selection_id"] = selection_id_v3(
-        EntrySelectionIdentityV3(
-            setup_id=selection["setup_id"],  # type: ignore[arg-type]
-            policy_version=selection["policy_version"],  # type: ignore[arg-type]
-            revision=selection["revision"],  # type: ignore[arg-type]
-            candidate_ids_considered=tuple(
-                selection["candidate_ids_considered"]  # type: ignore[arg-type]
-            ),
-            canonical_candidate_id=selection["canonical_candidate_id"],  # type: ignore[arg-type]
-            canonical_evidence_id=selection["canonical_evidence_id"],  # type: ignore[arg-type]
-            reason=SelectionReason(selection["reason"]),  # type: ignore[arg-type]
-            fidelity=(
-                CandidateFidelity(selection["fidelity"])
-                if selection["fidelity"] is not None
-                else None
-            ),
-            action=SelectionAction(selection["action"]),  # type: ignore[arg-type]
-            co_triggered_models=tuple(
-                EntryModelV3(model)
-                for model in selection["co_triggered_models"]  # type: ignore[union-attr]
-            ),
-        )
+    selection["selection_id"] = canonical_sha256(
+        {
+            "action": selection["action"],
+            "candidate_ids_considered": selection["candidate_ids_considered"],
+            "canonical_candidate_id": selection["canonical_candidate_id"],
+            "canonical_evidence_id": selection["canonical_evidence_id"],
+            "co_triggered_models": selection["co_triggered_models"],
+            "fidelity": selection["fidelity"],
+            "policy_version": selection["policy_version"],
+            "reason": selection["reason"],
+            "revision": selection["revision"],
+            "setup_id": selection["setup_id"],
+        }
     )
 
 
@@ -191,4 +176,53 @@ def test_vector_contract_rejects_observation_after_selection_evaluation() -> Non
     expected["candidates"][0]["observed_at_epoch"] = selection["evaluated_at_epoch"] + 1
 
     with pytest.raises(ValueError, match="observed|evaluation"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_flip_anchor_after_contact() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["htf_flip_proof"]["event_anchor_epoch"] = 2_700
+
+    with pytest.raises(ValueError, match="anchor.*contact"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_blocked_nonexact_failed_canonical_action() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item
+        for item in forged["cases"]
+        if item["case_id"] == "close_fallback_after_blocked_aggressive_models"
+    )
+    expected = case["expected"]
+    blocked_candidate = next(item for item in expected["candidates"] if item["state"] == "BLOCKED")
+    blocked_evidence = next(
+        item
+        for item in expected["evidence"]
+        if item["candidate_id"] == blocked_candidate["candidate_id"]
+    )
+    selection = _selection(case)
+    selection["canonical_candidate_id"] = blocked_candidate["candidate_id"]
+    selection["canonical_evidence_id"] = blocked_evidence["evidence_id"]
+    selection["canonical_model"] = blocked_candidate["model"]
+    selection["fidelity"] = blocked_evidence["fidelity"]
+    selection["reason"] = "ONLY_EXACT_TRIGGER"
+    selection["action"] = "PAPER_ELIGIBLE"
+    selection["co_triggered_models"] = []
+    _rehash_selection(selection)
+
+    with pytest.raises(ValueError, match="paper|eligible|matched|exact|failed"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_blocked_candidate_with_exact_evidence() -> None:
+    forged = deepcopy(generated())
+    case = forged["cases"][0]  # type: ignore[index]
+    candidate = case["expected"]["candidates"][0]  # type: ignore[index]
+    candidate["state"] = "BLOCKED"
+
+    with pytest.raises(ValueError, match="paper|eligible|matched"):
         _validate_forged(forged)

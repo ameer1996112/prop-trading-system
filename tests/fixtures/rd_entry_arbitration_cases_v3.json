@@ -217,7 +217,7 @@
         "close_trigger_sequence": 0,
         "htf_flip_proof": {
           "event_anchor_epoch": 1800,
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111,
           "htf_open_ticks": 111,
@@ -229,16 +229,16 @@
           "coverage_end_epoch": 2400,
           "is_realtime": true,
           "contact_candle": {
-            "open_epoch": 1500,
-            "close_epoch": 1800,
+            "open_epoch": 1800,
+            "close_epoch": 1801,
             "open_ticks": 105,
             "high_ticks": 110,
             "low_ticks": 100,
             "close_ticks": 105
           },
           "recross_candle": {
-            "open_epoch": 1800,
-            "close_epoch": 1801,
+            "open_epoch": 1801,
+            "close_epoch": 1802,
             "open_ticks": 110,
             "high_ticks": 112,
             "low_ticks": 109,
@@ -276,7 +276,7 @@
             "close_ticks": 102
           },
           "trigger_candle_open_epoch": 1800,
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111,
           "htf_boundary_epoch": 1800,
@@ -293,7 +293,7 @@
         "close_trigger_sequence": 0,
         "htf_flip_proof": {
           "event_anchor_epoch": 1800,
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111,
           "htf_open_ticks": 111,
@@ -305,16 +305,16 @@
           "coverage_end_epoch": 2400,
           "is_realtime": true,
           "contact_candle": {
-            "open_epoch": 1500,
-            "close_epoch": 1800,
+            "open_epoch": 1800,
+            "close_epoch": 1801,
             "open_ticks": 105,
             "high_ticks": 110,
             "low_ticks": 100,
             "close_ticks": 105
           },
           "recross_candle": {
-            "open_epoch": 1800,
-            "close_epoch": 1801,
+            "open_epoch": 1801,
+            "close_epoch": 1802,
             "open_ticks": 110,
             "high_ticks": 112,
             "low_ticks": 109,
@@ -352,7 +352,7 @@
             "close_ticks": 102
           },
           "trigger_candle_open_epoch": 1800,
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 111,
           "htf_boundary_epoch": 1800,
@@ -369,7 +369,7 @@
         "close_trigger_sequence": 0,
         "htf_flip_proof": {
           "event_anchor_epoch": 1800,
-          "trigger_epoch": 1801,
+          "trigger_epoch": 1802,
           "trigger_sequence": 5,
           "trigger_ticks": 112,
           "htf_open_ticks": 112,
@@ -381,16 +381,16 @@
           "coverage_end_epoch": 2400,
           "is_realtime": true,
           "contact_candle": {
-            "open_epoch": 1500,
-            "close_epoch": 1800,
+            "open_epoch": 1800,
+            "close_epoch": 1801,
             "open_ticks": 105,
             "high_ticks": 111,
             "low_ticks": 100,
             "close_ticks": 105
           },
           "recross_candle": {
-            "open_epoch": 1800,
-            "close_epoch": 1801,
+            "open_epoch": 1801,
+            "close_epoch": 1802,
             "open_ticks": 111,
             "high_ticks": 113,
             "low_ticks": 110,
@@ -464,7 +464,7 @@
           "coverage_end_epoch": 2400,
           "is_realtime": false,
           "contact_candle": {
-            "open_epoch": 1500,
+            "open_epoch": 1800,
             "close_epoch": 1801,
             "open_ticks": 105,
             "high_ticks": 111,

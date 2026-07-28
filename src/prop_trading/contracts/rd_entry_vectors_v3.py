@@ -162,6 +162,20 @@ class RDEntryTriggerProofVectorV3(ContractModel):
         ...,
     ]
 
+    @model_validator(mode="after")
+    def _htf_anchor_chronology_is_valid(self) -> Self:
+        if (
+            self.contact_candle is not None
+            and self.event_anchor_epoch > self.contact_candle.open_epoch
+        ):
+            raise ValueError("HTF anchor must precede contact")
+        if self.htf_context_minutes and any(
+            self.trigger_epoch >= self.event_anchor_epoch + context * 60
+            for context in self.htf_context_minutes
+        ):
+            raise ValueError("trigger must remain inside every HTF context")
+        return self
+
 
 class RDEntryOpenedSelectionSeedV3(ContractModel):
     confirmed_bar: RDEntryCandleVectorV3
@@ -507,6 +521,27 @@ class RDEntryExpectedVectorV3(ContractModel):
             raise ValueError("canonical model conflicts with candidate")
         if self.selection.fidelity != canonical_evidence.fidelity:
             raise ValueError("canonical fidelity conflicts with evidence")
+        if self.selection.action == "PAPER_ELIGIBLE" and (
+            canonical_candidate.state != "MATCHED"
+            or canonical_evidence.fidelity != "EXACT"
+            or canonical_evidence.failed_rule_ids
+            or canonical_evidence.passed_rule_ids != (expected_rules[canonical_candidate.model],)
+        ):
+            raise ValueError("paper eligible selection requires matched exact evidence")
+        if canonical_candidate.model == "HTF_FLIP":
+            assert canonical_evidence.contact_candle is not None
+            assert canonical_evidence.observed_trigger_epoch is not None
+            if (
+                canonical_candidate.event_anchor_epoch
+                > canonical_evidence.contact_candle.open_epoch
+                or not canonical_evidence.htf_context_minutes
+                or any(
+                    canonical_evidence.observed_trigger_epoch
+                    >= canonical_candidate.event_anchor_epoch + context * 60
+                    for context in canonical_evidence.htf_context_minutes
+                )
+            ):
+                raise ValueError("canonical flip violates HTF anchor chronology")
         return self
 
 

@@ -217,6 +217,13 @@ def _flip_lifecycle_failure(
         return ("HTF_FLIP_DESTINATION_BEFORE_CONTACT",)
     if proof.ambiguity_codes:
         return ("HTF_FLIP_AMBIGUOUS",)
+    if proof.event_anchor_epoch > proof.contact_candle.open_epoch:
+        return ("HTF_FLIP_ANCHOR_AFTER_CONTACT",)
+    if any(
+        proof.trigger_epoch >= proof.event_anchor_epoch + context * 60
+        for context in proof.htf_context_minutes
+    ):
+        return ("HTF_FLIP_TRIGGER_OUTSIDE_CONTEXT",)
     if not _contacts_zone(setup, proof.contact_candle):
         return ("HTF_FLIP_CONTACT_OUTSIDE_ZONE",)
     if _recrosses_htf_open(

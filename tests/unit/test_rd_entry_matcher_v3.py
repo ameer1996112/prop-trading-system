@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from prop_trading.contracts.rd_strategy_v3 import (
     RDStrategyRuleContractV3,
     load_rd_strategy_contract_v3,
@@ -78,6 +80,7 @@ def boc(
 
 def flip(
     *,
+    event_anchor_epoch: int = 1_800,
     trigger_epoch: int = 1_802,
     trigger_sequence: int = 8,
     trigger_ticks: int = 112,
@@ -89,7 +92,7 @@ def flip(
     contact_already_recrossed: bool = False,
 ) -> EntryTriggerProofV3:
     contact = OrderedCandle(
-        open_epoch=trigger_epoch - 301,
+        open_epoch=trigger_epoch - 2,
         close_epoch=trigger_epoch - 1,
         open_ticks=105,
         high_ticks=(trigger_ticks + 1 if contact_already_recrossed else 110),
@@ -105,7 +108,7 @@ def flip(
         close_ticks=trigger_ticks,
     )
     return EntryTriggerProofV3(
-        event_anchor_epoch=1_800,
+        event_anchor_epoch=event_anchor_epoch,
         trigger_epoch=trigger_epoch,
         trigger_sequence=trigger_sequence,
         trigger_ticks=trigger_ticks,
@@ -277,6 +280,40 @@ def test_realtime_claim_on_non_realtime_event_is_blocked() -> None:
     assert evidence.failed_rule_ids == ("REALTIME_EVIDENCE_NOT_LIVE",)
 
 
+@pytest.mark.parametrize("model", [EntryModelV3.BOC, EntryModelV3.HTF_FLIP])
+def test_replayability_mismatch_is_retained_as_blocked_evidence(
+    model: EntryModelV3,
+) -> None:
+    result = match_entry_candidates_v3(
+        request(
+            boc_proof=(
+                boc(
+                    plane=ProofPlane.LOWER_TIMEFRAME_REPLAY,
+                    replayability=EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE,
+                    is_realtime=False,
+                )
+                if model is EntryModelV3.BOC
+                else None
+            ),
+            htf_flip_proof=(
+                flip(
+                    plane=ProofPlane.LOWER_TIMEFRAME_REPLAY,
+                    replayability=EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE,
+                    is_realtime=False,
+                )
+                if model is EntryModelV3.HTF_FLIP
+                else None
+            ),
+        )
+    )
+
+    candidate = only(result.candidates, model=model)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.BLOCKED
+    assert evidence.fidelity is CandidateFidelity.UNRESOLVED
+    assert evidence.failed_rule_ids == ("EVIDENCE_REPLAYABILITY_MISMATCH",)
+
+
 def test_unresolved_common_setup_blocks_every_entry_model() -> None:
     result = match_entry_candidates_v3(
         request(
@@ -296,9 +333,9 @@ def test_unresolved_common_setup_blocks_every_entry_model() -> None:
 def test_boc_and_flip_are_emitted_independently_at_same_event() -> None:
     result = match_entry_candidates_v3(
         request(
-            boc_proof=boc(trigger_epoch=1_801, trigger_sequence=7, trigger_ticks=111),
+            boc_proof=boc(trigger_epoch=1_802, trigger_sequence=7, trigger_ticks=111),
             htf_flip_proof=flip(
-                trigger_epoch=1_801,
+                trigger_epoch=1_802,
                 trigger_sequence=7,
                 trigger_ticks=111,
             ),

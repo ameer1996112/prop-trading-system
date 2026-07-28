@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from prop_trading.domain.rd_entry_arbitrator_v3 import (
     EntryArbitrationRequestV3,
     arbitrate_entry_candidates_v3,
@@ -44,10 +46,15 @@ def candidate_evidence(
     passed_rule_ids: tuple[str, ...] | None = None,
     coverage_start_epoch: int | None = None,
     coverage_end_epoch: int | None = None,
+    event_anchor_epoch_override: int | None = None,
 ) -> tuple[EntryCandidateV3, EntryCandidateEvidenceV3]:
     tier = BocTier.HTF_TIMED if model is EntryModelV3.BOC else None
     reference_open_epoch = 600 + anchor_salt if model is EntryModelV3.BOC else None
-    event_anchor_epoch = reference_open_epoch or 900 + anchor_salt
+    event_anchor_epoch = (
+        event_anchor_epoch_override
+        if event_anchor_epoch_override is not None
+        else (reference_open_epoch or 900 + anchor_salt)
+    )
     effective_coverage_start = (
         coverage_start_epoch
         if coverage_start_epoch is not None
@@ -425,6 +432,24 @@ def test_one_minute_close_evidence_cannot_bypass_exact_eligibility() -> None:
         ticks=112,
         coverage_start_epoch=1_240,
         coverage_end_epoch=1_300,
+    )
+
+    selection = arbitrate_entry_candidates_v3(arbitration(forged))
+
+    assert selection.reason is SelectionReason.NO_EXACT_CANDIDATE
+    assert selection.action is SelectionAction.SHADOW_ONLY
+
+
+@pytest.mark.parametrize("anchor_epoch", [0, 1_800])
+def test_flip_anchor_or_context_chronology_cannot_bypass_exact_eligibility(
+    anchor_epoch: int,
+) -> None:
+    forged = candidate_evidence(
+        EntryModelV3.HTF_FLIP,
+        trigger_epoch=1_001,
+        sequence=2,
+        ticks=111,
+        event_anchor_epoch_override=anchor_epoch,
     )
 
     selection = arbitrate_entry_candidates_v3(arbitration(forged))

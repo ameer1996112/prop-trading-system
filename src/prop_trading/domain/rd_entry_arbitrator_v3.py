@@ -154,6 +154,15 @@ def _exact_eligible(
         )
         if contact_already_recrossed:
             return False
+        if (
+            candidate.event_anchor_epoch > evidence.contact_candle.open_epoch
+            or not evidence.htf_context_minutes
+            or any(
+                evidence.observed_trigger_epoch >= candidate.event_anchor_epoch + context * 60
+                for context in evidence.htf_context_minutes
+            )
+        ):
+            return False
     if candidate.model is not EntryModelV3.HTF_FLIP and any(
         value is not None
         for value in (
