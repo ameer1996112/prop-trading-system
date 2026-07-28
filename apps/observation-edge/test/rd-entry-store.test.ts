@@ -217,6 +217,7 @@ class SqliteStatement {
   constructor(
     private readonly database: DatabaseSync,
     private readonly sql: string,
+    private readonly recordQuery: () => void,
   ) {}
 
   bind(...values: unknown[]): SqliteStatement {
@@ -225,6 +226,7 @@ class SqliteStatement {
   }
 
   async first<T>(): Promise<T | null> {
+    this.recordQuery();
     return (
       (this.database
         .prepare(this.sql)
@@ -234,6 +236,7 @@ class SqliteStatement {
   }
 
   async all<T>(): Promise<D1Result<T>> {
+    this.recordQuery();
     return {
       success: true,
       results: this.database
@@ -244,6 +247,7 @@ class SqliteStatement {
   }
 
   async run(): Promise<D1Result> {
+    this.recordQuery();
     const result = this.database
       .prepare(this.sql)
       .run(...(this.values as SqliteInput[]));
@@ -255,10 +259,29 @@ class SqliteStatement {
   }
 }
 
+class FirstBatchPairBarrier {
+  private arrivals = 0;
+  private release: (() => void) | null = null;
+  private readonly released = new Promise<void>((resolve) => {
+    this.release = resolve;
+  });
+
+  async wait(): Promise<void> {
+    if (this.arrivals >= 2) return;
+    this.arrivals += 1;
+    if (this.arrivals === 2) this.release?.();
+    await this.released;
+  }
+}
+
 class SqliteD1 {
   readonly database = new DatabaseSync(":memory:");
+  queryCount = 0;
+  maxBatchStatementCount = 0;
+  readonly batchErrors: string[] = [];
+  private batchTail: Promise<void> = Promise.resolve();
 
-  constructor() {
+  constructor(public batchBarrier?: FirstBatchPairBarrier) {
     const root = fileURLToPath(new URL("../", import.meta.url));
     const migrations = readdirSync(`${root}/migrations`)
       .filter((name) => /^\d{4}_.*\.sql$/u.test(name))
@@ -278,10 +301,23 @@ class SqliteD1 {
   }
 
   prepare(sql: string): SqliteStatement {
-    return new SqliteStatement(this.database, sql);
+    return new SqliteStatement(this.database, sql, () => {
+      this.queryCount += 1;
+    });
   }
 
   async batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
+    await this.batchBarrier?.wait();
+    this.maxBatchStatementCount = Math.max(
+      this.maxBatchStatementCount,
+      statements.length,
+    );
+    const previous = this.batchTail;
+    let release: () => void = () => undefined;
+    this.batchTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
     this.database.exec("BEGIN");
     try {
       const results: D1Result[] = [];
@@ -293,8 +329,11 @@ class SqliteD1 {
       this.database.exec("COMMIT");
       return results;
     } catch (error) {
+      this.batchErrors.push(String(error));
       this.database.exec("ROLLBACK");
       throw error;
+    } finally {
+      release();
     }
   }
 
@@ -1170,6 +1209,251 @@ describe("entry D1 authority persistence", () => {
         { producer_instance_id: "pine-v3-a" },
         { producer_instance_id: "pine-v3-b" },
       ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it.each([
+    {
+      name: "inverted close chronology",
+      first: entryObservation({
+        sequence: 1,
+        closeEpoch: 1_721_808_600,
+        setups: [entrySetup("setup-race-time-a", 1_721_808_600, false)],
+      }),
+      second: entryObservation({
+        sequence: 2,
+        closeEpoch: 1_721_808_300,
+        setups: [entrySetup("setup-race-time-b", 1_721_808_300, false)],
+      }),
+      conflictCode: "SEQUENCE_TIME_CONFLICT",
+      triggerMessage: "observation_entry_batches sequence time conflict",
+    },
+    {
+      name: "mixed producer identity",
+      first: entryObservation({
+        sequence: 1,
+        closeEpoch: 1_721_808_300,
+        setups: [entrySetup("setup-race-identity-a", 1_721_808_300, false)],
+      }),
+      second: entryObservation({
+        sequence: 2,
+        closeEpoch: 1_721_808_600,
+        setups: [entrySetup("setup-race-identity-b", 1_721_808_600, false)],
+        metadata: { detector_code_hash: "c".repeat(64) },
+      }),
+      conflictCode: "PRODUCER_IDENTITY_CONFLICT",
+      triggerMessage: "observation_entry_batches producer identity conflict",
+    },
+  ] as const)(
+    "serializes a real SQLite $name interleaving before commit",
+    async ({ first, second, conflictCode, triggerMessage }) => {
+      const database = new SqliteD1(new FirstBatchPairBarrier());
+      try {
+        const results = await Promise.all([
+          appendEntryV2Observation(
+            sqliteEnv(database),
+            first,
+            "a".repeat(64),
+          ),
+          appendEntryV2Observation(
+            sqliteEnv(database),
+            second,
+            "b".repeat(64),
+          ),
+        ]);
+
+        expect(
+          results.filter((item) => item.status === "ACCEPTED"),
+        ).toHaveLength(1);
+        expect(
+          results.filter((item) => item.status === "CONFLICT"),
+        ).toEqual([
+          expect.objectContaining({
+            status: "CONFLICT",
+            conflictCode,
+            record: null,
+          }),
+        ]);
+        expect(
+          database.rows<{ count: number }>(
+            "SELECT COUNT(*) AS count FROM observation_entry_batches",
+          )[0]?.count,
+        ).toBe(1);
+        expect(
+          database.rows<{ reason: string }>(
+            "SELECT reason FROM observation_entry_quarantine",
+          ),
+        ).toEqual([{ reason: conflictCode }]);
+        expect(database.batchErrors).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining(triggerMessage),
+          ]),
+        );
+      } finally {
+        database.close();
+      }
+    },
+  );
+
+  it("retries an actual immutable-selection trigger race with a fresh revision", async () => {
+    const database = new SqliteD1();
+    try {
+      const setupId = "setup-selection-race";
+      await appendEntryV2Observation(
+        sqliteEnv(database),
+        entryObservation({
+          producerInstanceId: "pine-v3-selection-race-prime",
+          setups: [
+            entrySetup(
+              "setup-selection-race-prime",
+              1_721_808_300,
+              false,
+            ),
+          ],
+        }),
+        "0".repeat(64),
+      );
+      database.batchBarrier = new FirstBatchPairBarrier();
+      const first = entryObservation({
+        producerInstanceId: "pine-v3-selection-race",
+        sequence: 1,
+        closeEpoch: 1_721_808_300,
+        setups: [entrySetup(setupId, 1_721_808_300, false)],
+      });
+      const laterEvent = entryEvent(setupId, 1_721_808_600, false);
+      const second = entryObservation({
+        producerInstanceId: "pine-v3-selection-race",
+        sequence: 2,
+        closeEpoch: 1_721_808_600,
+        setups: [
+          {
+            ...entrySetup(setupId, 1_721_808_600, false),
+            events: [
+              {
+                ...laterEvent,
+                setup: {
+                  ...laterEvent.setup,
+                  zone_engaged_epoch: 1_721_808_010,
+                },
+              },
+            ],
+          },
+        ],
+      });
+
+      const results = await Promise.all([
+        appendEntryV2Observation(
+          sqliteEnv(database),
+          first,
+          "c".repeat(64),
+        ),
+        appendEntryV2Observation(
+          sqliteEnv(database),
+          second,
+          "d".repeat(64),
+        ),
+      ]);
+
+      expect(
+        results.map((item) => item.status),
+      ).toEqual(["ACCEPTED", "ACCEPTED"]);
+      expect(
+        database.rows<{ revision: number }>(
+          `SELECT revision
+           FROM observation_entry_selections
+           WHERE setup_id = ?
+           ORDER BY revision`,
+          setupId,
+        ),
+      ).toEqual([{ revision: 1 }, { revision: 2 }]);
+      expect(
+        database.rows<{ count: number }>(
+          `SELECT COUNT(*) AS count
+           FROM observation_receipts
+           WHERE producer_instance_id = ?`,
+          "pine-v3-selection-race",
+        )[0]?.count,
+      ).toBe(2);
+      expect(database.batchErrors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(
+            "observation_entry_selections immutable insert conflict",
+          ),
+        ]),
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it("keeps a 256-setup accepted batch within 1,000 D1 queries", async () => {
+    const database = new SqliteD1();
+    try {
+      let setupIndex = 0;
+      const chunks = Array.from({ length: 12 }, (_value, chunkIndex) => {
+        const setupCount = chunkIndex === 11 ? 25 : 21;
+        return entryObservation({
+          chunkIndex,
+          chunkCount: 12,
+          setups: Array.from({ length: setupCount }, () => {
+            const setup = entrySetup(
+              `setup-query-budget-${String(setupIndex).padStart(3, "0")}`,
+              1_721_808_300,
+              true,
+            );
+            setupIndex += 1;
+            return setup;
+          }),
+        });
+      });
+      const payloadHashCharacters = "0123456789ab";
+      for (const [chunkIndex, chunk] of chunks.slice(0, 11).entries()) {
+        await expect(
+          appendEntryV2Observation(
+            sqliteEnv(database),
+            chunk,
+            payloadHashCharacters[chunkIndex]!.repeat(64),
+          ),
+        ).resolves.toMatchObject({
+          status: "ACCEPTED",
+          assemblyStatus: "INCOMPLETE",
+        });
+      }
+      database.queryCount = 0;
+      database.maxBatchStatementCount = 0;
+
+      const result = await appendEntryV2Observation(
+        sqliteEnv(database),
+        chunks[11]!,
+        payloadHashCharacters[11]!.repeat(64),
+      );
+      expect(result).toMatchObject({
+        status: "ACCEPTED",
+        assemblyStatus: "COMPLETE",
+      });
+      if (result.status !== "ACCEPTED") {
+        throw new Error("expected accepted max-complexity batch");
+      }
+      expect(result.evaluations).toHaveLength(256);
+      expect(
+        database.rows<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM observation_entry_candidates",
+        )[0]?.count,
+      ).toBe(256);
+      expect(
+        database.rows<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM observation_entry_candidate_evidence",
+        )[0]?.count,
+      ).toBe(256);
+      expect(
+        database.rows<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM observation_entry_handling",
+        )[0]?.count,
+      ).toBe(256);
+      expect(database.queryCount).toBeLessThanOrEqual(1_000);
+      expect(database.maxBatchStatementCount).toBeLessThanOrEqual(1_000);
     } finally {
       database.close();
     }

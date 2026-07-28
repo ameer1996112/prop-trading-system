@@ -951,7 +951,7 @@ class FakeD1 {
       ) {
         this.entryBatchRaceInjected = true;
         throw new Error(
-          "D1_ERROR: UNIQUE constraint failed: observation_entry_selections.setup_id, observation_entry_selections.policy_version, observation_entry_selections.revision",
+          "D1_ERROR: observation_entry_selections immutable insert conflict: SQLITE_CONSTRAINT",
         );
       }
       this.sqlite.exec("COMMIT");
@@ -2907,6 +2907,77 @@ describe("deployment contract", () => {
         "live_execution",
       ]),
     );
+  });
+
+  it("enforces producer chronology and code identity inside the batch insert", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    for (const sequence of [1, 2, 3]) {
+      insertEntryStorageReceipt(database, {
+        receiptId: `receipt-batch-guard-${sequence}`,
+        schemaVersion: "2.0",
+        strategyVersion: "2.0.0-contract2",
+        producerInstanceId: "batch-guard-producer",
+        sequence,
+      });
+    }
+    const insertBatch = (
+      batchId: string,
+      sequence: number,
+      closeEpoch: number,
+      detectorCodeHash = "3".repeat(64),
+    ): void => {
+      database
+        .prepare(
+          `INSERT INTO observation_entry_batches (
+            batch_id, producer_instance_id, producer_sequence, kind,
+            bar_close_epoch, strategy_id, strategy_version,
+            rule_contract_version, execution_mode, symbol, ticker_id, feed,
+            timeframe, tick_size, bar_open_epoch, detector_code_hash,
+            settings_hash, chunk_count, first_receipt_id, first_seen_at
+          ) VALUES (
+            ?, 'batch-guard-producer', ?, 'snapshot', ?,
+            'rd_liquidity_sd_5m_v1', '2.0.0-contract2', '2.0.0',
+            'OBSERVATION_ONLY', 'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE',
+            '5', '0.00001', ?, ?, ?, 1, ?,
+            '2026-07-28T06:00:00Z'
+          )`,
+        )
+        .run(
+          batchId,
+          sequence,
+          closeEpoch,
+          closeEpoch - 300,
+          detectorCodeHash,
+          "4".repeat(64),
+          `receipt-batch-guard-${sequence}`,
+        );
+    };
+
+    insertBatch("1".repeat(64), 2, 1_721_808_600);
+    expect(() =>
+      insertBatch("2".repeat(64), 1, 1_721_808_900),
+    ).toThrow(/observation_entry_batches sequence time conflict/u);
+    expect(() =>
+      insertBatch(
+        "3".repeat(64),
+        3,
+        1_721_808_900,
+        "5".repeat(64),
+      ),
+    ).toThrow(/observation_entry_batches producer identity conflict/u);
+    expect(
+      database
+        .prepare(
+          `SELECT producer_sequence, bar_close_epoch
+           FROM observation_entry_batches`,
+        )
+        .all(),
+    ).toEqual([
+      { producer_sequence: 2, bar_close_epoch: 1_721_808_600 },
+    ]);
   });
 
   it("normalizes legacy milliseconds and v3 seconds to one bar schedule identity", () => {

@@ -20,15 +20,8 @@ import {
   INSERT_ENTRY_EVALUATION_MEMBERS_SQL,
   INSERT_ENTRY_EVIDENCE_SQL,
   INSERT_ENTRY_HANDLING_SQL,
-  INSERT_ENTRY_PARITY_SQL,
   INSERT_ENTRY_QUARANTINE_SQL,
-  INSERT_ENTRY_SELECTION_SQL,
-  INSERT_ENTRY_SETUP_EVENT_SQL,
-  INSERT_ENTRY_SOURCE_CLAIM_SQL,
-  INSERT_ENTRY_SOURCE_RELATIONSHIP_SQL,
-  INSERT_ENTRY_TERMINAL_SQL,
   INSERT_MARKET_BAR_HEARTBEAT_SQL,
-  INSERT_PRODUCER_DIAGNOSTIC_SQL,
   LIST_ENTRY_CHUNKS_SQL,
   SELECT_ENTRY_BATCH_BY_CLOSE_SQL,
   SELECT_ENTRY_BATCH_BY_SEQUENCE_SQL,
@@ -36,8 +29,6 @@ import {
   SELECT_ENTRY_COMPLETION_SQL,
   SELECT_ENTRY_IDENTITIES_SQL,
   SELECT_ENTRY_SEQUENCE_NEIGHBORS_SQL,
-  SELECT_ENTRY_SETUP_EVENTS_SQL,
-  SELECT_ENTRY_TERMINAL_SQL,
 } from "./rd-entry-queries";
 import { SOURCE_CLAIM_CATALOG } from "./rd-entry-source-catalog";
 import {
@@ -177,10 +168,11 @@ export async function assembleValidatedChunks(
 
 const SHA256 = /^[0-9a-f]{64}$/u;
 const GIT_COMMIT = /^[0-9a-f]{40}$/u;
-const SELECT_ENTRY_REVISION_SQL = `
-SELECT COALESCE(MAX(revision), 0) AS max_revision
+const SELECT_ENTRY_REVISIONS_BULK_SQL = `
+SELECT setup_id, MAX(revision) AS max_revision
 FROM observation_entry_selections
-WHERE setup_id = ?
+WHERE setup_id IN (SELECT value FROM json_each(?))
+GROUP BY setup_id
 `;
 const SELECT_ENTRY_QUARANTINE_SQL = `
 SELECT quarantine_id, reason
@@ -188,19 +180,149 @@ FROM observation_entry_quarantine
 WHERE quarantine_id = ?
 LIMIT 1
 `;
-const SELECT_ENTRY_SOURCE_CLAIM_SQL = `
+const SELECT_ENTRY_SOURCE_CLAIMS_BULK_SQL = `
 SELECT claim_id, contract_version, source_id, youtube_video_id, published_date,
   title_snapshot, channel_id, channel_handle, timestamp_start_seconds,
   timestamp_end_seconds, relationship, summary
 FROM observation_entry_source_claims
-WHERE claim_id = ?
-LIMIT 1
+WHERE claim_id IN (SELECT value FROM json_each(?))
 `;
-const SELECT_ENTRY_SOURCE_RELATIONSHIP_SQL = `
+const SELECT_ENTRY_SOURCE_RELATIONSHIPS_BULK_SQL = `
 SELECT claim_id, target_claim_id
 FROM observation_entry_source_claim_relationships
-WHERE claim_id = ?
-LIMIT 1
+WHERE claim_id IN (SELECT value FROM json_each(?))
+`;
+const SELECT_ENTRY_SETUP_EVENTS_BULK_SQL = `
+SELECT event_id, setup_id, batch_id, receipt_id, confirmed_bar_close_epoch,
+  proof_input_sha256, proof_input_json, recorded_at
+FROM observation_entry_setup_events
+WHERE setup_id IN (SELECT value FROM json_each(?))
+ORDER BY setup_id, confirmed_bar_close_epoch, event_id
+`;
+const SELECT_ENTRY_TERMINALS_BULK_SQL = `
+SELECT setup_id, terminal_reason, terminal_epoch, first_batch_id,
+  first_receipt_id, recorded_at
+FROM observation_entry_setup_terminals
+WHERE setup_id IN (SELECT value FROM json_each(?))
+`;
+const INSERT_ENTRY_SOURCE_CLAIMS_BULK_SQL = `
+INSERT INTO observation_entry_source_claims (
+  claim_id, contract_version, source_id, youtube_video_id, published_date,
+  title_snapshot, channel_id, channel_handle, timestamp_start_seconds,
+  timestamp_end_seconds, relationship, summary
+)
+SELECT
+  json_extract(value, '$.claim_id'),
+  '2.0.0',
+  json_extract(value, '$.source_id'),
+  json_extract(value, '$.youtube_video_id'),
+  json_extract(value, '$.published_date'),
+  json_extract(value, '$.title_snapshot'),
+  json_extract(value, '$.channel_id'),
+  json_extract(value, '$.channel_handle'),
+  json_extract(value, '$.timestamp_start_seconds'),
+  json_extract(value, '$.timestamp_end_seconds'),
+  json_extract(value, '$.relationship'),
+  json_extract(value, '$.summary')
+FROM json_each(?)
+`;
+const INSERT_ENTRY_SOURCE_RELATIONSHIPS_BULK_SQL = `
+INSERT INTO observation_entry_source_claim_relationships (
+  claim_id, target_claim_id
+)
+SELECT
+  json_extract(value, '$.claim_id'),
+  json_extract(value, '$.target_claim_id')
+FROM json_each(?)
+`;
+const INSERT_ENTRY_SETUP_EVENTS_BULK_SQL = `
+INSERT INTO observation_entry_setup_events (
+  event_id, setup_id, batch_id, receipt_id, confirmed_bar_close_epoch,
+  proof_input_sha256, proof_input_json, recorded_at
+)
+SELECT
+  json_extract(value, '$.event_id'),
+  json_extract(value, '$.setup_id'),
+  json_extract(value, '$.batch_id'),
+  json_extract(value, '$.receipt_id'),
+  json_extract(value, '$.confirmed_bar_close_epoch'),
+  json_extract(value, '$.proof_input_sha256'),
+  json_extract(value, '$.proof_input_json'),
+  json_extract(value, '$.recorded_at')
+FROM json_each(?)
+`;
+const INSERT_ENTRY_TERMINALS_BULK_SQL = `
+INSERT INTO observation_entry_setup_terminals (
+  setup_id, terminal_reason, terminal_epoch, first_batch_id,
+  first_receipt_id, recorded_at
+)
+SELECT
+  json_extract(value, '$.setup_id'),
+  json_extract(value, '$.terminal_reason'),
+  json_extract(value, '$.terminal_epoch'),
+  json_extract(value, '$.first_batch_id'),
+  json_extract(value, '$.first_receipt_id'),
+  json_extract(value, '$.recorded_at')
+FROM json_each(?)
+`;
+const INSERT_PRODUCER_DIAGNOSTICS_BULK_SQL = `
+INSERT INTO observation_entry_producer_diagnostics (
+  diagnostic_id, batch_id, setup_id, candidate_refs_json,
+  evidence_refs_json, realtime_evidence_refs_json, handling_refs_json,
+  diagnostic_selection_json, observed_at
+)
+SELECT
+  json_extract(value, '$.diagnostic_id'),
+  json_extract(value, '$.batch_id'),
+  json_extract(value, '$.setup_id'),
+  json_extract(value, '$.candidate_refs_json'),
+  json_extract(value, '$.evidence_refs_json'),
+  json_extract(value, '$.realtime_evidence_refs_json'),
+  json_extract(value, '$.handling_refs_json'),
+  json_extract(value, '$.diagnostic_selection_json'),
+  json_extract(value, '$.observed_at')
+FROM json_each(?)
+`;
+const INSERT_ENTRY_SELECTIONS_BULK_SQL = `
+INSERT INTO observation_entry_selections (
+  selection_id, batch_id, setup_id, policy_version, revision,
+  candidate_ids_considered_json, canonical_candidate_id,
+  canonical_evidence_id, canonical_model, reason, fidelity,
+  policy_action, action, effective_action_reason, evaluated_at_epoch
+)
+SELECT
+  json_extract(value, '$.selection_id'),
+  json_extract(value, '$.batch_id'),
+  json_extract(value, '$.setup_id'),
+  json_extract(value, '$.policy_version'),
+  json_extract(value, '$.revision'),
+  json_extract(value, '$.candidate_ids_considered_json'),
+  json_extract(value, '$.canonical_candidate_id'),
+  json_extract(value, '$.canonical_evidence_id'),
+  json_extract(value, '$.canonical_model'),
+  json_extract(value, '$.reason'),
+  json_extract(value, '$.fidelity'),
+  json_extract(value, '$.policy_action'),
+  json_extract(value, '$.action'),
+  json_extract(value, '$.effective_action_reason'),
+  json_extract(value, '$.evaluated_at_epoch')
+FROM json_each(?)
+`;
+const INSERT_ENTRY_PARITY_BULK_SQL = `
+INSERT INTO observation_entry_parity (
+  parity_id, batch_id, setup_id, producer_diagnostic_id, selection_id,
+  parity_status, mismatch_reason, compared_at
+)
+SELECT
+  json_extract(value, '$.parity_id'),
+  json_extract(value, '$.batch_id'),
+  json_extract(value, '$.setup_id'),
+  json_extract(value, '$.producer_diagnostic_id'),
+  json_extract(value, '$.selection_id'),
+  json_extract(value, '$.parity_status'),
+  json_extract(value, '$.mismatch_reason'),
+  json_extract(value, '$.compared_at')
+FROM json_each(?)
 `;
 
 interface StoredEntryBatchRow {
@@ -295,6 +417,15 @@ interface PreparedEvaluation {
   } | null;
 }
 
+interface LoadedEvaluationState {
+  readonly storedEventsBySetup: ReadonlyMap<
+    string,
+    readonly StoredEntrySetupEvent[]
+  >;
+  readonly maxRevisionBySetup: ReadonlyMap<string, number>;
+  readonly terminalBySetup: ReadonlyMap<string, StoredEntrySetupTerminal>;
+}
+
 export type EntryAppendResult =
   | {
       readonly status: "ACCEPTED";
@@ -328,6 +459,72 @@ export class EntryStoreIdempotencyConflict extends Error {
     super("IDEMPOTENCY_CONFLICT");
     this.name = "EntryStoreIdempotencyConflict";
   }
+}
+
+const RETRYABLE_ENTRY_TRIGGER_ERRORS = [
+  "observation_entry_batches immutable insert conflict",
+  "observation_entry_batches producer identity conflict",
+  "observation_entry_batches sequence time conflict",
+  "observation_market_bar_heartbeats immutable insert conflict",
+  "observation_entry_chunks immutable insert conflict",
+  "observation_entry_batch_completions immutable insert conflict",
+  "observation_entry_setup_events immutable insert conflict",
+  "observation_entry_setup_terminals immutable insert conflict",
+  "observation_entry_source_claims immutable insert conflict",
+  "observation_entry_source_claim_relationships immutable insert conflict",
+  "observation_entry_candidates immutable insert conflict",
+  "observation_entry_candidate_evidence immutable insert conflict",
+  "observation_entry_handling immutable insert conflict",
+  "observation_entry_producer_diagnostics immutable insert conflict",
+  "observation_entry_selections immutable insert conflict",
+  "observation_entry_evaluation_members immutable insert conflict",
+  "observation_entry_parity immutable insert conflict",
+  "observation_entry_quarantine immutable insert conflict",
+] as const;
+
+const RETRYABLE_ENTRY_UNIQUE_TARGETS = [
+  "observation_receipts.idempotency_key",
+  "observation_receipts.receipt_id",
+  "observation_entry_batches.batch_id",
+  "observation_entry_batches.producer_instance_id, observation_entry_batches.producer_sequence",
+  "observation_entry_batches.producer_instance_id, observation_entry_batches.bar_close_epoch",
+  "observation_market_bar_heartbeats.receipt_id",
+  "observation_entry_chunks.batch_id, observation_entry_chunks.chunk_index",
+  "observation_entry_chunks.receipt_id",
+  "observation_entry_batch_completions.completion_id",
+  "observation_entry_batch_completions.batch_id",
+  "observation_entry_setup_events.event_id",
+  "observation_entry_setup_events.setup_id, observation_entry_setup_events.confirmed_bar_close_epoch",
+  "observation_entry_setup_terminals.setup_id",
+  "observation_entry_source_claims.claim_id",
+  "observation_entry_source_claim_relationships.claim_id",
+  "observation_entry_candidates.candidate_id",
+  "observation_entry_candidates.identity_sha256",
+  "observation_entry_candidate_evidence.evidence_id",
+  "observation_entry_candidate_evidence.identity_sha256",
+  "observation_entry_handling.handling_id",
+  "observation_entry_handling.identity_sha256",
+  "observation_entry_producer_diagnostics.diagnostic_id",
+  "observation_entry_selections.selection_id",
+  "observation_entry_selections.setup_id, observation_entry_selections.policy_version, observation_entry_selections.revision",
+  "observation_entry_evaluation_members.selection_id, observation_entry_evaluation_members.object_kind, observation_entry_evaluation_members.object_id",
+  "observation_entry_parity.parity_id",
+  "observation_entry_quarantine.quarantine_id",
+] as const;
+
+function entryStoreRaceIsRetryable(error: unknown): boolean {
+  const message = String(error).toLowerCase();
+  if (
+    RETRYABLE_ENTRY_TRIGGER_ERRORS.some((value) =>
+      message.includes(value),
+    )
+  ) {
+    return true;
+  }
+  if (!message.includes("unique constraint failed:")) return false;
+  return RETRYABLE_ENTRY_UNIQUE_TARGETS.some((value) =>
+    message.includes(value),
+  );
 }
 
 export interface EntryCodeIdentity {
@@ -803,19 +1000,71 @@ function validateEvaluationOwnership(
   }
 }
 
-async function loadStream(
+async function loadEvaluationState(
   env: Env,
+  setups: readonly AssembledValidatedSetup[],
+): Promise<LoadedEvaluationState> {
+  const setupIds = setups.map((item) => item.setupId);
+  if (setupIds.length === 0) {
+    return {
+      storedEventsBySetup: new Map(),
+      maxRevisionBySetup: new Map(),
+      terminalBySetup: new Map(),
+    };
+  }
+  const serializedSetupIds = JSON.stringify(setupIds);
+  const [eventRows, revisionRows, terminalRows] = await Promise.all([
+    env.DB
+      .prepare(SELECT_ENTRY_SETUP_EVENTS_BULK_SQL)
+      .bind(serializedSetupIds)
+      .all<StoredEntrySetupEvent>(),
+    env.DB
+      .prepare(SELECT_ENTRY_REVISIONS_BULK_SQL)
+      .bind(serializedSetupIds)
+      .all<{
+        readonly setup_id: string;
+        readonly max_revision: number;
+      }>(),
+    env.DB
+      .prepare(SELECT_ENTRY_TERMINALS_BULK_SQL)
+      .bind(serializedSetupIds)
+      .all<StoredEntrySetupTerminal>(),
+  ]);
+  const storedEventsBySetup = new Map<
+    string,
+    StoredEntrySetupEvent[]
+  >();
+  for (const row of eventRows.results) {
+    const existing = storedEventsBySetup.get(row.setup_id);
+    if (existing === undefined) {
+      storedEventsBySetup.set(row.setup_id, [row]);
+    } else {
+      existing.push(row);
+    }
+  }
+  return {
+    storedEventsBySetup,
+    maxRevisionBySetup: new Map(
+      revisionRows.results.map((row) => [
+        row.setup_id,
+        Number(row.max_revision),
+      ]),
+    ),
+    terminalBySetup: new Map(
+      terminalRows.results.map((row) => [row.setup_id, row]),
+    ),
+  };
+}
+
+async function loadStream(
   entry: AssembledValidatedSetup,
   batchId: string,
+  storedRows: readonly StoredEntrySetupEvent[],
 ): Promise<{
   readonly stream: readonly StreamEvent[];
   readonly newEvents: readonly StreamEvent[];
 }> {
-  const rows = await env.DB
-    .prepare(SELECT_ENTRY_SETUP_EVENTS_SQL)
-    .bind(entry.setupId)
-    .all<StoredEntrySetupEvent>();
-  const stored: StreamEvent[] = rows.results.map((item) => ({
+  const stored: StreamEvent[] = storedRows.map((item) => ({
     eventId: item.event_id,
     input: JSON.parse(item.proof_input_json) as EntryMatchRequest,
     proofInputSha256: item.proof_input_sha256,
@@ -887,13 +1136,15 @@ async function prepareEvaluation(
   entry: AssembledValidatedSetup,
   batchId: string,
   metadata: EntryBatchImmutableMetadata,
+  storedEvents: readonly StoredEntrySetupEvent[],
+  maxRevision: number,
 ): Promise<PreparedEvaluation> {
-  const { stream, newEvents } = await loadStream(env, entry, batchId);
-  const revision = await env.DB
-    .prepare(SELECT_ENTRY_REVISION_SQL)
-    .bind(entry.setupId)
-    .first<{ readonly max_revision: number }>();
-  const nextRevision = Number(revision?.max_revision ?? 0) + 1;
+  const { stream, newEvents } = await loadStream(
+    entry,
+    batchId,
+    storedEvents,
+  );
+  const nextRevision = maxRevision + 1;
   let backend: EntryEvaluation;
   try {
     backend = await evaluateEntryStream(
@@ -1056,16 +1307,39 @@ function sourceClaimDescriptor(value: StoredSourceClaimRow) {
 async function sourceCatalogStatements(
   env: Env,
 ): Promise<readonly D1PreparedStatement[]> {
-  const statements: D1PreparedStatement[] = [];
+  const claimIds = SOURCE_CLAIM_CATALOG.map((item) => item.claim_id);
+  const relationshipClaimIds = SOURCE_CLAIM_CATALOG.flatMap((item) =>
+    item.target_claim_id === null ? [] : [item.claim_id],
+  );
+  const [claimRows, relationshipRows] = await Promise.all([
+    env.DB
+      .prepare(SELECT_ENTRY_SOURCE_CLAIMS_BULK_SQL)
+      .bind(JSON.stringify(claimIds))
+      .all<StoredSourceClaimRow>(),
+    env.DB
+      .prepare(SELECT_ENTRY_SOURCE_RELATIONSHIPS_BULK_SQL)
+      .bind(JSON.stringify(relationshipClaimIds))
+      .all<{
+        readonly claim_id: string;
+        readonly target_claim_id: string;
+      }>(),
+  ]);
+  const existingClaims = new Map(
+    claimRows.results.map((item) => [item.claim_id, item]),
+  );
+  const existingRelationships = new Map(
+    relationshipRows.results.map((item) => [
+      item.claim_id,
+      item.target_claim_id,
+    ]),
+  );
+  const missingClaims: (typeof SOURCE_CLAIM_CATALOG)[number][] = [];
   const missingRelationships: Array<{
-    readonly claimId: string;
-    readonly targetClaimId: string;
+    readonly claim_id: string;
+    readonly target_claim_id: string;
   }> = [];
   for (const item of SOURCE_CLAIM_CATALOG) {
-    const existing = await env.DB
-      .prepare(SELECT_ENTRY_SOURCE_CLAIM_SQL)
-      .bind(item.claim_id)
-      .first<StoredSourceClaimRow>();
+    const existing = existingClaims.get(item.claim_id);
     const expected = {
       channel_handle: item.channel_handle,
       channel_id: item.channel_id,
@@ -1081,58 +1355,42 @@ async function sourceCatalogStatements(
       youtube_video_id: item.youtube_video_id,
     };
     if (
-      existing !== null &&
+      existing !== undefined &&
       canonicalStringifyRdEntry(sourceClaimDescriptor(existing)) !==
         canonicalStringifyRdEntry(expected)
     ) {
       throw new EntryStoreConflict("IMMUTABLE_ID_CONFLICT");
     }
-    if (existing === null) {
-      statements.push(
-        env.DB
-          .prepare(INSERT_ENTRY_SOURCE_CLAIM_SQL)
-          .bind(
-            item.claim_id,
-            item.source_id,
-            item.youtube_video_id,
-            item.published_date,
-            item.title_snapshot,
-            item.channel_id,
-            item.channel_handle,
-            item.timestamp_start_seconds,
-            item.timestamp_end_seconds,
-            item.relationship,
-            item.summary,
-          ),
-      );
-    }
+    if (existing === undefined) missingClaims.push(item);
     if (item.target_claim_id !== null) {
-      const relationship = await env.DB
-        .prepare(SELECT_ENTRY_SOURCE_RELATIONSHIP_SQL)
-        .bind(item.claim_id)
-        .first<{
-          readonly claim_id: string;
-          readonly target_claim_id: string;
-        }>();
+      const relationship = existingRelationships.get(item.claim_id);
       if (
-        relationship !== null &&
-        relationship.target_claim_id !== item.target_claim_id
+        relationship !== undefined &&
+        relationship !== item.target_claim_id
       ) {
         throw new EntryStoreConflict("IMMUTABLE_ID_CONFLICT");
       }
-      if (relationship === null) {
+      if (relationship === undefined) {
         missingRelationships.push({
-          claimId: item.claim_id,
-          targetClaimId: item.target_claim_id,
+          claim_id: item.claim_id,
+          target_claim_id: item.target_claim_id,
         });
       }
     }
   }
-  for (const item of missingRelationships) {
+  const statements: D1PreparedStatement[] = [];
+  if (missingClaims.length > 0) {
     statements.push(
       env.DB
-        .prepare(INSERT_ENTRY_SOURCE_RELATIONSHIP_SQL)
-        .bind(item.claimId, item.targetClaimId),
+        .prepare(INSERT_ENTRY_SOURCE_CLAIMS_BULK_SQL)
+        .bind(JSON.stringify(missingClaims)),
+    );
+  }
+  if (missingRelationships.length > 0) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_ENTRY_SOURCE_RELATIONSHIPS_BULK_SQL)
+        .bind(JSON.stringify(missingRelationships)),
     );
   }
   return statements;
@@ -1143,6 +1401,7 @@ async function evaluationStatements(
   batchId: string,
   receivedAt: string,
   evaluations: readonly PreparedEvaluation[],
+  existingTerminals: ReadonlyMap<string, StoredEntrySetupTerminal>,
 ): Promise<readonly D1PreparedStatement[]> {
   const identities = await preflightIdentities(env, evaluations);
   const statements: D1PreparedStatement[] = [
@@ -1151,12 +1410,41 @@ async function evaluationStatements(
   const insertedCandidates = new Set<string>();
   const insertedEvidence = new Set<string>();
   const insertedHandling = new Set<string>();
+  const eventRows: Record<string, unknown>[] = [];
+  const terminalRows: Record<string, unknown>[] = [];
+  const candidateRowsByReceipt = new Map<
+    string,
+    Record<string, unknown>[]
+  >();
+  const evidenceRowsByReceipt = new Map<
+    string,
+    Record<string, unknown>[]
+  >();
+  const handlingRowsByReceipt = new Map<
+    string,
+    Record<string, unknown>[]
+  >();
+  const diagnosticRows: Record<string, unknown>[] = [];
+  const selectionRows: Record<string, unknown>[] = [];
+  const memberRows: Record<string, unknown>[] = [];
+  const parityRows: Record<string, unknown>[] = [];
+  const pushReceiptRow = (
+    target: Map<string, Record<string, unknown>[]>,
+    receiptId: string,
+    row: Record<string, unknown>,
+  ): void => {
+    const existing = target.get(receiptId);
+    if (existing === undefined) {
+      target.set(receiptId, [row]);
+    } else {
+      existing.push(row);
+    }
+  };
   for (const evaluation of evaluations) {
-    const existingTerminal = await env.DB
-      .prepare(SELECT_ENTRY_TERMINAL_SQL)
-      .bind(evaluation.entry.setupId)
-      .first<StoredEntrySetupTerminal>();
-    if (existingTerminal !== null) {
+    const existingTerminal = existingTerminals.get(
+      evaluation.entry.setupId,
+    );
+    if (existingTerminal !== undefined) {
       if (
         evaluation.terminal === null ||
         existingTerminal.terminal_reason !== evaluation.terminal.reason ||
@@ -1166,34 +1454,30 @@ async function evaluationStatements(
       }
     }
     for (const event of evaluation.newEvents) {
-      statements.push(
-        env.DB
-          .prepare(INSERT_ENTRY_SETUP_EVENT_SQL)
-          .bind(
-            event.eventId,
-            evaluation.entry.setupId,
-            batchId,
-            event.receiptId,
-            event.input.confirmed_bar.close_epoch,
-            event.proofInputSha256,
-            canonicalStringifyRdEntry(event.input),
-            receivedAt,
-          ),
-      );
+      eventRows.push({
+        event_id: event.eventId,
+        setup_id: evaluation.entry.setupId,
+        batch_id: batchId,
+        receipt_id: event.receiptId,
+        confirmed_bar_close_epoch:
+          event.input.confirmed_bar.close_epoch,
+        proof_input_sha256: event.proofInputSha256,
+        proof_input_json: canonicalStringifyRdEntry(event.input),
+        recorded_at: receivedAt,
+      });
     }
-    if (evaluation.terminal !== null && existingTerminal === null) {
-      statements.push(
-        env.DB
-          .prepare(INSERT_ENTRY_TERMINAL_SQL)
-          .bind(
-            evaluation.entry.setupId,
-            evaluation.terminal.reason,
-            evaluation.terminal.epoch,
-            evaluation.terminal.batchId,
-            evaluation.terminal.receiptId,
-            receivedAt,
-          ),
-      );
+    if (
+      evaluation.terminal !== null &&
+      existingTerminal === undefined
+    ) {
+      terminalRows.push({
+        setup_id: evaluation.entry.setupId,
+        terminal_reason: evaluation.terminal.reason,
+        terminal_epoch: evaluation.terminal.epoch,
+        first_batch_id: evaluation.terminal.batchId,
+        first_receipt_id: evaluation.terminal.receiptId,
+        recorded_at: receivedAt,
+      });
     }
     for (const candidate of evaluation.backend.candidates) {
       if (
@@ -1202,29 +1486,24 @@ async function evaluationStatements(
       ) {
         continue;
       }
-      statements.push(
-        env.DB
-          .prepare(INSERT_ENTRY_CANDIDATES_SQL)
-          .bind(
-            evaluation.entry.origin.receiptId,
-            JSON.stringify([
-              {
-                candidate_id: candidate.candidate_id,
-                setup_id: candidate.setup_id,
-                model: candidate.model,
-                state: candidate.state,
-                event_anchor_epoch: candidate.event_anchor_epoch,
-                trigger_ordinal: candidate.trigger_ordinal,
-                direction: candidate.direction,
-                source_claim_ids_json: JSON.stringify(
-                  candidate.source_claim_ids,
-                ),
-                normalized_from: candidate.normalized_from,
-                identity_sha256: candidate.candidate_id,
-                observed_at_epoch: candidate.observed_at_epoch,
-              },
-            ]),
+      pushReceiptRow(
+        candidateRowsByReceipt,
+        evaluation.entry.origin.receiptId,
+        {
+          candidate_id: candidate.candidate_id,
+          setup_id: candidate.setup_id,
+          model: candidate.model,
+          state: candidate.state,
+          event_anchor_epoch: candidate.event_anchor_epoch,
+          trigger_ordinal: candidate.trigger_ordinal,
+          direction: candidate.direction,
+          source_claim_ids_json: JSON.stringify(
+            candidate.source_claim_ids,
           ),
+          normalized_from: candidate.normalized_from,
+          identity_sha256: candidate.candidate_id,
+          observed_at_epoch: candidate.observed_at_epoch,
+        },
       );
       insertedCandidates.add(candidate.candidate_id);
     }
@@ -1235,43 +1514,30 @@ async function evaluationStatements(
       ) {
         continue;
       }
-      statements.push(
-        env.DB
-          .prepare(INSERT_ENTRY_EVIDENCE_SQL)
-          .bind(
-            evaluation.entry.origin.receiptId,
-            JSON.stringify([
-              {
-                evidence_id: evidence.evidence_id,
-                candidate_id: evidence.candidate_id,
-                observed_trigger_epoch: evidence.observed_trigger_epoch,
-                observed_trigger_ticks: evidence.observed_trigger_ticks,
-                htf_context_minutes_json: JSON.stringify(
-                  evidence.htf_context_minutes,
-                ),
-                fidelity: evidence.fidelity,
-                proof_plane: evidence.proof_plane,
-                proof_resolution_seconds: evidence.proof_resolution_seconds,
-                coverage_start_epoch: evidence.coverage_start_epoch,
-                coverage_end_epoch: evidence.coverage_end_epoch,
-                ambiguity_codes_json: JSON.stringify(
-                  evidence.ambiguity_codes,
-                ),
-                passed_rule_ids_json: JSON.stringify(
-                  evidence.passed_rule_ids,
-                ),
-                failed_rule_ids_json: JSON.stringify(
-                  evidence.failed_rule_ids,
-                ),
-                source_claim_ids_json: JSON.stringify(
-                  evidence.source_claim_ids,
-                ),
-                payload_sha256: evidence.payload_sha256,
-                identity_sha256: evidence.evidence_id,
-                observed_at_epoch: evidence.observed_at_epoch,
-              },
-            ]),
+      pushReceiptRow(
+        evidenceRowsByReceipt,
+        evaluation.entry.origin.receiptId,
+        {
+          evidence_id: evidence.evidence_id,
+          candidate_id: evidence.candidate_id,
+          observed_trigger_epoch: evidence.observed_trigger_epoch,
+          observed_trigger_ticks: evidence.observed_trigger_ticks,
+          htf_context_minutes_json: JSON.stringify(
+            evidence.htf_context_minutes,
           ),
+          fidelity: evidence.fidelity,
+          proof_plane: evidence.proof_plane,
+          proof_resolution_seconds: evidence.proof_resolution_seconds,
+          coverage_start_epoch: evidence.coverage_start_epoch,
+          coverage_end_epoch: evidence.coverage_end_epoch,
+          ambiguity_codes_json: JSON.stringify(evidence.ambiguity_codes),
+          passed_rule_ids_json: JSON.stringify(evidence.passed_rule_ids),
+          failed_rule_ids_json: JSON.stringify(evidence.failed_rule_ids),
+          source_claim_ids_json: JSON.stringify(evidence.source_claim_ids),
+          payload_sha256: evidence.payload_sha256,
+          identity_sha256: evidence.evidence_id,
+          observed_at_epoch: evidence.observed_at_epoch,
+        },
       );
       insertedEvidence.add(evidence.evidence_id);
     }
@@ -1282,72 +1548,64 @@ async function evaluationStatements(
       ) {
         continue;
       }
-      statements.push(
-        env.DB
-          .prepare(INSERT_ENTRY_HANDLING_SQL)
-          .bind(
-            evaluation.entry.origin.receiptId,
-            JSON.stringify([
-              {
-                handling_id: handling.handling_id,
-                candidate_id: handling.candidate_id,
-                evidence_id: handling.evidence_id,
-                handling_mode: handling.handling_mode,
-                attempt_kind: handling.attempt_kind,
-                observed_epoch: handling.observed_epoch,
-                observed_ticks: handling.observed_ticks,
-                fidelity: handling.fidelity,
-                source_claim_ids_json: JSON.stringify(
-                  handling.source_claim_ids,
-                ),
-                identity_sha256: handling.handling_id,
-              },
-            ]),
+      pushReceiptRow(
+        handlingRowsByReceipt,
+        evaluation.entry.origin.receiptId,
+        {
+          handling_id: handling.handling_id,
+          candidate_id: handling.candidate_id,
+          evidence_id: handling.evidence_id,
+          handling_mode: handling.handling_mode,
+          attempt_kind: handling.attempt_kind,
+          observed_epoch: handling.observed_epoch,
+          observed_ticks: handling.observed_ticks,
+          fidelity: handling.fidelity,
+          source_claim_ids_json: JSON.stringify(
+            handling.source_claim_ids,
           ),
+          identity_sha256: handling.handling_id,
+        },
       );
       insertedHandling.add(handling.handling_id);
     }
     const producer = evaluation.entry.producerDiagnostic;
-    statements.push(
-      env.DB
-        .prepare(INSERT_PRODUCER_DIAGNOSTIC_SQL)
-        .bind(
-          evaluation.diagnosticId,
-          batchId,
-          evaluation.entry.setupId,
-          JSON.stringify(producer.candidates),
-          JSON.stringify(producer.evidence),
-          JSON.stringify(producer.realtime_evidence),
-          JSON.stringify(producer.handling),
-          producer.selection === null
-            ? null
-            : JSON.stringify(producer.selection),
-          receivedAt,
-        ),
-    );
+    diagnosticRows.push({
+      diagnostic_id: evaluation.diagnosticId,
+      batch_id: batchId,
+      setup_id: evaluation.entry.setupId,
+      candidate_refs_json: JSON.stringify(producer.candidates),
+      evidence_refs_json: JSON.stringify(producer.evidence),
+      realtime_evidence_refs_json: JSON.stringify(
+        producer.realtime_evidence,
+      ),
+      handling_refs_json: JSON.stringify(producer.handling),
+      diagnostic_selection_json:
+        producer.selection === null
+          ? null
+          : JSON.stringify(producer.selection),
+      observed_at: receivedAt,
+    });
     const selection = evaluation.selection;
-    statements.push(
-      env.DB
-        .prepare(INSERT_ENTRY_SELECTION_SQL)
-        .bind(
-          selection.selection_id,
-          batchId,
-          selection.setup_id,
-          selection.policy_version,
-          selection.revision,
-          JSON.stringify(selection.candidate_ids_considered),
-          selection.canonical_candidate_id,
-          selection.canonical_evidence_id,
-          selection.canonical_model,
-          selection.reason,
-          selection.fidelity,
-          selection.policy_action,
-          selection.action,
-          selection.effective_action_reason,
-          selection.evaluated_at_epoch,
-        ),
-    );
-    const members = [
+    selectionRows.push({
+      selection_id: selection.selection_id,
+      batch_id: batchId,
+      setup_id: selection.setup_id,
+      policy_version: selection.policy_version,
+      revision: selection.revision,
+      candidate_ids_considered_json: JSON.stringify(
+        selection.candidate_ids_considered,
+      ),
+      canonical_candidate_id: selection.canonical_candidate_id,
+      canonical_evidence_id: selection.canonical_evidence_id,
+      canonical_model: selection.canonical_model,
+      reason: selection.reason,
+      fidelity: selection.fidelity,
+      policy_action: selection.policy_action,
+      action: selection.action,
+      effective_action_reason: selection.effective_action_reason,
+      evaluated_at_epoch: selection.evaluated_at_epoch,
+    });
+    memberRows.push(
       ...evaluation.backend.candidates.map((item) => ({
         selection_id: selection.selection_id,
         object_kind: "CANDIDATE",
@@ -1363,27 +1621,75 @@ async function evaluationStatements(
         object_kind: "HANDLING",
         object_id: item.handling_id,
       })),
-    ];
-    if (members.length > 0) {
-      statements.push(
-        env.DB
-          .prepare(INSERT_ENTRY_EVALUATION_MEMBERS_SQL)
-          .bind(JSON.stringify(members)),
-      );
-    }
+    );
+    parityRows.push({
+      parity_id: evaluation.parityId,
+      batch_id: batchId,
+      setup_id: evaluation.entry.setupId,
+      producer_diagnostic_id: evaluation.diagnosticId,
+      selection_id: selection.selection_id,
+      parity_status: evaluation.parityStatus,
+      mismatch_reason: evaluation.parityMismatchReason,
+      compared_at: receivedAt,
+    });
+  }
+  if (eventRows.length > 0) {
     statements.push(
       env.DB
-        .prepare(INSERT_ENTRY_PARITY_SQL)
-        .bind(
-          evaluation.parityId,
-          batchId,
-          evaluation.entry.setupId,
-          evaluation.diagnosticId,
-          selection.selection_id,
-          evaluation.parityStatus,
-          evaluation.parityMismatchReason,
-          receivedAt,
-        ),
+        .prepare(INSERT_ENTRY_SETUP_EVENTS_BULK_SQL)
+        .bind(JSON.stringify(eventRows)),
+    );
+  }
+  if (terminalRows.length > 0) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_ENTRY_TERMINALS_BULK_SQL)
+        .bind(JSON.stringify(terminalRows)),
+    );
+  }
+  for (const [originReceiptId, rows] of candidateRowsByReceipt) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_ENTRY_CANDIDATES_SQL)
+        .bind(originReceiptId, JSON.stringify(rows)),
+    );
+  }
+  for (const [originReceiptId, rows] of evidenceRowsByReceipt) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_ENTRY_EVIDENCE_SQL)
+        .bind(originReceiptId, JSON.stringify(rows)),
+    );
+  }
+  for (const [originReceiptId, rows] of handlingRowsByReceipt) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_ENTRY_HANDLING_SQL)
+        .bind(originReceiptId, JSON.stringify(rows)),
+    );
+  }
+  if (diagnosticRows.length > 0) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_PRODUCER_DIAGNOSTICS_BULK_SQL)
+        .bind(JSON.stringify(diagnosticRows)),
+      env.DB
+        .prepare(INSERT_ENTRY_SELECTIONS_BULK_SQL)
+        .bind(JSON.stringify(selectionRows)),
+    );
+  }
+  if (memberRows.length > 0) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_ENTRY_EVALUATION_MEMBERS_SQL)
+        .bind(JSON.stringify(memberRows)),
+    );
+  }
+  if (parityRows.length > 0) {
+    statements.push(
+      env.DB
+        .prepare(INSERT_ENTRY_PARITY_BULK_SQL)
+        .bind(JSON.stringify(parityRows)),
     );
   }
   return statements;
@@ -1624,9 +1930,20 @@ async function appendEntryV2ObservationAttempt(
     };
   }
 
+  const evaluationState = await loadEvaluationState(
+    env,
+    assembly.setups,
+  );
   const evaluations = await Promise.all(
     assembly.setups.map((entry) =>
-      prepareEvaluation(env, entry, batchId, observation.batchMetadata),
+      prepareEvaluation(
+        env,
+        entry,
+        batchId,
+        observation.batchMetadata,
+        evaluationState.storedEventsBySetup.get(entry.setupId) ?? [],
+        evaluationState.maxRevisionBySetup.get(entry.setupId) ?? 0,
+      ),
     ),
   );
   const completionId = await canonicalSha256({
@@ -1640,6 +1957,7 @@ async function appendEntryV2ObservationAttempt(
       batchId,
       receivedAt,
       evaluations,
+      evaluationState.terminalBySetup,
     )),
     env.DB
       .prepare(INSERT_ENTRY_COMPLETION_SQL)
@@ -1763,7 +2081,7 @@ export async function appendEntryV2Observation(
       }
       if (
         attempt === 0 &&
-        String(error).toLowerCase().includes("unique constraint")
+        entryStoreRaceIsRetryable(error)
       ) {
         continue;
       }

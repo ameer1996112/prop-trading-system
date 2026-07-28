@@ -622,6 +622,65 @@ CREATE INDEX idx_entry_setup_events_stream
 
 -- INSERT conflict guards run before SQLite applies REPLACE conflict handling.
 -- This closes the implicit-delete path even when recursive_triggers is disabled.
+-- Semantic producer continuity must also be enforced inside the write
+-- transaction. Application preflight remains the source of deterministic
+-- quarantine classification; these guards serialize concurrent winners so a
+-- retry can observe and classify the committed row. They are created before
+-- the alternate-key guard so an exact key conflict retains its established
+-- immutable-conflict classification.
+CREATE TRIGGER observation_entry_batches_enforce_producer_identity
+BEFORE INSERT ON observation_entry_batches
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_batches AS stored
+    WHERE
+        stored.producer_instance_id IS NEW.producer_instance_id
+        AND (
+            stored.strategy_id IS NOT NEW.strategy_id
+            OR stored.strategy_version IS NOT NEW.strategy_version
+            OR stored.rule_contract_version IS NOT NEW.rule_contract_version
+            OR stored.execution_mode IS NOT NEW.execution_mode
+            OR stored.symbol IS NOT NEW.symbol
+            OR stored.ticker_id IS NOT NEW.ticker_id
+            OR stored.feed IS NOT NEW.feed
+            OR stored.timeframe IS NOT NEW.timeframe
+            OR stored.tick_size IS NOT NEW.tick_size
+            OR stored.detector_code_hash IS NOT NEW.detector_code_hash
+            OR stored.settings_hash IS NOT NEW.settings_hash
+        )
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_batches producer identity conflict'
+    );
+END;
+
+CREATE TRIGGER observation_entry_batches_enforce_sequence_time
+BEFORE INSERT ON observation_entry_batches
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_entry_batches AS stored
+    WHERE
+        stored.producer_instance_id IS NEW.producer_instance_id
+        AND (
+            (
+                stored.producer_sequence < NEW.producer_sequence
+                AND stored.bar_close_epoch >= NEW.bar_close_epoch
+            )
+            OR (
+                stored.producer_sequence > NEW.producer_sequence
+                AND stored.bar_close_epoch <= NEW.bar_close_epoch
+            )
+        )
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'observation_entry_batches sequence time conflict'
+    );
+END;
+
 CREATE TRIGGER observation_entry_batches_no_conflict
 BEFORE INSERT ON observation_entry_batches
 WHEN EXISTS (
