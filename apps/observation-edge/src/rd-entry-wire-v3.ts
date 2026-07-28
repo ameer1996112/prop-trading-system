@@ -251,6 +251,8 @@ export interface ValidatedEntryV3Payload {
   readonly isRealtime: boolean;
   readonly detectorCodeHash: string;
   readonly settingsHash: string;
+  readonly tickSize: string;
+  readonly observedAtEpoch: number;
   readonly marketEvent: EntryV3MarketEvent;
   readonly exitEvents: readonly EntryV3ExitEvent[];
   readonly entryBundles: readonly ValidatedEntryV3Bundle[];
@@ -1332,6 +1334,10 @@ export async function validateEntryV3Payload(
   raw: StrictJsonValue,
   reviewedHashes?: EntryV3ReviewedProducerHashes,
 ): Promise<ValidatedEntryV3Payload> {
+  // Promotion identity is an economic authorization boundary owned by the
+  // transactional store. Wire validation retains syntactically valid producer
+  // hashes so mismatches can still be persisted and diagnosed fail-closed.
+  void reviewedHashes;
   const decoded = plain(raw);
   const serialized = JSON.stringify(decoded);
   if (serialized.length >= ENTRY_V3_MAX_PAYLOAD_CHARACTERS) {
@@ -1370,14 +1376,6 @@ export async function validateEntryV3Payload(
   const settingsHash = unreviewedProducer
     ? "UNREVIEWED"
     : digest(payload.settings_hash);
-  if (
-    !unreviewedProducer &&
-    (reviewedHashes === undefined ||
-      digest(reviewedHashes.detector_code_hash) !== detectorCodeHash ||
-      digest(reviewedHashes.settings_hash) !== settingsHash)
-  ) {
-    fail("ENTRY_V3_PROMOTION_IDENTITY_MISMATCH");
-  }
   const observedAtEpoch = integer(payload.observed_at_epoch);
   const marketEvent = parseMarketEvent(payload.market_event);
   if (marketEvent.epoch > observedAtEpoch) fail();
@@ -1460,6 +1458,8 @@ export async function validateEntryV3Payload(
     isRealtime,
     detectorCodeHash,
     settingsHash,
+    tickSize,
+    observedAtEpoch,
     marketEvent,
     exitEvents,
     entryBundles,

@@ -1,0 +1,685 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+
+import { appendEntryV3Observation } from "../src/rd-entry-store-v3";
+import { validateEntryV3Payload } from "../src/rd-entry-wire-v3";
+import { parseStrictJson } from "../src/strict-json";
+import type { Env, ValidatedObservation } from "../src/types";
+
+type SqliteInput =
+  | null
+  | number
+  | bigint
+  | string
+  | NodeJS.ArrayBufferView;
+
+function migratedDatabase(): DatabaseSync {
+  const database = new DatabaseSync(":memory:");
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  for (const migration of readdirSync(`${root}/migrations`)
+    .filter((name) => /^\d{4}_.*\.sql$/u.test(name))
+    .sort()) {
+    database.exec(readFileSync(`${root}/migrations/${migration}`, "utf8"));
+  }
+  return database;
+}
+
+class SqliteStatement {
+  private values: unknown[] = [];
+
+  constructor(
+    private readonly database: DatabaseSync,
+    readonly sql: string,
+  ) {}
+
+  bind(...values: unknown[]): SqliteStatement {
+    this.values = values;
+    return this;
+  }
+
+  execute(): D1Result {
+    if (/^\s*SELECT\b/iu.test(this.sql)) {
+      return {
+        success: true,
+        results: this.database
+          .prepare(this.sql)
+          .all(...(this.values as SqliteInput[])),
+        meta: {},
+      } as unknown as D1Result;
+    }
+    const result = this.database
+      .prepare(this.sql)
+      .run(...(this.values as SqliteInput[]));
+    return {
+      success: true,
+      results: [],
+      meta: { changes: Number(result.changes) },
+    } as unknown as D1Result;
+  }
+
+  async first<T>(): Promise<T | null> {
+    return (
+      (this.database
+        .prepare(this.sql)
+        .get(...(this.values as SqliteInput[])) as T | undefined) ?? null
+    );
+  }
+
+  async all<T>(): Promise<D1Result<T>> {
+    return this.execute() as D1Result<T>;
+  }
+
+  async run(): Promise<D1Result> {
+    return this.execute();
+  }
+}
+
+class SqliteD1 {
+  readonly database = migratedDatabase();
+
+  prepare(sql: string): D1PreparedStatement {
+    return new SqliteStatement(
+      this.database,
+      sql,
+    ) as unknown as D1PreparedStatement;
+  }
+
+  async batch<T = unknown>(
+    statements: D1PreparedStatement[],
+  ): Promise<D1Result<T>[]> {
+    this.database.exec("BEGIN");
+    try {
+      const results = statements.map((statement) =>
+        (statement as unknown as SqliteStatement).execute(),
+      ) as D1Result<T>[];
+      this.database.exec("COMMIT");
+      return results;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+}
+
+const vectorDocument = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../contracts/vectors/rd-entry-arbitration-v3.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+) as {
+  cases: Array<{
+    case_id: string;
+    input: Record<string, unknown>;
+    expected: {
+      candidates: Array<Record<string, unknown>>;
+      evidence: Array<Record<string, unknown>>;
+      selection: Record<string, unknown>;
+    };
+  }>;
+};
+const detectorHash = "a".repeat(64);
+const settingsHash = "b".repeat(64);
+const commonRuleIds = [
+  "LIQ_ACTUAL_EXTREME_SWEPT",
+  "LIQ_DISTANCE_INFLUENCES_ZONE",
+  "LIQ_EVENT_ORDER",
+  "LIQ_INTERNAL_REBREAK",
+  "LIQ_NORMAL_TWO_OPPOSITE_CANDLES",
+  "LIQ_ONE_CANDLE_EXCEPTION",
+  "LIQ_OWN_EXTREME_SAME_LEG",
+  "LIQ_REPLACEMENT_AFTER_STALE_MOVE",
+  "LIQ_STRICT_OWN_EXTREME_BREAK",
+  "TIMEFRAME_FIVE_MINUTE_ONLY",
+  "ZONE_ACCURACY_BOUNDS",
+  "ZONE_FRESH_UNTAPPED",
+  "ZONE_ORIGIN_OPPOSITE_CANDLE",
+  "ZONE_PRE_ENTRY_CLOSE_OUTSIDE",
+] as const;
+
+function strict(value: unknown) {
+  return parseStrictJson(new TextEncoder().encode(JSON.stringify(value)));
+}
+
+function payloadFor(caseId: string): Record<string, unknown> {
+  const vector = structuredClone(
+    vectorDocument.cases.find((item) => item.case_id === caseId)!,
+  );
+  const input = vector.input;
+  const selection = vector.expected.selection;
+  const canonicalEvidence =
+    vector.expected.evidence.find(
+      (item) => item.evidence_id === selection.canonical_evidence_id,
+    ) ?? vector.expected.evidence[0]!;
+  const entryTicks = canonicalEvidence.observed_trigger_ticks as number;
+  const direction = input.direction as "LONG" | "SHORT";
+  const confirmedBar =
+    selection.canonical_model === "DIR_CLOSE"
+      ? input.confirmed_bar
+      : null;
+  return {
+    schema_version: "3.0",
+    strategy_id: "rd_liquidity_sd_5m_v1",
+    strategy_version: "3.0.0-contract3",
+    rule_contract_version: "3.0.0",
+    execution_mode: "PAPER_ONLY",
+    producer_instance_id: "pine-v3-store",
+    producer_sequence: canonicalEvidence.trigger_sequence,
+    event_id: `pine-v3-store:${caseId}`,
+    is_realtime: canonicalEvidence.proof_plane === "REALTIME_TICK",
+    symbol: "EURUSD",
+    ticker_id: "OANDA:EURUSD",
+    feed: "OANDA",
+    timeframe: "5",
+    tick_size: "0.00001",
+    detector_code_hash: detectorHash,
+    settings_hash: settingsHash,
+    observed_at_epoch: Math.max(
+      input.observed_at_epoch as number,
+      selection.evaluated_at_epoch as number,
+    ),
+    market_event: {
+      epoch: canonicalEvidence.observed_trigger_epoch,
+      sequence: canonicalEvidence.trigger_sequence,
+      tick_price_ticks: entryTicks,
+      barstate_isconfirmed: confirmedBar !== null,
+      confirmed_bar: confirmedBar,
+    },
+    exit_events: [],
+    setups: [
+      {
+        setup: {
+          setup_id: input.setup_id,
+          direction,
+          zone_top_ticks: input.zone_top_ticks,
+          zone_bottom_ticks: input.zone_bottom_ticks,
+          zone_engaged_epoch: input.zone_engaged_epoch,
+          invalidated_before_entry: input.setup_invalidated,
+          common_fidelity: input.common_fidelity,
+          common_rule_results: commonRuleIds.map((rule_id) => ({
+            rule_id,
+            passed: true,
+          })),
+        },
+        candidates: vector.expected.candidates,
+        evidence: vector.expected.evidence,
+        selection_proposal: selection,
+        trade_plan: {
+          direction,
+          entry_ticks: entryTicks,
+          stop_ticks: direction === "LONG" ? entryTicks - 10 : entryTicks + 10,
+          target_ticks: direction === "LONG" ? entryTicks + 40 : entryTicks - 40,
+        },
+      },
+    ],
+  };
+}
+
+async function observation(
+  payload: Record<string, unknown>,
+): Promise<Extract<ValidatedObservation, { version: "entry-v3" }>> {
+  return {
+    version: "entry-v3",
+    credential: "test",
+    ...(await validateEntryV3Payload(strict(payload))),
+    paperCommands: [],
+  };
+}
+
+function env(database: SqliteD1, overrides: Partial<Env> = {}): Env {
+  return {
+    DB: database as unknown as D1Database,
+    RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+    RD_ENTRY_PAPER_RISK_BPS: "50",
+    RD_ENTRY_V3_DETECTOR_CODE_HASH: detectorHash,
+    RD_ENTRY_V3_SETTINGS_HASH: settingsHash,
+    ...overrides,
+  };
+}
+
+function installPaperAccount(database: SqliteD1): void {
+  database.database
+    .prepare(
+      `INSERT INTO paper_accounts (
+        account_id, mode, label, currency_code, currency_scale,
+        opening_balance_minor, idempotency_key, payload_sha256, created_at
+      ) VALUES (?, 'PAPER_ONLY', ?, 'USD', 2, ?, ?, ?, ?)`,
+    )
+    .run(
+      "paper-primary",
+      "Primary",
+      5_000_000,
+      "paper-account:paper-primary",
+      "9".repeat(64),
+      "2026-07-28T00:00:00.000Z",
+    );
+  database.database
+    .prepare(
+      `INSERT INTO paper_kill_switch_events (
+        event_id, idempotency_key, payload_sha256, enabled, reason, changed_at
+      ) VALUES (?, ?, ?, 0, ?, ?)`,
+    )
+    .run(
+      "paper-kill-switch-test-disabled",
+      "paper-kill-switch:test-disabled",
+      "8".repeat(64),
+      "TEST_DISABLED",
+      "2026-07-28T00:00:01.000Z",
+    );
+}
+
+async function payloadDigest(payload: Record<string, unknown>): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  return Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function realtimeExitPayload(
+  base: Record<string, unknown>,
+  eventId: string,
+  exitReason: "STOP_LOSS" | "TARGET" | "AMBIGUOUS_SAME_BAR_EXIT",
+): Record<string, unknown> {
+  const value = structuredClone(base);
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  const plan = bundle.trade_plan as Record<string, unknown>;
+  const priceTicks =
+    exitReason === "STOP_LOSS"
+      ? plan.stop_ticks
+      : exitReason === "TARGET"
+        ? plan.target_ticks
+        : plan.entry_ticks;
+  value.event_id = eventId;
+  value.producer_sequence = 999;
+  value.is_realtime = true;
+  value.observed_at_epoch = 3000;
+  value.market_event = {
+    epoch: 3000,
+    sequence: 999,
+    tick_price_ticks: priceTicks,
+    barstate_isconfirmed: false,
+    confirmed_bar: null,
+  };
+  value.exit_events = [
+    {
+      event_id: `${eventId}:exit`,
+      setup_id: setup.setup_id,
+      exit_reason: exitReason,
+      epoch: 3000,
+      sequence: 999,
+      price_ticks: priceTicks,
+    },
+  ];
+  return value;
+}
+
+describe("RD entry v3 persistence", () => {
+  it("installs the v3 entry and paper decision schema", () => {
+    const database = migratedDatabase();
+    const names = database
+      .prepare(
+        "SELECT type, name FROM sqlite_master WHERE type IN ('table', 'trigger')",
+      )
+      .all() as Array<{ type: string; name: string }>;
+    const tableNames = names
+      .filter((item) => item.type === "table")
+      .map((item) => item.name);
+    const triggerNames = names
+      .filter((item) => item.type === "trigger")
+      .map((item) => item.name);
+
+    expect(tableNames).toEqual(
+      expect.arrayContaining([
+        "observation_entry_v3_events",
+        "observation_entry_v3_candidates",
+        "observation_entry_v3_evidence",
+        "observation_entry_v3_selections",
+        "observation_entry_v3_selection_members",
+        "observation_entry_v3_parity",
+        "observation_entry_v3_paper_links",
+        "observation_entry_v3_shadow_positions",
+      ]),
+    );
+    expect(triggerNames).toEqual(
+      expect.arrayContaining([
+        "observation_entry_v3_candidates_no_update",
+        "observation_entry_v3_candidates_no_delete",
+        "observation_entry_v3_selections_no_update",
+        "observation_entry_v3_selections_no_delete",
+        "observation_entry_v3_parity_no_update",
+        "observation_entry_v3_parity_no_delete",
+        "observation_entry_v3_paper_links_no_update",
+        "observation_entry_v3_paper_links_no_delete",
+        "observation_entry_v3_shadow_positions_no_delete",
+      ]),
+    );
+    database.close();
+  });
+
+  it("opens one intent, preserves BOC, and replays idempotently", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const validated = await observation(payload);
+    const digest = await payloadDigest(payload);
+
+    const first = await appendEntryV3Observation(
+      env(database),
+      validated,
+      digest,
+    );
+    const second = await appendEntryV3Observation(
+      env(database),
+      validated,
+      digest,
+    );
+
+    expect(first.inserted).toBe(true);
+    expect(second.inserted).toBe(false);
+    expect(second.evaluations).toEqual(first.evaluations);
+    expect(second.paperIntentIds).toEqual(first.paperIntentIds);
+    expect(first.paperIntentIds).toHaveLength(1);
+    expect(
+      database.database
+        .prepare("SELECT model FROM observation_entry_v3_candidates")
+        .all(),
+    ).toEqual([{ model: "BOC" }]);
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("stores a reviewed-hash mismatch but allocates nothing", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    payload.detector_code_hash = "c".repeat(64);
+    const validated = await observation(payload);
+    const result = await appendEntryV3Observation(
+      env(database),
+      validated,
+      await payloadDigest(payload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PROMOTION_IDENTITY_MISMATCH",
+    });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("downgrades invalid paper configuration without partial allocation", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const result = await appendEntryV3Observation(
+      env(database, { RD_ENTRY_PAPER_RISK_BPS: "0" }),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PAPER_CONFIGURATION_UNAVAILABLE",
+    });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_allocations")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("freezes one setup attempt when a later event repeats the candidate", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const firstPayload = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(firstPayload),
+      await payloadDigest(firstPayload),
+    );
+    const laterPayload = payloadFor("strict_long_boc_only");
+    laterPayload.event_id = "pine-v3-store:strict-long-later";
+    laterPayload.producer_sequence =
+      (laterPayload.producer_sequence as number) + 100;
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(laterPayload),
+      await payloadDigest(laterPayload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "NOT_SELECTED_ALREADY_OPEN",
+    });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_paper_links")
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("an exit-only event without a durable link cannot authorize paper", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const bundle = (payload.setups as Array<Record<string, unknown>>)[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    const plan = bundle.trade_plan as Record<string, unknown>;
+    payload.event_id = "pine-v3-store:orphan-exit";
+    payload.producer_sequence = 999;
+    payload.observed_at_epoch = 3000;
+    payload.market_event = {
+      epoch: 3000,
+      sequence: 999,
+      tick_price_ticks: plan.target_ticks,
+      barstate_isconfirmed: false,
+      confirmed_bar: null,
+    };
+    payload.exit_events = [
+      {
+        event_id: "orphan-exit:target",
+        setup_id: setup.setup_id,
+        exit_reason: "TARGET",
+        epoch: 3000,
+        sequence: 999,
+        price_ticks: plan.target_ticks,
+      },
+    ];
+
+    await appendEntryV3Observation(
+      env(database),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_settlements")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("stores same-event BOC and flip as distinct candidates with one intent", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("boc_flip_same_event");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+
+    expect(
+      database.database
+        .prepare(
+          "SELECT model FROM observation_entry_v3_candidates ORDER BY model",
+        )
+        .all(),
+    ).toEqual([{ model: "BOC" }, { model: "HTF_FLIP" }]);
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("tracks discretionary BOC and terminates it without account risk", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const entryPayload = payloadFor("discretionary_boc_shadow");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(entryPayload),
+      await payloadDigest(entryPayload),
+    );
+    const exitPayload = realtimeExitPayload(
+      entryPayload,
+      "pine-v3-store:discretionary-target",
+      "TARGET",
+    );
+    await appendEntryV3Observation(
+      env(database),
+      await observation(exitPayload),
+      await payloadDigest(exitPayload),
+    );
+
+    expect(
+      database.database
+        .prepare(
+          `SELECT state, outcome_r_millis
+           FROM observation_entry_v3_shadow_positions`,
+        )
+        .get(),
+    ).toEqual({ state: "TARGET_HIT", outcome_r_millis: 4000 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_allocations")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("settles one linked intent from a strictly later exact exit", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const entryPayload = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(entryPayload),
+      await payloadDigest(entryPayload),
+    );
+    const exitPayload = realtimeExitPayload(
+      entryPayload,
+      "pine-v3-store:strict-stop",
+      "STOP_LOSS",
+    );
+    await appendEntryV3Observation(
+      env(database),
+      await observation(exitPayload),
+      await payloadDigest(exitPayload),
+    );
+
+    expect(
+      database.database
+        .prepare(
+          "SELECT outcome_r_millis, exit_reason FROM paper_trade_settlements",
+        )
+        .get(),
+    ).toEqual({ outcome_r_millis: -1000, exit_reason: "STOP" });
+  });
+
+  it("does not settle an economic exit from an overlapping historical bar", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const entryPayload = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(entryPayload),
+      await payloadDigest(entryPayload),
+    );
+    const exitPayload = structuredClone(entryPayload);
+    const bundle = (exitPayload.setups as Array<Record<string, unknown>>)[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    const plan = bundle.trade_plan as Record<string, unknown>;
+    exitPayload.event_id = "pine-v3-store:overlapping-target";
+    exitPayload.producer_sequence = 1000;
+    exitPayload.is_realtime = false;
+    exitPayload.observed_at_epoch = 2400;
+    exitPayload.market_event = {
+      epoch: 2400,
+      sequence: 1000,
+      tick_price_ticks: plan.target_ticks,
+      barstate_isconfirmed: true,
+      confirmed_bar: {
+        open_epoch: 2100,
+        close_epoch: 2400,
+        open_ticks: plan.entry_ticks,
+        high_ticks: plan.target_ticks,
+        low_ticks: (plan.stop_ticks as number) + 1,
+        close_ticks: plan.target_ticks,
+      },
+    };
+    exitPayload.exit_events = [
+      {
+        event_id: "pine-v3-store:overlapping-target:exit",
+        setup_id: setup.setup_id,
+        exit_reason: "TARGET",
+        epoch: 2400,
+        sequence: 1000,
+        price_ticks: plan.target_ticks,
+      },
+    ];
+    await appendEntryV3Observation(
+      env(database),
+      await observation(exitPayload),
+      await payloadDigest(exitPayload),
+    );
+
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_settlements")
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 2 });
+  });
+});

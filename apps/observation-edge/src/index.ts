@@ -110,6 +110,10 @@ import {
   EntryStoreIdempotencyConflict,
   type EntryCodeIdentity,
 } from "./rd-entry-store";
+import {
+  appendEntryV3Observation,
+  EntryV3StoreConflict,
+} from "./rd-entry-store-v3";
 
 export {
   canonicalPaperSelectionConfigured,
@@ -1251,6 +1255,45 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
         },
         result.inserted ? 202 : 200,
       );
+    }
+    if (observation.version === "entry-v3") {
+      try {
+        const result = await appendEntryV3Observation(
+          env,
+          observation,
+          payloadSha256,
+        );
+        return jsonResponse(
+          {
+            status: result.inserted ? "RECEIVED" : "DUPLICATE",
+            event_id: result.eventId,
+            evaluations: result.evaluations.map((item) => ({
+              setup_id: item.evaluation.selection.setup_id,
+              selection_id: item.evaluation.selection.selection_id,
+              canonical_model: item.evaluation.selection.canonical_model,
+              co_triggered_models:
+                item.evaluation.selection.co_triggered_models,
+              policy_action: item.evaluation.selection.action,
+              action: item.effectiveAction,
+              effective_action_reason: item.effectiveActionReason,
+              parity_status: item.parityStatus,
+              parity_mismatch_reason: item.parityMismatchReason,
+            })),
+            paper_intent_ids: result.paperIntentIds,
+            execution: "PAPER_ONLY",
+          },
+          result.inserted ? 202 : 200,
+        );
+      } catch (error) {
+        if (error instanceof EntryV3StoreConflict) {
+          return errorResponse(
+            409,
+            error.code,
+            "Version 3 observation identity conflicts with stored content",
+          );
+        }
+        throw error;
+      }
     }
     if (observation.metadata.schemaVersion === "1.1") {
       return await appendAutomatedObservation(

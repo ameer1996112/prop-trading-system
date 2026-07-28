@@ -6114,4 +6114,72 @@ describe("deployment contract", () => {
       /^\s*(credential|payload|raw_payload|canonical_payload)\s+text/gm,
     );
   });
+
+  it("upgrades populated receipts for contract v3 without detaching v2 children", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 23);
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-before-v3",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "before-v3",
+      sequence: 1,
+    });
+    database.exec("BEGIN");
+    database.exec(
+      readFileSync(
+        `${root}/migrations/0024_observation_entries_v3.sql`,
+        "utf8",
+      ),
+    );
+    database.exec("COMMIT");
+
+    database
+      .prepare(
+        `INSERT INTO observation_receipts (
+          receipt_id, received_at, idempotency_key, payload_sha256,
+          schema_version, strategy_id, strategy_version, producer_instance_id,
+          sequence, symbol, ticker_id, feed, timeframe, kind
+        ) VALUES (
+          'receipt-v3', '2026-07-28T00:00:00Z', 'event-v3', ?,
+          '3.0', 'rd_liquidity_sd_5m_v1', '3.0.0-contract3', 'producer-v3',
+          1, 'EURUSD', 'OANDA:EURUSD', 'OANDA', '5', 'incremental'
+        )`,
+      )
+      .run("a".repeat(64));
+    insertEntryStorageReceipt(database, {
+      receiptId: "receipt-after-v3-v2",
+      schemaVersion: "2.0",
+      strategyVersion: "2.0.0-contract2",
+      producerInstanceId: "after-v3-v2",
+      sequence: 2,
+    });
+
+    expect(
+      database
+        .prepare(
+          "SELECT receipt_id FROM observation_receipts ORDER BY receipt_id",
+        )
+        .all(),
+    ).toEqual([
+      { receipt_id: "receipt-after-v3-v2" },
+      { receipt_id: "receipt-before-v3" },
+      { receipt_id: "receipt-v3" },
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT receipt_id
+           FROM observation_receipts_contract_v2_archive
+           ORDER BY receipt_id`,
+        )
+        .all(),
+    ).toEqual([
+      { receipt_id: "receipt-after-v3-v2" },
+      { receipt_id: "receipt-before-v3" },
+    ]);
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
 });

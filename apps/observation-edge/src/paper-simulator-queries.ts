@@ -30,6 +30,27 @@ INSERT INTO paper_trade_intents (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRADINGVIEW', ?, ?)
 `;
 
+// Contract-v3 provenance is linked immutably through
+// observation_entry_v3_paper_links -> selection -> event -> receipt. The
+// pre-v3 source_receipt_id foreign key intentionally remains attached to the
+// retained contract-v2 receipt parent.
+export const INSERT_ENTRY_V3_PAPER_TRADE_INTENT_SQL = `
+INSERT INTO paper_trade_intents (
+  intent_id,
+  idempotency_key,
+  payload_sha256,
+  symbol,
+  side,
+  entry_price,
+  stop_loss,
+  take_profit,
+  risk_bps,
+  source,
+  source_receipt_id,
+  created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'TRADINGVIEW', NULL, ?)
+`;
+
 export const SELECT_PAPER_TRADE_INTENT_SQL = `
 SELECT
   intent_id,

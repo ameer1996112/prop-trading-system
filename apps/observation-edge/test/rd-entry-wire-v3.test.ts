@@ -616,13 +616,19 @@ describe("RD entry v3 wire", () => {
   it.each([
     ["detector", { detector_code_hash: "c".repeat(64) }],
     ["settings", { settings_hash: "c".repeat(64) }],
-  ])("rejects a reviewed %s hash mismatch", async (_name, overrides) => {
-    await expect(
-      validateEntryV3Payload(strict(payload()), {
-        ...reviewedHashes,
-        ...overrides,
-      }),
-    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  ])("retains a reviewed %s hash mismatch for store diagnostics", async (
+    _name,
+    overrides,
+  ) => {
+    const result = await validateEntryV3Payload(strict(payload()), {
+      ...reviewedHashes,
+      ...overrides,
+    });
+    expect(result.detectorCodeHash).toBe(digest);
+    expect(result.settingsHash).toBe("b".repeat(64));
+    expect(result.entryBundles[0]?.evaluation.selection.action).toBe(
+      "PAPER_ELIGIBLE",
+    );
   });
 
   it("canonicalizes a blocked UNREVIEWED observation without paper promotion", async () => {
