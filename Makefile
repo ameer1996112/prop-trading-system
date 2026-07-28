@@ -8,12 +8,13 @@ DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_
 
 .PHONY: help bootstrap format format-check lint typecheck backend-tests frontend-checks \
 	edge-checks \
-	verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check \
+	verify-generated verify-evidence frozen-spec-check contract-v3-check secret-scan boundary-check container-check \
 	verify-observation verify-phase0
 
 help:
 	@echo "make bootstrap       Install exactly locked Python and Node dependencies"
 	@echo "make format          Apply Python formatting"
+	@echo "make contract-v3-check  Validate the frozen RD three-entry contract"
 	@echo "make verify-observation  Run the complete observation-ingress proof"
 	@echo "make verify-phase0      Compatibility alias for the complete proof"
 
@@ -51,7 +52,7 @@ edge-checks: frontend-checks
 	cd $(EDGE) && npm test
 	cd $(EDGE) && npm run build
 
-verify-generated:
+verify-generated: contract-v3-check
 	$(PYTHON) scripts/build_phase0_evidence.py --output evidence/phase0/evidence-registry.json --check
 	$(PYTHON) scripts/build_golden_vectors.py --output contracts/vectors/canonical-json-v1.json --check
 	$(PYTHON) scripts/build_rd_entry_oracle_vectors.py \
@@ -69,6 +70,9 @@ verify-evidence:
 
 frozen-spec-check:
 	$(PYTHON) scripts/assert_frozen_specs.py
+
+contract-v3-check:
+	$(PYTHON) -c "from prop_trading.contracts.rd_strategy_v3 import load_rd_strategy_contract_v3; load_rd_strategy_contract_v3()"
 
 secret-scan:
 	@set -eu; scan_file=$$(mktemp); trap 'rm -f "$$scan_file"' EXIT HUP INT TERM; \

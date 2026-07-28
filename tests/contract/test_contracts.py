@@ -24,6 +24,7 @@ from prop_trading.contracts.models import (
 from prop_trading.contracts.rd_entry_method_vectors_v1 import (
     load_rd_entry_method_vector_set_v1_json,
 )
+from prop_trading.contracts.rd_strategy_v3 import load_rd_strategy_contract_v3
 from prop_trading.domain.canonical import canonical_json_bytes
 from prop_trading.domain.rd_entry_models import (
     AmbiguityCode,
@@ -64,6 +65,9 @@ def test_frozen_foundation_contract_instances_are_valid_and_blocked() -> None:
     assert capacity.global_account_claims == 8
     assert rule.utc_period_semantics == "HALF_OPEN"
     assert len(rule.boundaries) == 3
+    rd_strategy_v3 = load_rd_strategy_contract_v3()
+    assert rd_strategy_v3.automation_policy.paper_only is True
+    assert rd_strategy_v3.automation_policy.real_execution_allowed is False
     dst_duration = (
         rule.boundaries[2].utc_end.replace("Z", "+00:00"),
         rule.boundaries[2].utc_start.replace("Z", "+00:00"),
