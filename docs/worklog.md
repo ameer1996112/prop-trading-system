@@ -16,6 +16,10 @@
   reproducible paper-only rollout and rollback runbook.
 - TradingView compile, add-to-chart, and live-tick smoke remain manual deployment checks. No remote
   D1, Cloudflare, Railway, production, or TradingView state was changed by this implementation.
+- Final review hardened the Pine/Worker boundary to emit the exact authenticated outer envelope,
+  allowed causal same-child realtime flips only on a later continuously observed tick, preserved
+  active attempts under visual-retention pressure, and collapsed the decision API to one latest
+  card per attempt while retaining the immutable opened paper selection and all raw audit rows.
 
 ## 2026-07-23 — Paper readiness monitor and global stop control
 

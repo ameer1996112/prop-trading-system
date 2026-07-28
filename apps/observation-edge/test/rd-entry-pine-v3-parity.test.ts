@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { validateEntryV3Payload } from "../src/rd-entry-wire-v3";
 import { parseStrictJson } from "../src/strict-json";
+import { validateObservationEnvelope } from "../src/validation";
 
 const reviewedHashes = {
   detector_code_hash: "a".repeat(64),
@@ -49,6 +50,15 @@ const closeClaims = [
 
 function strict(value: unknown) {
   return parseStrictJson(new TextEncoder().encode(JSON.stringify(value)));
+}
+
+function pineSerializedEnvelope(
+  credential: string,
+  payload: Record<string, unknown>,
+): Uint8Array {
+  return new TextEncoder().encode(
+    `{"credential":${JSON.stringify(credential)},"payload":${JSON.stringify(payload)}}`,
+  );
 }
 
 function commonRules(falseRule?: (typeof requiredRuleIds)[number]) {
@@ -295,6 +305,179 @@ function payloadEnvelope(
 }
 
 describe("RD Pine v3 independent raw payload parity", () => {
+  it("passes the complete Pine alert envelope through ingress validation", async () => {
+    const setupId = "setup-pine-envelope";
+    const payload = payloadEnvelope(
+      setupId,
+      [bocCandidate(setupId, "MATCHED")],
+      [exactBocEvidence(setupId)],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: "EDGE_DERIVED:BOC",
+        canonical_evidence_id: "EDGE_DERIVED:BOC",
+        canonical_model: "BOC",
+        reason: "ONLY_EXACT_TRIGGER",
+        fidelity: "EXACT",
+        action: "PAPER_ELIGIBLE",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2702,
+      },
+    );
+    const credential = 'pine-"quoted"\\credential';
+    const raw = pineSerializedEnvelope(credential, payload);
+
+    const observation = await validateObservationEnvelope(
+      parseStrictJson(raw),
+      raw,
+      reviewedHashes,
+    );
+
+    expect(observation.version).toBe("entry-v3");
+    if (observation.version !== "entry-v3") {
+      throw new Error("expected entry-v3 observation");
+    }
+    expect(observation.credential).toBe(credential);
+    expect(observation.entryBundles).toHaveLength(1);
+  });
+
+  it("accepts a causally ordered realtime contact and recross in one child candle", async () => {
+    const setupId = "setup-same-child-flip";
+    const evidence = {
+      ...exactFlipEvidence(),
+      coverage_start_epoch: 2700,
+      contact_candle: {
+        open_epoch: 2700,
+        close_epoch: 2701,
+        open_ticks: 103,
+        high_ticks: 108,
+        low_ticks: 100,
+        close_ticks: 108,
+      },
+      recross_candle: {
+        open_epoch: 2701,
+        close_epoch: 2702,
+        open_ticks: 108,
+        high_ticks: 111,
+        low_ticks: 108,
+        close_ticks: 111,
+      },
+    };
+    const payload = payloadEnvelope(
+      setupId,
+      [flipCandidate(setupId)],
+      [evidence],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:HTF_FLIP"],
+        canonical_candidate_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_evidence_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_model: "HTF_FLIP",
+        reason: "ONLY_EXACT_TRIGGER",
+        fidelity: "EXACT",
+        action: "PAPER_ELIGIBLE",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2702,
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+
+    expect(parsed.entryBundles[0]!.evaluation.selection.canonical_model).toBe(
+      "HTF_FLIP",
+    );
+    expect(parsed.entryBundles[0]!.evidence[0]).toMatchObject({
+      fidelity: "EXACT",
+      full_lifecycle_ordered: true,
+      coverage_gap_detected: false,
+    });
+  });
+
+  it("rejects an exact same-atomic-tick flip transcript", async () => {
+    const setupId = "setup-same-tick-flip";
+    const evidence = {
+      ...exactFlipEvidence(),
+      contact_candle: {
+        open_epoch: 2701,
+        close_epoch: 2702,
+        open_ticks: 103,
+        high_ticks: 111,
+        low_ticks: 100,
+        close_ticks: 111,
+      },
+      recross_candle: {
+        open_epoch: 2702,
+        close_epoch: 2702,
+        open_ticks: 111,
+        high_ticks: 111,
+        low_ticks: 111,
+        close_ticks: 111,
+      },
+    };
+    const payload = payloadEnvelope(
+      setupId,
+      [flipCandidate(setupId)],
+      [evidence],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:HTF_FLIP"],
+        canonical_candidate_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_evidence_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_model: "HTF_FLIP",
+        reason: "ONLY_EXACT_TRIGGER",
+        fidelity: "EXACT",
+        action: "PAPER_ELIGIBLE",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2702,
+      },
+    );
+
+    await expect(
+      validateEntryV3Payload(strict(payload), reviewedHashes),
+    ).rejects.toThrow();
+  });
+
+  it("rejects exact same-child flip evidence with a coverage gap", async () => {
+    const setupId = "setup-same-child-gap";
+    const evidence = {
+      ...exactFlipEvidence(),
+      coverage_gap_detected: true,
+    };
+    const payload = payloadEnvelope(
+      setupId,
+      [flipCandidate(setupId)],
+      [evidence],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:HTF_FLIP"],
+        canonical_candidate_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_evidence_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_model: "HTF_FLIP",
+        reason: "ONLY_EXACT_TRIGGER",
+        fidelity: "EXACT",
+        action: "PAPER_ELIGIBLE",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2702,
+      },
+    );
+
+    await expect(
+      validateEntryV3Payload(strict(payload), reviewedHashes),
+    ).rejects.toThrow();
+  });
+
   it("aggregates simultaneous 15m/30m BOC and flip facts before selection", async () => {
     const setupId = "setup-independent-boc-flip";
     const payload = payloadEnvelope(

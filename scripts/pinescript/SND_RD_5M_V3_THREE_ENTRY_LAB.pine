@@ -79,7 +79,7 @@ const string SHADOW_AMBIGUOUS_SAME_BAR_ORDER = "SHADOW_AMBIGUOUS_SAME_BAR_ORDER"
 const string SHADOW_AMBIGUOUS_SAME_BAR_ROUTE = "SHADOW_AMBIGUOUS_SAME_BAR_ROUTE"
 const string SHADOW_LIQUIDITY_PRIMARY_REPLACED = "SHADOW_LIQUIDITY_PRIMARY_REPLACED"
 
-maxZones = input.int(120, "Maximum zones", minval = 10, maxval = ENTRY_MAX_ATTEMPTS, group = "Display")
+maxZones = input.int(120, "Visual zone target", minval = 10, maxval = ENTRY_MAX_ATTEMPTS, group = "Display", tooltip = "Soft visual-retention target. Active entry attempts are retained until a genuine terminal event, even when this target is exceeded.")
 projectionBars = input.int(120, "Fresh-zone projection bars", minval = 1, maxval = 500, group = "Display")
 displayMode = input.string(DISPLAY_CLEAN, "View", options = [DISPLAY_CLEAN, DISPLAY_QUALIFIED_ONLY, DISPLAY_SETUPS_ONLY, DISPLAY_RAW_AUDIT], group = "Display")
 premiumVisuals = input.bool(true, "Premium visuals", group = "Display")
@@ -351,6 +351,8 @@ type EntryAttempt
     int htf15ContactHighTicks
     int htf15ContactLowTicks
     int htf15ContactCloseTicks
+    int htf15ContactTickEpoch
+    int htf15ContactTickSequence
     bool htf15CoverageReady
     bool htf15PreviousAtOrInsideOpen
     int htf15LastTickSequence
@@ -370,6 +372,8 @@ type EntryAttempt
     int htf30ContactHighTicks
     int htf30ContactLowTicks
     int htf30ContactCloseTicks
+    int htf30ContactTickEpoch
+    int htf30ContactTickSequence
     bool htf30CoverageReady
     bool htf30PreviousAtOrInsideOpen
     int htf30LastTickSequence
@@ -389,6 +393,8 @@ type EntryAttempt
     int htf60ContactHighTicks
     int htf60ContactLowTicks
     int htf60ContactCloseTicks
+    int htf60ContactTickEpoch
+    int htf60ContactTickSequence
     bool htf60CoverageReady
     bool htf60PreviousAtOrInsideOpen
     int htf60LastTickSequence
@@ -1265,10 +1271,16 @@ jsonEscape(string value) =>
     string escaped = str.replace_all(value, "\\", "\\\\")
     escaped := str.replace_all(escaped, "\"", "\\\"")
     escaped := str.replace_all(escaped, "\n", "\\n")
+    escaped := str.replace_all(escaped, "\t", "\\t")
     escaped
 
 jsonString(string value) =>
     "\"" + jsonEscape(value) + "\""
+
+entryCredentialSafe() =>
+    int credentialLength = str.length(entryV3Credential)
+    string allowed = str.match(entryV3Credential, "^[A-Za-z0-9._~+/=:-]+$")
+    credentialLength > 0 and credentialLength <= 1024 and allowed == entryV3Credential
 
 setupExportRuleCatalogItem(string ruleId, string fidelity) =>
     "{" +
@@ -1606,6 +1618,7 @@ varip EntryAttempt[] entryAttempts = array.new<EntryAttempt>()
 varip int[] entrySequenceState = array.new<int>(1, 0)
 varip int entryProducerStartedAt = timenow
 varip int tickSequence = 0
+varip bool entryRetentionBlocked = false
 var string entryProducerInstanceId = "pine-v3:" + str.tostring(entryProducerStartedAt)
 
 currentEntrySequence() =>
@@ -1778,6 +1791,8 @@ newEntryAttempt(RawZone zone) =>
     attempt.htf15ContactHighTicks := na
     attempt.htf15ContactLowTicks := na
     attempt.htf15ContactCloseTicks := na
+    attempt.htf15ContactTickEpoch := na
+    attempt.htf15ContactTickSequence := na
     attempt.htf15CoverageReady := false
     attempt.htf15PreviousAtOrInsideOpen := false
     attempt.htf15LastTickSequence := na
@@ -1797,6 +1812,8 @@ newEntryAttempt(RawZone zone) =>
     attempt.htf30ContactHighTicks := na
     attempt.htf30ContactLowTicks := na
     attempt.htf30ContactCloseTicks := na
+    attempt.htf30ContactTickEpoch := na
+    attempt.htf30ContactTickSequence := na
     attempt.htf30CoverageReady := false
     attempt.htf30PreviousAtOrInsideOpen := false
     attempt.htf30LastTickSequence := na
@@ -1816,6 +1833,8 @@ newEntryAttempt(RawZone zone) =>
     attempt.htf60ContactHighTicks := na
     attempt.htf60ContactLowTicks := na
     attempt.htf60ContactCloseTicks := na
+    attempt.htf60ContactTickEpoch := na
+    attempt.htf60ContactTickSequence := na
     attempt.htf60CoverageReady := false
     attempt.htf60PreviousAtOrInsideOpen := false
     attempt.htf60LastTickSequence := na
@@ -2219,18 +2238,21 @@ entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool histori
 
 emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitEvents, bool historicalAmbiguousExit) =>
     bool emitted = false
-    if emitEntryV3Events and str.length(entryV3Credential) > 0
+    if emitEntryV3Events and entryCredentialSafe()
         string payload = entryPayload(attempt, zone, exitEvents, historicalAmbiguousExit)
-        if str.length(payload) >= ENTRY_MAX_PAYLOAD_CHARS
-            log.error("ENTRY_V3_PAYLOAD_TOO_LARGE")
+        string envelope = "{\"credential\":" + jsonString(entryV3Credential) + ",\"payload\":" + payload + "}"
+        if str.length(envelope) >= ENTRY_MAX_PAYLOAD_CHARS
+            log.error("ENTRY_V3_ENVELOPE_TOO_LARGE")
         else
-            // The alert message is the exact schema-3 payload. Configure the
-            // credential in the webhook URL/edge secret, never in this JSON.
+            // The Worker authenticates and validates this complete strict
+            // {credential,payload} observation envelope.
             if intrabar
-                alert(payload, alert.freq_all)
+                alert(envelope, alert.freq_all)
             else
-                alert(payload, alert.freq_once_per_bar_close)
+                alert(envelope, alert.freq_once_per_bar_close)
             emitted := true
+    else if emitEntryV3Events and str.length(entryV3Credential) > 0
+        log.error("ENTRY_V3_CREDENTIAL_UNSAFE")
     emitted
 
 recordDirectionalClose(EntryAttempt attempt, RawZone zone) =>
@@ -2320,30 +2342,39 @@ recordBoc(EntryAttempt attempt, RawZone zone, bool allowNewObservation) =>
     bocTriggered
 
 captureFlipContact(EntryAttempt attempt, int contextMinutes) =>
+    int contactEpoch = barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time)
+    int contactCloseEpoch = barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)
+    int contactTicks = priceTicks(close)
     if contextMinutes == 15
         attempt.htf15ContactSeen := true
-        attempt.htf15ContactOpenEpoch := epochSeconds(time)
-        attempt.htf15ContactCloseEpoch := epochSeconds(time_close)
-        attempt.htf15ContactOpenTicks := priceTicks(open)
-        attempt.htf15ContactHighTicks := priceTicks(high)
-        attempt.htf15ContactLowTicks := priceTicks(low)
-        attempt.htf15ContactCloseTicks := priceTicks(close)
+        attempt.htf15ContactOpenEpoch := contactEpoch
+        attempt.htf15ContactCloseEpoch := contactCloseEpoch
+        attempt.htf15ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
+        attempt.htf15ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
+        attempt.htf15ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
+        attempt.htf15ContactCloseTicks := contactTicks
+        attempt.htf15ContactTickEpoch := epochSeconds(timenow)
+        attempt.htf15ContactTickSequence := tickSequence
     else if contextMinutes == 30
         attempt.htf30ContactSeen := true
-        attempt.htf30ContactOpenEpoch := epochSeconds(time)
-        attempt.htf30ContactCloseEpoch := epochSeconds(time_close)
-        attempt.htf30ContactOpenTicks := priceTicks(open)
-        attempt.htf30ContactHighTicks := priceTicks(high)
-        attempt.htf30ContactLowTicks := priceTicks(low)
-        attempt.htf30ContactCloseTicks := priceTicks(close)
+        attempt.htf30ContactOpenEpoch := contactEpoch
+        attempt.htf30ContactCloseEpoch := contactCloseEpoch
+        attempt.htf30ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
+        attempt.htf30ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
+        attempt.htf30ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
+        attempt.htf30ContactCloseTicks := contactTicks
+        attempt.htf30ContactTickEpoch := epochSeconds(timenow)
+        attempt.htf30ContactTickSequence := tickSequence
     else
         attempt.htf60ContactSeen := true
-        attempt.htf60ContactOpenEpoch := epochSeconds(time)
-        attempt.htf60ContactCloseEpoch := epochSeconds(time_close)
-        attempt.htf60ContactOpenTicks := priceTicks(open)
-        attempt.htf60ContactHighTicks := priceTicks(high)
-        attempt.htf60ContactLowTicks := priceTicks(low)
-        attempt.htf60ContactCloseTicks := priceTicks(close)
+        attempt.htf60ContactOpenEpoch := contactEpoch
+        attempt.htf60ContactCloseEpoch := contactCloseEpoch
+        attempt.htf60ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
+        attempt.htf60ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
+        attempt.htf60ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
+        attempt.htf60ContactCloseTicks := contactTicks
+        attempt.htf60ContactTickEpoch := epochSeconds(timenow)
+        attempt.htf60ContactTickSequence := tickSequence
     true
 
 updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
@@ -2366,6 +2397,8 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
     int contactHighTicks = contextMinutes == 15 ? attempt.htf15ContactHighTicks : contextMinutes == 30 ? attempt.htf30ContactHighTicks : attempt.htf60ContactHighTicks
     int contactLowTicks = contextMinutes == 15 ? attempt.htf15ContactLowTicks : contextMinutes == 30 ? attempt.htf30ContactLowTicks : attempt.htf60ContactLowTicks
     int contactCloseTicks = contextMinutes == 15 ? attempt.htf15ContactCloseTicks : contextMinutes == 30 ? attempt.htf30ContactCloseTicks : attempt.htf60ContactCloseTicks
+    int contactTickEpoch = contextMinutes == 15 ? attempt.htf15ContactTickEpoch : contextMinutes == 30 ? attempt.htf30ContactTickEpoch : attempt.htf60ContactTickEpoch
+    int contactTickSequence = contextMinutes == 15 ? attempt.htf15ContactTickSequence : contextMinutes == 30 ? attempt.htf30ContactTickSequence : attempt.htf60ContactTickSequence
     bool coverageReady = contextMinutes == 15 ? attempt.htf15CoverageReady : contextMinutes == 30 ? attempt.htf30CoverageReady : attempt.htf60CoverageReady
     bool previousAtOrInsideOpen = contextMinutes == 15 ? attempt.htf15PreviousAtOrInsideOpen : contextMinutes == 30 ? attempt.htf30PreviousAtOrInsideOpen : attempt.htf60PreviousAtOrInsideOpen
     int lastTickSequence = contextMinutes == 15 ? attempt.htf15LastTickSequence : contextMinutes == 30 ? attempt.htf30LastTickSequence : attempt.htf60LastTickSequence
@@ -2396,6 +2429,8 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
             attempt.htf15ContactHighTicks := na
             attempt.htf15ContactLowTicks := na
             attempt.htf15ContactCloseTicks := na
+            attempt.htf15ContactTickEpoch := na
+            attempt.htf15ContactTickSequence := na
             attempt.htf15CoverageReady := false
             attempt.htf15PreviousAtOrInsideOpen := false
             attempt.htf15LastTickSequence := na
@@ -2414,6 +2449,8 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
             attempt.htf30ContactHighTicks := na
             attempt.htf30ContactLowTicks := na
             attempt.htf30ContactCloseTicks := na
+            attempt.htf30ContactTickEpoch := na
+            attempt.htf30ContactTickSequence := na
             attempt.htf30CoverageReady := false
             attempt.htf30PreviousAtOrInsideOpen := false
             attempt.htf30LastTickSequence := na
@@ -2432,6 +2469,8 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
             attempt.htf60ContactHighTicks := na
             attempt.htf60ContactLowTicks := na
             attempt.htf60ContactCloseTicks := na
+            attempt.htf60ContactTickEpoch := na
+            attempt.htf60ContactTickSequence := na
             attempt.htf60CoverageReady := false
             attempt.htf60PreviousAtOrInsideOpen := false
             attempt.htf60LastTickSequence := na
@@ -2445,9 +2484,13 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
         contactHighTicks := na
         contactLowTicks := na
         contactCloseTicks := na
+        contactTickEpoch := na
+        contactTickSequence := na
     bool activeContext = not na(anchorEpoch) and barEpoch < anchorEpoch + boundarySeconds
     bool zoneContact = activeContext and (barstate.isrealtime ? close <= zone.top and close >= zone.bottom : low <= zone.top and high >= zone.bottom)
     bool destinationSeen = activeContext and (attempt.demand ? (barstate.isrealtime ? close > openTicks * syminfo.mintick : high > openTicks * syminfo.mintick) : (barstate.isrealtime ? close < openTicks * syminfo.mintick : low < openTicks * syminfo.mintick))
+    bool continuousCoverage = coverageReady and lastTickSequence + 1 == tickSequence
+    int nowEpoch = entryClockEpoch()
     bool contactWasSeen = contactSeen
     if activeContext and not contactSeen and destinationSeen
         destinationBeforeContact := true
@@ -2460,14 +2503,52 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
     if activeContext and zoneContact and not contactSeen
         captureFlipContact(attempt, contextMinutes)
         contactSeen := true
-        contactOpenEpoch := barEpoch
-        contactCloseEpoch := epochSeconds(time_close)
-        contactOpenTicks := priceTicks(open)
-        contactHighTicks := priceTicks(high)
-        contactLowTicks := priceTicks(low)
+        contactOpenEpoch := barstate.isrealtime ? epochSeconds(timenow) : barEpoch
+        contactCloseEpoch := barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)
+        contactOpenTicks := barstate.isrealtime ? priceTicks(close) : priceTicks(open)
+        contactHighTicks := barstate.isrealtime ? priceTicks(close) : priceTicks(high)
+        contactLowTicks := barstate.isrealtime ? priceTicks(close) : priceTicks(low)
         contactCloseTicks := priceTicks(close)
-    bool contactAlreadyRecrossed = contactSeen and contactOpenEpoch == barEpoch and destinationSeen
-    if contactAlreadyRecrossed
+        contactTickEpoch := epochSeconds(timenow)
+        contactTickSequence := tickSequence
+        bool contactCoverageContinuous = barstate.isrealtime and continuousCoverage and not na(lastTickEpoch) and lastTickEpoch < nowEpoch
+        if contactCoverageContinuous
+            contactOpenEpoch := lastTickEpoch
+            contactCloseEpoch := nowEpoch
+            contactOpenTicks := previousTickTicks
+            contactHighTicks := math.max(previousTickTicks, priceTicks(close))
+            contactLowTicks := math.min(previousTickTicks, priceTicks(close))
+            if contextMinutes == 15
+                attempt.htf15ContactOpenEpoch := contactOpenEpoch
+                attempt.htf15ContactCloseEpoch := contactCloseEpoch
+                attempt.htf15ContactOpenTicks := contactOpenTicks
+                attempt.htf15ContactHighTicks := contactHighTicks
+                attempt.htf15ContactLowTicks := contactLowTicks
+            else if contextMinutes == 30
+                attempt.htf30ContactOpenEpoch := contactOpenEpoch
+                attempt.htf30ContactCloseEpoch := contactCloseEpoch
+                attempt.htf30ContactOpenTicks := contactOpenTicks
+                attempt.htf30ContactHighTicks := contactHighTicks
+                attempt.htf30ContactLowTicks := contactLowTicks
+            else
+                attempt.htf60ContactOpenEpoch := contactOpenEpoch
+                attempt.htf60ContactCloseEpoch := contactCloseEpoch
+                attempt.htf60ContactOpenTicks := contactOpenTicks
+                attempt.htf60ContactHighTicks := contactHighTicks
+                attempt.htf60ContactLowTicks := contactLowTicks
+        else if barstate.isrealtime
+            coverageGapDetected := true
+            if contextMinutes == 15
+                attempt.htf15CoverageGapDetected := true
+            else if contextMinutes == 30
+                attempt.htf30CoverageGapDetected := true
+            else
+                attempt.htf60CoverageGapDetected := true
+    bool laterThanContact = not na(contactTickEpoch) and not na(contactTickSequence) and tickSequence > contactTickSequence and nowEpoch > contactTickEpoch
+    bool currentAtOrInsideOpen = attempt.demand ? close <= openTicks * syminfo.mintick : close >= openTicks * syminfo.mintick
+    bool sameChildExactRecross = barstate.isrealtime and contactSeen and contactTickEpoch >= barEpoch and contactTickEpoch < epochSeconds(time_close) and laterThanContact and continuousCoverage and not coverageGapDetected and previousAtOrInsideOpen and destinationSeen
+    bool sameAtomicContactAndDestination = barstate.isrealtime and contactSeen and destinationSeen and not laterThanContact
+    if sameAtomicContactAndDestination
         destinationBeforeContact := true
         if contextMinutes == 15
             attempt.htf15DestinationBeforeContact := true
@@ -2475,28 +2556,30 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
             attempt.htf30DestinationBeforeContact := true
         else
             attempt.htf60DestinationBeforeContact := true
-    if contactSeen and contactOpenEpoch == barEpoch
-        contactHighTicks := priceTicks(high)
-        contactLowTicks := priceTicks(low)
+    if contactSeen and barstate.isrealtime and not sameChildExactRecross and laterThanContact
+        contactHighTicks := math.max(contactHighTicks, priceTicks(close))
+        contactLowTicks := math.min(contactLowTicks, priceTicks(close))
         contactCloseTicks := priceTicks(close)
+        contactCloseEpoch := nowEpoch
         if contextMinutes == 15
             attempt.htf15ContactHighTicks := contactHighTicks
             attempt.htf15ContactLowTicks := contactLowTicks
             attempt.htf15ContactCloseTicks := contactCloseTicks
+            attempt.htf15ContactCloseEpoch := contactCloseEpoch
         else if contextMinutes == 30
             attempt.htf30ContactHighTicks := contactHighTicks
             attempt.htf30ContactLowTicks := contactLowTicks
             attempt.htf30ContactCloseTicks := contactCloseTicks
+            attempt.htf30ContactCloseEpoch := contactCloseEpoch
         else
             attempt.htf60ContactHighTicks := contactHighTicks
             attempt.htf60ContactLowTicks := contactLowTicks
             attempt.htf60ContactCloseTicks := contactCloseTicks
+            attempt.htf60ContactCloseEpoch := contactCloseEpoch
     bool contactCandleComplete = contactWasSeen and barEpoch >= contactCloseEpoch
-    bool continuousCoverage = coverageReady and lastTickSequence + 1 == tickSequence
-    bool currentAtOrInsideOpen = attempt.demand ? close <= openTicks * syminfo.mintick : close >= openTicks * syminfo.mintick
     bool exactFirstRecross = barstate.isrealtime and continuousCoverage and previousAtOrInsideOpen and destinationSeen
     bool historicalRecross = not barstate.isrealtime and activeContext and contactCandleComplete and not destinationBeforeContact and destinationSeen
-    bool flipTriggered = not attempt.flipEmitted and contactCandleComplete and not destinationBeforeContact and (exactFirstRecross or historicalRecross)
+    bool flipTriggered = not attempt.flipEmitted and (contactCandleComplete or sameChildExactRecross) and not destinationBeforeContact and (exactFirstRecross or historicalRecross)
     if flipTriggered
         bool epochAdvanced = not na(lastTickEpoch) and epochSeconds(timenow) > lastTickEpoch
         bool triggerExact = exactFirstRecross and epochAdvanced and not coverageGapDetected
@@ -2679,20 +2762,6 @@ zoneHasActiveAttempt(int zoneId) =>
         EntryAttempt attempt = array.get(entryAttempts, attemptIndex)
         protectedAttempt := not attempt.exitTerminal
     protectedAttempt
-
-retireOldestNonEconomicAttempt(array<EntryAttempt> attempts) =>
-    bool retired = false
-    int attemptIndex = 0
-    while attemptIndex < array.size(attempts) and not retired
-        EntryAttempt attempt = array.get(attempts, attemptIndex)
-        if not attempt.exitTerminal and not attempt.paperDecisionEmitted
-            attempt.retentionBlocked := true
-            attempt.exitTerminal := true
-            array.set(attempts, attemptIndex, attempt)
-            log.warning("ENTRY_ATTEMPT_RETIRED_AT_CAP:" + attempt.setupId)
-            retired := true
-        attemptIndex += 1
-    retired
 
 evictOldestUnprotectedZone(array<RawZone> zoneItems, array<EntryAttempt> attempts) =>
     bool removed = false
@@ -2897,14 +2966,13 @@ if barstate.isconfirmed and isFiveMinute and validationReady
             applyPendingLiquidityReplacement(replacementZone)
             array.set(zones, replacementZoneIndex, replacementZone)
 
+    entryRetentionBlocked := false
     while array.size(zones) > maxZones
         bool evicted = evictOldestUnprotectedZone(zones, entryAttempts)
         if not evicted
-            bool retired = retireOldestNonEconomicAttempt(entryAttempts)
-            if retired
-                evicted := evictOldestUnprotectedZone(zones, entryAttempts)
-            if not evicted
-                runtime.error("ENTRY_ATTEMPT_HARD_CAP_INVARIANT")
+            entryRetentionBlocked := true
+            log.warning("ENTRY_VISUAL_RETENTION_BLOCKED_BY_ACTIVE_ATTEMPTS")
+            break
     if array.size(entryAttempts) > ENTRY_MAX_ATTEMPTS
         runtime.error("ENTRY_ATTEMPT_HARD_CAP_INVARIANT")
 

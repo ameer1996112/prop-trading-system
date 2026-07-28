@@ -45,12 +45,27 @@ event may co-trigger BOC and flip; both candidates are retained, the decision is
 OHLC range. Confirmed-five-minute evidence can authorize `DIR_CLOSE`, but cannot prove an
 intrabar BOC or flip ordering.
 
+A realtime flip contact and recross may occur in the same five-minute child only when retained
+contact epoch/sequence facts prove that the recross came from a strictly later, continuously
+observed tick. The same atomic tick, a sequence gap, historical OHLC, or an unrepresentable
+same-second ordering cannot fabricate `EXACT` evidence.
+
 ## Decision freeze and paper boundary
 
 One initial setup attempt creates at most one paper intent. After a paper decision opens, the
 economic selection is immutable. Later candidates remain visible as
 `NOT_SELECTED_ALREADY_OPEN`; they cannot replace the opened decision. Re-entry is not authorized
 by the current wire contract.
+
+The bounded decision read model returns only the latest revision for each
+`(setup_id, attempt_kind)` while retaining every raw revision in append-only storage. A latest
+`NOT_SELECTED_ALREADY_OPEN` revision separately exposes the immutable opened economic selection
+and its paper-intent link; it is not presented as a newly selected trade.
+
+The Pine visual zone target never terminalizes an engaged attempt. Active attempts, including
+discretionary shadow observations and models still waiting for later evidence, remain in bounded
+lifecycle state until genuine invalidation or exit. If active attempts prevent visual trimming,
+the producer exposes a retention-blocked diagnostic and refuses new attempt state at the hard cap.
 
 Paper eligibility also requires a configured immutable PAPER_ONLY account, risk in the contract
 range, and reviewed nonzero detector/settings SHA-256 values that match the edge configuration.

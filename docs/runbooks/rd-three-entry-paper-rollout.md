@@ -175,13 +175,20 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
 2. Add `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` to Pine Editor.
 3. Save, compile, and add it to the chart.
 4. Enter the dedicated contract-v3 ingress credential only in
-   **Contract-v3 ingress credential**.
+   **Contract-v3 ingress credential**. Use the approved printable token format
+   (`A-Z`, `a-z`, `0-9`, `.`, `_`, `~`, `+`, `/`, `=`, `:`, or `-`); Pine fails closed on any
+   other credential character.
 5. Enter the reviewed detector/settings digests from step 3.
 6. Keep diagnostics and legacy setup export disabled.
 7. Keep **Emit contract-v3 entry events** disabled until the signed DIR_CLOSE and replay gate in
    step 7 passes.
 8. Create one alert with condition **Any alert() function call**, the stable v3 observation webhook,
    and no separately composed message body.
+
+Every `alert()` call automatically serializes the exact outer
+`{"credential":...,"payload":...}` Worker envelope. Do not paste a message template into the
+TradingView alert dialog. The 35,000-character producer limit applies to that complete envelope,
+including the safely serialized credential, and an oversized envelope is not sent.
 
 TradingView stores a snapshot of the script and inputs in the alert. Recreate the alert after any
 source or setting change. Pine compile, add-to-chart, and live-tick behavior are manual release
@@ -208,7 +215,9 @@ fields, and resulting row IDs:
    decision and exactly one intent, with no additional intent.
 4. Send a strict `HTF_TIMED` BOC payload. Expect canonical model `BOC` and at most one paper intent
    for that setup.
-5. Send an exact flip payload. Expect canonical model `HTF_FLIP`.
+5. Send an exact flip payload. Expect canonical model `HTF_FLIP`. Also prove a contact followed by
+   a continuously observed, strictly later tick recross in the same five-minute child is exact. A
+   same-atomic-tick contact/recross or any sequence gap must remain blocked/non-exact.
 6. Send an atomic BOC/flip payload. Expect `CO_TRIGGER_SAME_EVENT`, both candidate identities, one
    entry price, and one paper intent.
 7. Send a `DISCRETIONARY_5M` BOC payload. Expect `SHADOW_ONLY`,

@@ -294,12 +294,14 @@ def test_pine_v3_emits_authoritative_bounded_event_bundles() -> None:
     ):
         assert f'\\"{key}\\"' in pine
     assert "const int ENTRY_MAX_PAYLOAD_CHARS = 35000" in pine
-    assert "str.length(payload) >= ENTRY_MAX_PAYLOAD_CHARS" in pine
-    assert "ENTRY_V3_PAYLOAD_TOO_LARGE" in pine
+    assert 'string envelope = "{\\"credential\\":" + jsonString(entryV3Credential)' in pine
+    assert '",\\"payload\\":" + payload + "}"' in pine
+    assert "str.length(envelope) >= ENTRY_MAX_PAYLOAD_CHARS" in pine
+    assert "ENTRY_V3_ENVELOPE_TOO_LARGE" in pine
     assert "nextEntrySequence()" in pine
     assert "array.set(entrySequenceState, 0, nextSequence)" in pine
-    assert "alert(payload, alert.freq_all)" in pine
-    assert "alert(payload, alert.freq_once_per_bar_close)" in pine
+    assert "alert(envelope, alert.freq_all)" in pine
+    assert "alert(envelope, alert.freq_once_per_bar_close)" in pine
 
 
 def test_pine_v3_delegates_closed_identity_derivation_to_the_edge() -> None:
@@ -347,12 +349,36 @@ def test_pine_v3_freezes_setup_facts_and_protects_open_attempts_from_eviction() 
     )
     assert "zoneHasActiveAttempt(oldest.id)" in pine
     assert "protectedAttempt := not attempt.exitTerminal" in pine
-    assert "retireOldestNonEconomicAttempt" in pine
-    assert "not attempt.paperDecisionEmitted" in pine
-    assert '"ENTRY_ATTEMPT_RETIRED_AT_CAP:"' in pine
+    assert "retireOldestNonEconomicAttempt" not in pine
+    assert "attempt.exitTerminal := true" not in section(
+        pine,
+        "evictOldestUnprotectedZone(",
+        "if barstate.isfirst",
+    )
+    assert "entryRetentionBlocked := true" in pine
+    assert '"ENTRY_VISUAL_RETENTION_BLOCKED_BY_ACTIVE_ATTEMPTS"' in pine
+    assert '"ENTRY_ATTEMPT_HARD_CAP_REACHED"' in pine
     assert "const int ENTRY_MAX_ATTEMPTS = 120" in pine
     assert "array.size(entryAttempts) > ENTRY_MAX_ATTEMPTS" in pine
     assert "array.shift(entryAttempts)" not in pine
+
+
+def test_pine_v3_retention_pressure_keeps_waiting_models_observable() -> None:
+    pine = source()
+    retention = section(
+        pine,
+        "while array.size(zones) > maxZones",
+        "if array.size(entryAttempts) > ENTRY_MAX_ATTEMPTS",
+    )
+
+    assert "evictOldestUnprotectedZone(zones, entryAttempts)" in retention
+    assert "retireOldestNonEconomicAttempt" not in retention
+    assert "break" in retention
+    assert "entryRetentionBlocked := true" in retention
+    assert "attempt.bocEmitted" not in retention
+    assert "attempt.closeEmitted" not in retention
+    assert "attempt.flipEmitted" not in retention
+    assert "attempt.exitTerminal" not in retention
 
 
 def test_pine_v3_materializes_engagement_protection_before_zone_trimming() -> None:
@@ -486,8 +512,39 @@ def test_pine_v3_has_only_schema_v3_alert_surface() -> None:
     pine = source()
 
     assert pine.count("alert(") == 2
-    assert pine.count("alert(payload, alert.freq_all)") == 1
-    assert pine.count("alert(payload, alert.freq_once_per_bar_close)") == 1
+    assert pine.count("alert(envelope, alert.freq_all)") == 1
+    assert pine.count("alert(envelope, alert.freq_once_per_bar_close)") == 1
+
+
+def test_pine_v3_same_child_flip_requires_later_continuous_tick() -> None:
+    pine = source()
+    update = section(pine, "updateFlipContext(", "finalizeFlipCandidate(")
+
+    for field in (
+        "int htf15ContactTickEpoch",
+        "int htf15ContactTickSequence",
+        "int htf30ContactTickEpoch",
+        "int htf30ContactTickSequence",
+        "int htf60ContactTickEpoch",
+        "int htf60ContactTickSequence",
+    ):
+        assert field in pine
+    assert "bool laterThanContact =" in update
+    assert "tickSequence > contactTickSequence" in update
+    assert "nowEpoch > contactTickEpoch" in update
+    assert "bool sameChildExactRecross =" in update
+    same_child = re.search(r"bool sameChildExactRecross = (.+)$", update, re.MULTILINE)
+    assert same_child is not None
+    assert "continuousCoverage" in same_child.group(1)
+    assert "not coverageGapDetected" in same_child.group(1)
+    assert "bool sameAtomicContactAndDestination =" in update
+    assert "destinationBeforeContact := true" in update
+    assert "contactCandleComplete or sameChildExactRecross" in update
+    assert "bool contactCoverageContinuous =" in update
+    assert "contactOpenEpoch := lastTickEpoch" in update
+    assert "contactCloseEpoch := nowEpoch" in update
+    assert "contactOpenTicks := previousTickTicks" in update
+    assert "coverageGapDetected := true" in update
 
 
 def test_pine_v3_contains_no_broker_or_live_execution_surface() -> None:

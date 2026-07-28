@@ -76,6 +76,8 @@ co-triggers retain both model identities and create at most one paper intent.
 
 The v2 producer and contract remain available for immutable historical records. The v3 producer
 uses authenticated schema-3.0 event bundles and never contains a broker command. Reviewed
+TradingView **Any alert() function call** automatically sends the complete
+`{credential,payload}` envelope; operators do not compose a separate message template. Reviewed
 detector/settings identity and PAPER_ONLY account/risk configuration are required before the edge
 can create an internal paper intent; missing or inconsistent authority fails closed to audit.
 The reviewed detector and settings hashes are Worker secret bindings, not plaintext
