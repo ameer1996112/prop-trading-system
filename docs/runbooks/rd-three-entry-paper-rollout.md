@@ -20,18 +20,19 @@ Record the reviewed commit and local build artifacts before approval:
 - D1 migrations: `0024_observation_entries_v3.sql` and
   `0025_observation_entry_v3_decision_order.sql`.
 
-The required runtime environment-variable names are listed below without values. Treat digest
-variables as configuration secrets even though they store hashes:
+The required runtime binding names are listed below without values. The four names marked
+**required secret** are declared under `secrets.required` in `wrangler.jsonc`; they must never
+appear under plaintext `vars`:
 
 - `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED`
-- `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256`
+- `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256` (**required secret**)
 - `TRADINGVIEW_OBSERVATION_MAX_BODY_BYTES`
 - `PAPER_LEDGER_ENABLED`
-- `PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256`
+- `PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256` (**required secret**)
 - `RD_ENTRY_PAPER_ACCOUNT_IDS`
 - `RD_ENTRY_PAPER_RISK_BPS`
-- `RD_ENTRY_V3_DETECTOR_CODE_HASH`
-- `RD_ENTRY_V3_SETTINGS_HASH`
+- `RD_ENTRY_V3_DETECTOR_CODE_HASH` (**required secret**)
+- `RD_ENTRY_V3_SETTINGS_HASH` (**required secret**)
 - `NEXT_PUBLIC_API_BASE_URL` (only when the console is built for a different API origin)
 
 Never record a raw ingress or paper-admin credential in Git, shell history, command output, D1, a
@@ -91,10 +92,62 @@ Canonicalize the reviewed profile and compute its SHA-256:
 jq -S -c . /absolute/path/to/reviewed-settings.json | shasum -a 256
 ```
 
-Two reviewers must compare the digests to the exact source and profile. Configure the reviewed
-digests under `RD_ENTRY_V3_DETECTOR_CODE_HASH` and `RD_ENTRY_V3_SETTINGS_HASH`, and paste the same
-digests into Pine's **Reviewed detector SHA-256** and **Reviewed settings SHA-256** inputs.
-Unreviewed or mismatched identities are intentionally retained as blocked audit only.
+Two reviewers must compare the digests to the exact source and profile. Keep the paper kill switch
+engaged and contract-v3 Pine emission disabled throughout binding verification.
+
+Create an owner-only JSON file outside the repository with only the two reviewed secret bindings.
+Do not put either value on a command line or in shell history. The file must have this exact shape,
+with the placeholders replaced locally:
+
+```json
+{
+  "RD_ENTRY_V3_DETECTOR_CODE_HASH": "<reviewed detector digest>",
+  "RD_ENTRY_V3_SETTINGS_HASH": "<reviewed settings digest>"
+}
+```
+
+Immediately before the next command, obtain explicit approval for a remote Worker secret change.
+From `apps/observation-edge`, bulk-bind the reviewed values through standard input:
+
+```sh
+umask 077
+npx wrangler secret bulk < /absolute/owner-only/path/rd-entry-v3-secrets.json
+```
+
+`wrangler secret bulk` mutates the remote Worker and creates a deployment. Do not run it during
+local verification. Remove the owner-only file according to operator policy after the binding is
+confirmed. The reviewed hashes are absent from `vars`, so a later `wrangler deploy` cannot replace
+them with empty plaintext values. The `secrets.required` declaration also makes deployment fail
+closed when a required secret binding is absent.
+
+List the effective binding names:
+
+```sh
+npx wrangler secret list
+```
+
+Confirm that all four required names are present with type `secret_text`:
+
+```text
+TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256
+PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256
+RD_ENTRY_V3_DETECTOR_CODE_HASH
+RD_ENTRY_V3_SETTINGS_HASH
+```
+
+Secret listing does not reveal or prove values. Before Pine emission, send one signed synthetic
+strict `ENTRY_DECISION` payload containing the two reviewed digests while the paper kill switch
+remains engaged. Query its decision row and require all of the following:
+
+- the audit event is accepted;
+- zero paper intents are created;
+- `effective_action_reason` is `PAPER_CONFIGURATION_UNAVAILABLE`; and
+- `effective_action_reason` is not `PROMOTION_IDENTITY_MISMATCH`.
+
+This proves that the effective Worker secret bindings match the reviewed payload without exposing
+their values. Stop if any outcome differs. Only after this check should the same digests be pasted
+into Pine's **Reviewed detector SHA-256** and **Reviewed settings SHA-256** inputs. Unreviewed or
+mismatched identities are intentionally retained as blocked audit only.
 
 ## 4. Deploy the edge and console
 
@@ -134,7 +187,8 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
    **Contract-v3 ingress credential**.
 5. Enter the reviewed detector/settings digests from step 3.
 6. Keep diagnostics and legacy setup export disabled.
-7. Enable **Emit contract-v3 entry events** only after the edge, D1, and paper account checks pass.
+7. Enable **Emit contract-v3 entry events** only after the effective secret-binding, edge, D1, and
+   paper account checks pass.
 8. Create one alert with condition **Any alert() function call**, the stable v3 observation webhook,
    and no separately composed message body.
 

@@ -14,13 +14,28 @@ RUNTIME_ROOTS = (
     Path("apps/operations-console/src"),
 )
 V3_CONTRACT_PATH = Path("config/phase0/rd-strategy-rule-contract-v3.json")
+WRANGLER_CONFIG_PATH = Path("apps/observation-edge/wrangler.jsonc")
+CONFIGURATION_FILES = (
+    Path(".env.example"),
+    Path("compose.yaml"),
+    WRANGLER_CONFIG_PATH,
+)
+REQUIRED_REVIEWED_HASH_SECRETS = frozenset(
+    {
+        "RD_ENTRY_V3_DETECTOR_CODE_HASH",
+        "RD_ENTRY_V3_SETTINGS_HASH",
+    }
+)
 FORBIDDEN_IDENTIFIERS = (
     "place" + "_order",
+    "broker" + "_secret",
     "create" + "_market_order",
     "modify" + "_position",
     "close" + "_position",
     "cancel" + "_order",
     "execute" + "_trade",
+    "live" + "_order",
+    "metatrader" + "_login",
     "trade" + "_request",
     "met" + "aapi_cloud_sdk",
 )
@@ -49,6 +64,32 @@ def check(root: Path) -> None:
             if automation_policy.get("real_execution_allowed") is not False:
                 failures.append(f"{contract_path}: v3 real_execution_allowed must be false")
 
+    wrangler_path = root / WRANGLER_CONFIG_PATH
+    if not wrangler_path.is_file():
+        failures.append(f"{wrangler_path}: deployed Worker configuration is missing")
+    else:
+        try:
+            wrangler = json.loads(wrangler_path.read_text(encoding="utf-8"))
+            variables = wrangler["vars"]
+            required_secrets = wrangler["secrets"]["required"]
+            if not isinstance(variables, dict) or not isinstance(required_secrets, list):
+                raise TypeError("vars and secrets.required must have closed JSON shapes")
+        except (json.JSONDecodeError, KeyError, TypeError) as error:
+            failures.append(f"{wrangler_path}: invalid Worker safety configuration: {error}")
+        else:
+            overridden_hashes = REQUIRED_REVIEWED_HASH_SECRETS.intersection(variables)
+            if overridden_hashes:
+                failures.append(
+                    f"{wrangler_path}: reviewed hashes must not be plaintext vars: "
+                    + ", ".join(sorted(overridden_hashes))
+                )
+            missing_hashes = REQUIRED_REVIEWED_HASH_SECRETS.difference(required_secrets)
+            if missing_hashes:
+                failures.append(
+                    f"{wrangler_path}: reviewed hashes must be required secrets: "
+                    + ", ".join(sorted(missing_hashes))
+                )
+
     for relative_root in RUNTIME_ROOTS:
         runtime_root = root / relative_root
         if not runtime_root.exists():
@@ -62,8 +103,8 @@ def check(root: Path) -> None:
                 for identifier in FORBIDDEN_IDENTIFIERS
                 if re.search(rf"\b{re.escape(identifier.lower())}\b", content)
             )
-    configuration_files = [root / ".env.example", root / "compose.yaml"]
-    for path in configuration_files:
+    for relative_path in CONFIGURATION_FILES:
+        path = root / relative_path
         if not path.exists():
             continue
         content = path.read_text(encoding="utf-8")

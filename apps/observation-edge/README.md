@@ -8,8 +8,10 @@ operations console. It has no broker, account, order, or trade-execution route.
 
 - Ingress is disabled unless `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED` is exactly
   `true` and the credential digest secret is a lowercase SHA-256 value.
-- `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256` must be configured with
-  `wrangler secret put`; it is intentionally absent from `wrangler.jsonc`.
+- The ingress digest, paper-admin digest, reviewed detector digest, and reviewed
+  settings digest are required Worker secrets. `wrangler.jsonc` declares their
+  names under `secrets.required` and never supplies plaintext or empty values
+  under `vars`.
 - Request bodies are bounded before JSON parsing.
 - JSON duplicate keys, invalid UTF-8, non-finite values, unsafe integers,
   unexpected fields, corrupt identifiers, invalid market geometry, and
@@ -45,14 +47,24 @@ npx wrangler d1 create prop-trading-observations
 npm run db:migrate:remote
 ```
 
-Hash a newly generated TradingView credential locally and store only the digest
-as the Worker secret:
+Hash newly generated ingress and paper-admin credentials locally. Configure
+their digests and the two reviewed contract-v3 identity digests as Worker
+secrets. Use an owner-only JSON file outside the repository and pass it only
+through standard input:
 
 ```sh
-npx wrangler secret put TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256
+npx wrangler secret bulk < /absolute/owner-only/path/worker-secrets.json
+npx wrangler secret list
 ```
 
-After the secret and database binding exist, set
+This remote mutation requires explicit operator approval and creates a Worker
+deployment. The list must contain all four names declared in
+`secrets.required`; it never reveals their values. Follow the effective
+reviewed-hash verification sequence in
+[`docs/runbooks/rd-three-entry-paper-rollout.md`](../../docs/runbooks/rd-three-entry-paper-rollout.md)
+before enabling contract-v3 Pine emission.
+
+After the secrets and database binding exist, set
 `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED` to `true`, export the operations
 console into `../operations-console/out`, and run `npm run deploy`. The
 `workers_dev` hostname is stable because preview URLs are disabled.

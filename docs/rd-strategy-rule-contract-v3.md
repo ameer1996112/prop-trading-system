@@ -73,4 +73,3 @@ Run `make verify-observation` to check the contract, generated schema and vector
 parity, persistence, console, boundary scan, and build artifacts. The paper-only deployment and
 rollback procedure is
 [`docs/runbooks/rd-three-entry-paper-rollout.md`](runbooks/rd-three-entry-paper-rollout.md).
-

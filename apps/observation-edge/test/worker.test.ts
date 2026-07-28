@@ -3658,6 +3658,7 @@ describe("deployment contract", () => {
     const assets = config.assets as Record<string, unknown>;
     const databases = config.d1_databases as Record<string, unknown>[];
     const variables = config.vars as Record<string, unknown>;
+    const secrets = config.secrets as { readonly required: readonly string[] };
 
     expect(config.compatibility_date).toBe("2026-07-23");
     expect(config.workers_dev).toBe(true);
@@ -3667,6 +3668,14 @@ describe("deployment contract", () => {
     expect(databases[0]?.binding).toBe("DB");
     expect(variables).not.toHaveProperty(
       "TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256",
+    );
+    expect(variables).not.toHaveProperty("RD_ENTRY_V3_DETECTOR_CODE_HASH");
+    expect(variables).not.toHaveProperty("RD_ENTRY_V3_SETTINGS_HASH");
+    expect(secrets.required).toEqual(
+      expect.arrayContaining([
+        "RD_ENTRY_V3_DETECTOR_CODE_HASH",
+        "RD_ENTRY_V3_SETTINGS_HASH",
+      ]),
     );
   });
 

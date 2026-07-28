@@ -4,7 +4,13 @@ import ast
 import json
 from pathlib import Path
 
-from scripts.static_boundary_check import RUNTIME_ROOTS
+import pytest
+from scripts.static_boundary_check import (
+    CONFIGURATION_FILES,
+    FORBIDDEN_IDENTIFIERS,
+    RUNTIME_ROOTS,
+    check,
+)
 
 from prop_trading.config import Settings
 
@@ -58,18 +64,124 @@ def test_contract_v3_has_no_live_execution_surface() -> None:
 
 
 def test_v3_files_do_not_contain_broker_actions() -> None:
-    forbidden = {
+    assert {
         "place_order",
         "broker_secret",
         "metatrader_login",
         "live_order",
-    }
-    source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in Path("apps/observation-edge/src").glob("*v3.ts")
-    ).lower()
-    assert forbidden.isdisjoint(source.split())
+    }.issubset(FORBIDDEN_IDENTIFIERS)
 
 
 def test_global_boundary_checker_covers_v3_edge_runtime() -> None:
     assert Path("apps/observation-edge/src") in RUNTIME_ROOTS
+    assert Path("apps/observation-edge/wrangler.jsonc") in CONFIGURATION_FILES
+
+
+def _write_boundary_fixture(root: Path, runtime_source: str, wrangler: dict[str, object]) -> None:
+    contract = root / "config/phase0/rd-strategy-rule-contract-v3.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text(
+        json.dumps(
+            {
+                "automation_policy": {
+                    "paper_only": True,
+                    "real_execution_allowed": False,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    source = root / "apps/observation-edge/src/fixture-v3.ts"
+    source.parent.mkdir(parents=True)
+    source.write_text(runtime_source, encoding="utf-8")
+    wrangler_path = root / "apps/observation-edge/wrangler.jsonc"
+    wrangler_path.write_text(json.dumps(wrangler), encoding="utf-8")
+
+
+def test_boundary_scanner_rejects_forbidden_identifiers_with_punctuation(
+    tmp_path: Path,
+) -> None:
+    _write_boundary_fixture(
+        tmp_path,
+        "live_order(); broker_secret, metatrader_login;",
+        {
+            "vars": {},
+            "secrets": {
+                "required": [
+                    "RD_ENTRY_V3_DETECTOR_CODE_HASH",
+                    "RD_ENTRY_V3_SETTINGS_HASH",
+                ]
+            },
+        },
+    )
+
+    with pytest.raises(SystemExit) as failure:
+        check(tmp_path)
+
+    message = str(failure.value)
+    for identifier in ("live_order", "broker_secret", "metatrader_login"):
+        assert identifier in message
+
+
+def test_boundary_scanner_checks_deployed_wrangler_configuration(tmp_path: Path) -> None:
+    _write_boundary_fixture(
+        tmp_path,
+        "const executionMode = 'PAPER_ONLY';",
+        {
+            "vars": {"LIVE_ACCOUNT": "forbidden"},
+            "secrets": {
+                "required": [
+                    "RD_ENTRY_V3_DETECTOR_CODE_HASH",
+                    "RD_ENTRY_V3_SETTINGS_HASH",
+                ]
+            },
+        },
+    )
+
+    with pytest.raises(SystemExit, match="LIVE_ACCOUNT"):
+        check(tmp_path)
+
+
+def test_boundary_scanner_does_not_flag_paper_or_no_live_prose(tmp_path: Path) -> None:
+    _write_boundary_fixture(
+        tmp_path,
+        "// Paper-only accounting has no live order or broker login surface.",
+        {
+            "vars": {},
+            "secrets": {
+                "required": [
+                    "RD_ENTRY_V3_DETECTOR_CODE_HASH",
+                    "RD_ENTRY_V3_SETTINGS_HASH",
+                ]
+            },
+        },
+    )
+
+    check(tmp_path)
+
+
+def test_wrangler_requires_reviewed_hash_secrets_without_empty_var_overrides() -> None:
+    wrangler = json.loads(Path("apps/observation-edge/wrangler.jsonc").read_text(encoding="utf-8"))
+    reviewed_hash_names = {
+        "RD_ENTRY_V3_DETECTOR_CODE_HASH",
+        "RD_ENTRY_V3_SETTINGS_HASH",
+    }
+
+    assert reviewed_hash_names.isdisjoint(wrangler["vars"])
+    assert reviewed_hash_names.issubset(wrangler["secrets"]["required"])
+
+
+def test_rollout_verifies_required_hash_secret_bindings_before_pine_emission() -> None:
+    runbook = Path("docs/runbooks/rd-three-entry-paper-rollout.md").read_text(encoding="utf-8")
+
+    for required_step in (
+        "npx wrangler secret bulk",
+        "npx wrangler secret list",
+        "PAPER_CONFIGURATION_UNAVAILABLE",
+        "PROMOTION_IDENTITY_MISMATCH",
+        "paper kill switch",
+    ):
+        assert required_step in runbook
+    assert runbook.index("npx wrangler secret list") < runbook.index(
+        "Enable **Emit contract-v3 entry events**"
+    )
