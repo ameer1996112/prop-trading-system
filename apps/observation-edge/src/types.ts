@@ -3,7 +3,11 @@ import type {
   EntryBatchSemanticIdentity,
   ValidatedEntryWireBatch,
 } from "./rd-entry-wire";
-import type { ValidatedEntryV3Bundle } from "./rd-entry-wire-v3";
+import type {
+  EntryV3EventRole,
+  EntryV3ExitEvent,
+  ValidatedEntryV3Bundle,
+} from "./rd-entry-wire-v3";
 
 export type ObservationKind = "incremental" | "snapshot";
 export type ReceiptStatus = "RECEIVED" | "DUPLICATE";
@@ -59,6 +63,8 @@ export type ValidatedObservation =
       readonly credential: string;
       readonly canonicalPayload: CanonicalObject;
       readonly metadata: ReceiptMetadata;
+      readonly eventRole: EntryV3EventRole;
+      readonly exitEvents: readonly EntryV3ExitEvent[];
       readonly entryBundles: readonly ValidatedEntryV3Bundle[];
       readonly paperCommands: readonly [];
     };

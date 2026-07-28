@@ -225,6 +225,13 @@ export interface EntryV3ExitEvent {
   readonly price_ticks: number;
 }
 
+/**
+ * Internal authorization boundary derived from the closed raw payload.
+ * Task 5 may create an intent only for ENTRY_DECISION; EXIT_FOLLOWUP is audit
+ * plus a conditional update to an already-linked durable attempt.
+ */
+export type EntryV3EventRole = "ENTRY_DECISION" | "EXIT_FOLLOWUP";
+
 export interface ValidatedEntryV3Bundle {
   readonly setup: SetupEntryFactsV3;
   readonly commonRuleResults: readonly EntryV3CommonRuleResult[];
@@ -238,6 +245,7 @@ export interface ValidatedEntryV3Bundle {
 export interface ValidatedEntryV3Payload {
   readonly canonicalPayload: CanonicalObject;
   readonly metadata: ReceiptMetadata;
+  readonly eventRole: EntryV3EventRole;
   readonly producerSequence: number;
   readonly eventId: string;
   readonly isRealtime: boolean;
@@ -1048,6 +1056,7 @@ function validateAuthoritativePaperFacts(
   evaluation: EntryEvaluationV3,
   marketEvent: EntryV3MarketEvent,
   tradePlan: EntryV3TradePlan,
+  eventRole: EntryV3EventRole,
 ): void {
   const pairs = selectedAuthoritativePairs(evaluation);
   if (evaluation.selection.action !== "PAPER_ELIGIBLE") return;
@@ -1055,11 +1064,14 @@ function validateAuthoritativePaperFacts(
     pairs.length === 0 ||
     pairs.some(
       ({ evidence }) =>
-        evidence.observed_trigger_epoch !== marketEvent.epoch ||
-        evidence.trigger_sequence !== marketEvent.sequence ||
-        evidence.observed_trigger_ticks !== marketEvent.tick_price_ticks,
+        evidence.observed_trigger_ticks !== tradePlan.entry_ticks ||
+        (eventRole === "ENTRY_DECISION" &&
+          (evidence.observed_trigger_epoch !== marketEvent.epoch ||
+            evidence.trigger_sequence !== marketEvent.sequence ||
+            evidence.observed_trigger_ticks !== marketEvent.tick_price_ticks)),
     ) ||
-    tradePlan.entry_ticks !== marketEvent.tick_price_ticks
+    (eventRole === "ENTRY_DECISION" &&
+      tradePlan.entry_ticks !== marketEvent.tick_price_ticks)
   ) {
     fail();
   }
@@ -1086,6 +1098,19 @@ function validateAuthoritativePaperFacts(
       continue;
     }
     if (candidate.model === "DIR_CLOSE") {
+      if (
+        candidate.event_anchor_epoch !== evidence.coverage_start_epoch ||
+        candidate.event_anchor_epoch % 300 !== 0 ||
+        evidence.coverage_end_epoch - evidence.coverage_start_epoch !== 300 ||
+        evidence.observed_trigger_epoch !== evidence.coverage_end_epoch ||
+        evidence.observed_trigger_ticks === null ||
+        (candidate.direction === "LONG"
+          ? evidence.observed_trigger_ticks <= setup.zone_top_ticks
+          : evidence.observed_trigger_ticks >= setup.zone_bottom_ticks)
+      ) {
+        fail();
+      }
+      if (eventRole === "EXIT_FOLLOWUP") continue;
       const bar = marketEvent.confirmed_bar;
       if (
         !marketEvent.barstate_isconfirmed ||
@@ -1094,10 +1119,7 @@ function validateAuthoritativePaperFacts(
         bar.open_epoch !== evidence.coverage_start_epoch ||
         bar.close_epoch !== evidence.coverage_end_epoch ||
         evidence.observed_trigger_epoch !== bar.close_epoch ||
-        evidence.observed_trigger_ticks !== bar.close_ticks ||
-        (candidate.direction === "LONG"
-          ? bar.close_ticks <= setup.zone_top_ticks
-          : bar.close_ticks >= setup.zone_bottom_ticks)
+        evidence.observed_trigger_ticks !== bar.close_ticks
       ) {
         fail();
       }
@@ -1177,40 +1199,122 @@ function parseExitEvent(value: unknown): EntryV3ExitEvent {
   };
 }
 
-function validateAmbiguousExitAudit(
+function validatedExitCausalEpoch(
+  bundle: ValidatedEntryV3Bundle,
+): number {
+  const selection = bundle.evaluation.selection;
+  if (selection.canonical_evidence_id !== null) {
+    const selectedEvidence = bundle.evaluation.evidence.find(
+      (evidence) => evidence.evidence_id === selection.canonical_evidence_id,
+    );
+    if (selectedEvidence === undefined) fail();
+    if (selectedEvidence.observed_trigger_epoch !== null) {
+      return selectedEvidence.observed_trigger_epoch;
+    }
+  }
+  return selection.evaluated_at_epoch;
+}
+
+function exitLevelHits(
+  bundle: ValidatedEntryV3Bundle,
+  marketEvent: EntryV3MarketEvent,
+  isRealtime: boolean,
+): {
+  readonly stopHit: boolean;
+  readonly targetHit: boolean;
+} {
+  const plan = bundle.tradePlan;
+  const confirmedBar = marketEvent.confirmed_bar;
+  if (isRealtime || confirmedBar === null) {
+    return {
+      stopHit:
+        plan.direction === "LONG"
+          ? marketEvent.tick_price_ticks <= plan.stop_ticks
+          : marketEvent.tick_price_ticks >= plan.stop_ticks,
+      targetHit:
+        plan.direction === "LONG"
+          ? marketEvent.tick_price_ticks >= plan.target_ticks
+          : marketEvent.tick_price_ticks <= plan.target_ticks,
+    };
+  }
+  return {
+    stopHit:
+      plan.direction === "LONG"
+        ? confirmedBar.low_ticks <= plan.stop_ticks
+        : confirmedBar.high_ticks >= plan.stop_ticks,
+    targetHit:
+      plan.direction === "LONG"
+        ? confirmedBar.high_ticks >= plan.target_ticks
+        : confirmedBar.low_ticks <= plan.target_ticks,
+  };
+}
+
+function validateExitFollowup(
   exitEvents: readonly EntryV3ExitEvent[],
   isRealtime: boolean,
   marketEvent: EntryV3MarketEvent,
   entryBundles: readonly ValidatedEntryV3Bundle[],
 ): void {
-  const ambiguousEvents = exitEvents.filter(
-    (event) => event.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT",
-  );
-  if (ambiguousEvents.length === 0) return;
-  const confirmedBar = marketEvent.confirmed_bar;
+  if (exitEvents.length === 0) return;
   if (
-    isRealtime ||
-    !marketEvent.barstate_isconfirmed ||
-    confirmedBar === null
+    new Set(exitEvents.map((event) => event.event_id)).size !==
+      exitEvents.length ||
+    new Set(exitEvents.map((event) => event.setup_id)).size !==
+      exitEvents.length
   ) {
-    fail("ENTRY_V3_AMBIGUOUS_EXIT_NOT_HISTORICAL");
+    fail("ENTRY_V3_EXIT_EVENT_CONFLICT");
+  }
+  const exitSetupIds = [...exitEvents]
+    .map((event) => event.setup_id)
+    .sort();
+  const bundleSetupIds = [...entryBundles]
+    .map((bundle) => bundle.setup.setup_id)
+    .sort();
+  if (
+    exitSetupIds.join("\u0000") !== bundleSetupIds.join("\u0000")
+  ) {
+    fail("ENTRY_V3_EXIT_SETUP_MISMATCH");
   }
   const bundleBySetupId = new Map(
     entryBundles.map((bundle) => [bundle.setup.setup_id, bundle] as const),
   );
-  for (const event of ambiguousEvents) {
+  for (const event of exitEvents) {
     const bundle = bundleBySetupId.get(event.setup_id);
     if (
       bundle === undefined ||
       event.epoch !== marketEvent.epoch ||
       event.sequence !== marketEvent.sequence ||
       event.price_ticks !== marketEvent.tick_price_ticks ||
-      confirmedBar.low_ticks >
-        Math.min(bundle.tradePlan.stop_ticks, bundle.tradePlan.target_ticks) ||
-      confirmedBar.high_ticks <
-        Math.max(bundle.tradePlan.stop_ticks, bundle.tradePlan.target_ticks)
+      event.epoch < validatedExitCausalEpoch(bundle)
     ) {
-      fail("ENTRY_V3_AMBIGUOUS_EXIT_NOT_CAUSAL");
+      fail("ENTRY_V3_EXIT_NOT_CAUSAL");
+    }
+    const { stopHit, targetHit } = exitLevelHits(
+      bundle,
+      marketEvent,
+      isRealtime,
+    );
+    if (event.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT") {
+      if (
+        isRealtime ||
+        !marketEvent.barstate_isconfirmed ||
+        marketEvent.confirmed_bar === null
+      ) {
+        fail("ENTRY_V3_AMBIGUOUS_EXIT_NOT_HISTORICAL");
+      }
+      if (!stopHit || !targetHit) {
+        fail("ENTRY_V3_AMBIGUOUS_EXIT_NOT_CAUSAL");
+      }
+      continue;
+    }
+    if (
+      (!isRealtime &&
+        (!marketEvent.barstate_isconfirmed ||
+          marketEvent.confirmed_bar === null)) ||
+      (!isRealtime && stopHit && targetHit) ||
+      (event.exit_reason === "STOP_LOSS" ? !stopHit : !targetHit)
+    ) {
+      fail("ENTRY_V3_EXIT_LEVEL_NOT_HIT");
     }
   }
 }
@@ -1269,6 +1373,8 @@ export async function validateEntryV3Payload(
   const marketEvent = parseMarketEvent(payload.market_event);
   if (marketEvent.epoch > observedAtEpoch) fail();
   const exitEvents = values(payload.exit_events, 0, 32).map(parseExitEvent);
+  const eventRole: EntryV3EventRole =
+    exitEvents.length === 0 ? "ENTRY_DECISION" : "EXIT_FOLLOWUP";
   const setupValues = values(payload.setups, 1, 32);
   const entryBundles: ValidatedEntryV3Bundle[] = [];
   for (const value of setupValues) {
@@ -1280,7 +1386,7 @@ export async function validateEntryV3Payload(
   ) {
     fail();
   }
-  validateAmbiguousExitAudit(
+  validateExitFollowup(
     exitEvents,
     isRealtime,
     marketEvent,
@@ -1294,7 +1400,9 @@ export async function validateEntryV3Payload(
       bundle.evidence.some(
         (evidence) =>
           evidence.observed_at_epoch > observedAtEpoch ||
-          (evidence.proof_plane === "REALTIME_TICK" && !isRealtime),
+          (eventRole === "ENTRY_DECISION" &&
+            evidence.proof_plane === "REALTIME_TICK" &&
+            !isRealtime),
       ) ||
       bundle.selectionProposal.evaluated_at_epoch > observedAtEpoch
     ) {
@@ -1305,6 +1413,7 @@ export async function validateEntryV3Payload(
       bundle.evaluation,
       marketEvent,
       bundle.tradePlan,
+      eventRole,
     );
   }
   const canonicalSetups = entryBundles.map((bundle) => ({
@@ -1336,6 +1445,7 @@ export async function validateEntryV3Payload(
       timeframe: "5",
       kind: "incremental",
     },
+    eventRole,
     producerSequence,
     eventId,
     isRealtime,

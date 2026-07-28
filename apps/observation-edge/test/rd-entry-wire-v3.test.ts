@@ -263,6 +263,101 @@ function historicalAmbiguousExitPayload(): Record<string, unknown> {
   return value;
 }
 
+function laterRealtimeExitPayload(
+  exitReason: "STOP_LOSS" | "TARGET",
+  priceTicks: number,
+): Record<string, unknown> {
+  const value = payload();
+  value.producer_sequence = 8;
+  value.event_id = `pine-v3:exit:${exitReason}:8`;
+  value.observed_at_epoch = 3000;
+  value.market_event = {
+    epoch: 3000,
+    sequence: 8,
+    tick_price_ticks: priceTicks,
+    barstate_isconfirmed: false,
+    confirmed_bar: null,
+  };
+  value.exit_events = [
+    {
+      event_id: `setup-strict-long:exit:${exitReason}:8`,
+      setup_id: "setup-strict-long",
+      exit_reason: exitReason,
+      epoch: 3000,
+      sequence: 8,
+      price_ticks: priceTicks,
+    },
+  ];
+  return value;
+}
+
+function laterRealtimeShortExitPayload(
+  exitReason: "STOP_LOSS" | "TARGET",
+): Record<string, unknown> {
+  const value = payloadFor("strict_short_boc_only");
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  const plan = bundle.trade_plan as Record<string, unknown>;
+  const priceTicks =
+    exitReason === "STOP_LOSS"
+      ? (plan.stop_ticks as number) + 1
+      : (plan.target_ticks as number) - 1;
+  value.producer_sequence = 10;
+  value.event_id = `pine-v3:short-exit:${exitReason}:10`;
+  value.observed_at_epoch = 3000;
+  value.market_event = {
+    epoch: 3000,
+    sequence: 10,
+    tick_price_ticks: priceTicks,
+    barstate_isconfirmed: false,
+    confirmed_bar: null,
+  };
+  value.exit_events = [
+    {
+      event_id: `${setup.setup_id as string}:exit:${exitReason}:10`,
+      setup_id: setup.setup_id,
+      exit_reason: exitReason,
+      epoch: 3000,
+      sequence: 10,
+      price_ticks: priceTicks,
+    },
+  ];
+  return value;
+}
+
+function laterExactPaperAmbiguousExitPayload(): Record<string, unknown> {
+  const value = payload();
+  value.producer_sequence = 9;
+  value.event_id = "pine-v3:exit:AMBIGUOUS_SAME_BAR_EXIT:9";
+  value.is_realtime = false;
+  value.observed_at_epoch = 2700;
+  value.market_event = {
+    epoch: 2700,
+    sequence: 9,
+    tick_price_ticks: 111,
+    barstate_isconfirmed: true,
+    confirmed_bar: {
+      open_epoch: 2400,
+      close_epoch: 2700,
+      open_ticks: 112,
+      high_ticks: 145,
+      low_ticks: 90,
+      close_ticks: 111,
+    },
+  };
+  value.exit_events = [
+    {
+      event_id: "setup-strict-long:exit:AMBIGUOUS_SAME_BAR_EXIT:9",
+      setup_id: "setup-strict-long",
+      exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
+      epoch: 2700,
+      sequence: 9,
+      price_ticks: 111,
+    },
+  ];
+  return value;
+}
+
 function useEdgeDerivedReferences(value: Record<string, unknown>): void {
   const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
   const candidates = bundle.candidates as Array<Record<string, unknown>>;
@@ -387,6 +482,8 @@ describe("RD entry v3 wire", () => {
     expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
       "PAPER_ELIGIBLE",
     );
+    expect(result.eventRole).toBe("ENTRY_DECISION");
+    expect(result.canonicalPayload).not.toHaveProperty("eventRole");
   });
 
   it("routes schema 3.0 through the entry-v3 observation union", async () => {
@@ -398,6 +495,7 @@ describe("RD entry v3 wire", () => {
     expect(result.version).toBe("entry-v3");
     if (result.version === "entry-v3") {
       expect(result.paperCommands).toEqual([]);
+      expect(result.eventRole).toBe("ENTRY_DECISION");
       expect(result.entryBundles[0]!.evaluation.selection.canonical_model).toBe(
         "BOC",
       );
@@ -516,6 +614,19 @@ describe("RD entry v3 wire", () => {
     },
   );
 
+  it.each(["STOP_LOSS", "TARGET"] as const)(
+    "applies short-direction geometry to later realtime %s follow-ups",
+    async (exitReason) => {
+      const result = await validateEntryV3Payload(
+        strict(laterRealtimeShortExitPayload(exitReason)),
+        reviewedHashes,
+      );
+
+      expect(result.eventRole).toBe("EXIT_FOLLOWUP");
+      expect(result.exitEvents[0]!.exit_reason).toBe(exitReason);
+    },
+  );
+
   it.each([
     ["a missing common rule", (rules: Array<Record<string, unknown>>) => {
       rules.pop();
@@ -609,6 +720,7 @@ describe("RD entry v3 wire", () => {
         price_ticks: result.marketEvent.tick_price_ticks,
       }),
     ]);
+    expect(result.eventRole).toBe("EXIT_FOLLOWUP");
     expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
       action: "SHADOW_ONLY",
       canonical_candidate_id: null,
@@ -617,18 +729,331 @@ describe("RD entry v3 wire", () => {
     });
   });
 
+  it("accepts a later exact-paper ambiguity as an exit-only follow-up", async () => {
+    const result = await validateObservationEnvelope(
+      strict({
+        credential: "secret",
+        payload: laterExactPaperAmbiguousExitPayload(),
+      }),
+      undefined,
+      reviewedHashes,
+    );
+
+    expect(result.version).toBe("entry-v3");
+    if (result.version === "entry-v3") {
+      expect(result.eventRole).toBe("EXIT_FOLLOWUP");
+      expect(result.paperCommands).toEqual([]);
+      expect(result.canonicalPayload).not.toHaveProperty("eventRole");
+      expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
+        "PAPER_ELIGIBLE",
+      );
+      expect(result.exitEvents[0]!.exit_reason).toBe(
+        "AMBIGUOUS_SAME_BAR_EXIT",
+      );
+    }
+  });
+
+  it.each([
+    ["STOP_LOSS", 95],
+    ["TARGET", 142],
+  ] as const)(
+    "accepts a later realtime %s follow-up without reopening paper intent",
+    async (exitReason, priceTicks) => {
+      const value = laterRealtimeExitPayload(exitReason, priceTicks);
+      const result = await validateObservationEnvelope(
+        strict({ credential: "secret", payload: value }),
+        undefined,
+        reviewedHashes,
+      );
+
+      expect(result.version).toBe("entry-v3");
+      if (result.version === "entry-v3") {
+        expect(result.eventRole).toBe("EXIT_FOLLOWUP");
+        expect(result.paperCommands).toEqual([]);
+        expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
+          "PAPER_ELIGIBLE",
+        );
+        expect(result.exitEvents[0]!.exit_reason).toBe(exitReason);
+      }
+    },
+  );
+
+  it("keeps an unlinked setup follow-up as Task 3 audit metadata only", async () => {
+    const result = await validateObservationEnvelope(
+      strict({
+        credential: "secret",
+        payload: laterRealtimeExitPayload("STOP_LOSS", 95),
+      }),
+      undefined,
+      reviewedHashes,
+    );
+
+    expect(result.version).toBe("entry-v3");
+    if (result.version === "entry-v3") {
+      expect(result.eventRole).toBe("EXIT_FOLLOWUP");
+      expect(result.exitEvents[0]!.setup_id).toBe("setup-strict-long");
+      expect(result.paperCommands).toEqual([]);
+    }
+  });
+
+  it.each([
+    ["STOP_LOSS", 97],
+    ["TARGET", 140],
+  ] as const)(
+    "rejects a realtime %s follow-up on the wrong side of its level",
+    async (exitReason, priceTicks) => {
+      await expect(
+        validateEntryV3Payload(
+          strict(laterRealtimeExitPayload(exitReason, priceTicks)),
+          reviewedHashes,
+        ),
+      ).rejects.toBeInstanceOf(EntryV3ValidationError);
+    },
+  );
+
   it.each(["STOP_LOSS", "TARGET"] as const)(
-    "preserves exact %s exit parsing",
+    "rejects historical dual-hit bars claiming %s instead of ambiguity",
     async (exitReason) => {
-      const value = payload();
+      const value = laterExactPaperAmbiguousExitPayload();
+      (value.exit_events as Array<Record<string, unknown>>)[0] = {
+        event_id: `setup-strict-long:exit:${exitReason}:9`,
+        setup_id: "setup-strict-long",
+        exit_reason: exitReason,
+        epoch: 2700,
+        sequence: 9,
+        price_ticks: 111,
+      };
+
+      await expect(
+        validateEntryV3Payload(strict(value), reviewedHashes),
+      ).rejects.toBeInstanceOf(EntryV3ValidationError);
+    },
+  );
+
+  it("rejects a historical stop/target exit without a confirmed 5m bar", async () => {
+    const value = laterRealtimeExitPayload("STOP_LOSS", 95);
+    value.is_realtime = false;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("uses the realtime close tick rather than the bar range for an exit claim", async () => {
+    const value = laterRealtimeExitPayload("STOP_LOSS", 111);
+    value.market_event = {
+      epoch: 3000,
+      sequence: 8,
+      tick_price_ticks: 111,
+      barstate_isconfirmed: true,
+      confirmed_bar: {
+        open_epoch: 2700,
+        close_epoch: 3000,
+        open_ticks: 112,
+        high_ticks: 145,
+        low_ticks: 90,
+        close_ticks: 111,
+      },
+    };
+    const exitEvent = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+    exitEvent.price_ticks = 111;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it.each([
+    ["epoch", 2999],
+    ["sequence", 9],
+    ["price_ticks", 94],
+  ] as const)(
+    "rejects an exit whose %s does not bind the current market event",
+    async (field, replacement) => {
+      const value = laterRealtimeExitPayload("STOP_LOSS", 95);
+      const exitEvent = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+      exitEvent[field] = replacement;
+
+      await expect(
+        validateEntryV3Payload(strict(value), reviewedHashes),
+      ).rejects.toBeInstanceOf(EntryV3ValidationError);
+    },
+  );
+
+  it("rejects an exit before the selected trigger", async () => {
+    const value = laterRealtimeExitPayload("STOP_LOSS", 95);
+    value.market_event = {
+      epoch: 1800,
+      sequence: 8,
+      tick_price_ticks: 95,
+      barstate_isconfirmed: false,
+      confirmed_bar: null,
+    };
+    const exitEvent = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+    exitEvent.epoch = 1800;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects an exit follow-up carrying an unrelated setup bundle", async () => {
+    const value = laterRealtimeExitPayload("STOP_LOSS", 95);
+    const unrelated = payloadFor("strict_short_boc_only");
+    (value.setups as Array<Record<string, unknown>>).push(
+      (unrelated.setups as Array<Record<string, unknown>>)[0]!,
+    );
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it.each([
+    ["duplicate", (events: Array<Record<string, unknown>>) => {
+      events.push(structuredClone(events[0]!));
+    }],
+    ["conflicting", (events: Array<Record<string, unknown>>) => {
+      events.push({
+        ...events[0],
+        event_id: "setup-strict-long:exit:TARGET:8",
+        exit_reason: "TARGET",
+      });
+    }],
+  ])("rejects %s exit events for one setup", async (_name, mutate) => {
+    const value = laterRealtimeExitPayload("STOP_LOSS", 95);
+    mutate(value.exit_events as Array<Record<string, unknown>>);
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("rejects one exit event ID mapped to two setup bundles", async () => {
+    const value = laterRealtimeExitPayload("STOP_LOSS", 95);
+    const second = payload();
+    const secondBundle = (
+      second.setups as Array<Record<string, unknown>>
+    )[0]!;
+    const secondSetup = secondBundle.setup as Record<string, unknown>;
+    secondSetup.setup_id = "setup-strict-long-unlinked";
+    for (const candidate of secondBundle.candidates as Array<
+      Record<string, unknown>
+    >) {
+      candidate.setup_id = secondSetup.setup_id;
+    }
+    (secondBundle.selection_proposal as Record<string, unknown>).setup_id =
+      secondSetup.setup_id;
+    useEdgeDerivedReferences(second);
+    (value.setups as Array<Record<string, unknown>>).push(secondBundle);
+    (value.exit_events as Array<Record<string, unknown>>).push({
+      event_id: "setup-strict-long:exit:STOP_LOSS:8",
+      setup_id: secondSetup.setup_id,
+      exit_reason: "STOP_LOSS",
+      epoch: 3000,
+      sequence: 8,
+      price_ticks: 95,
+    });
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("allows an exact entry candidate and same-event ambiguity only as follow-up audit", async () => {
+    const value = payloadFor("opened_selection_is_frozen");
+    const marketEvent = value.market_event as Record<string, unknown>;
+    const confirmedBar = marketEvent.confirmed_bar as Record<string, unknown>;
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const plan = bundle.trade_plan as Record<string, unknown>;
+    confirmedBar.high_ticks = (plan.target_ticks as number) + 1;
+    confirmedBar.low_ticks = (plan.stop_ticks as number) - 1;
+    value.exit_events = [
+      {
+        event_id: "setup-opened-frozen:exit:AMBIGUOUS_SAME_BAR_EXIT:0",
+        setup_id: "setup-opened-frozen",
+        exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
+        epoch: marketEvent.epoch,
+        sequence: marketEvent.sequence,
+        price_ticks: marketEvent.tick_price_ticks,
+      },
+    ];
+
+    const result = await validateEntryV3Payload(strict(value), reviewedHashes);
+
+    expect(result.eventRole).toBe("EXIT_FOLLOWUP");
+    expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
+      "PAPER_ELIGIBLE",
+    );
+  });
+
+  it.each(["STOP_LOSS", "TARGET"] as const)(
+    "rejects an exit for an unknown setup even when %s is otherwise shaped",
+    async (exitReason) => {
+      const value = laterRealtimeExitPayload(
+        exitReason,
+        exitReason === "STOP_LOSS" ? 95 : 142,
+      );
+      const event = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+      event.setup_id = "unknown-setup";
+      event.event_id = `unknown-setup:exit:${exitReason}:8`;
+
+      await expect(
+        validateEntryV3Payload(strict(value), reviewedHashes),
+      ).rejects.toBeInstanceOf(EntryV3ValidationError);
+    },
+  );
+
+  it.each(["STOP_LOSS", "TARGET"] as const)(
+    "accepts a confirmed historical single-hit %s follow-up",
+    async (exitReason) => {
+      const value = laterExactPaperAmbiguousExitPayload();
+      const marketEvent = value.market_event as Record<string, unknown>;
+      const bar = marketEvent.confirmed_bar as Record<string, unknown>;
+      if (exitReason === "STOP_LOSS") {
+        bar.high_ticks = 130;
+      } else {
+        bar.low_ticks = 100;
+      }
+      (value.exit_events as Array<Record<string, unknown>>)[0] = {
+        event_id: `setup-strict-long:exit:${exitReason}:9`,
+        setup_id: "setup-strict-long",
+        exit_reason: exitReason,
+        epoch: 2700,
+        sequence: 9,
+        price_ticks: 111,
+      };
+
+      const result = await validateEntryV3Payload(strict(value), reviewedHashes);
+      expect(result.eventRole).toBe("EXIT_FOLLOWUP");
+      expect(result.exitEvents[0]!.exit_reason).toBe(exitReason);
+    },
+  );
+
+  it("preserves entry-decision authoritative market-event binding", async () => {
+    const value = payload();
+    (value.market_event as Record<string, unknown>).epoch = 1802;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it.each(["STOP_LOSS", "TARGET"] as const)(
+    "preserves exact %s exit parsing only with causal validation",
+    async (exitReason) => {
+      const value = laterRealtimeExitPayload(
+        exitReason,
+        exitReason === "STOP_LOSS" ? 95 : 142,
+      );
       value.exit_events = [
         {
-          event_id: `setup-strict-long:exit:${exitReason}:7`,
+          event_id: `setup-strict-long:exit:${exitReason}:8`,
           setup_id: "setup-strict-long",
           exit_reason: exitReason,
-          epoch: 1801,
-          sequence: 7,
-          price_ticks: exitReason === "STOP_LOSS" ? 96 : 141,
+          epoch: 3000,
+          sequence: 8,
+          price_ticks: exitReason === "STOP_LOSS" ? 95 : 142,
         },
       ];
 
