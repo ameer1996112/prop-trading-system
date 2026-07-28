@@ -454,7 +454,12 @@ CREATE TABLE observation_entry_selections (
     CHECK (
         CASE
             WHEN effective_action_reason IS NULL
-                THEN action = policy_action
+                THEN
+                    action = policy_action
+                    OR (
+                        policy_action IN ('OBSERVE', 'PAPER_ELIGIBLE')
+                        AND action = 'SHADOW_ONLY'
+                    )
             ELSE
                 effective_action_reason = 'PROMOTION_IDENTITY_MISMATCH'
                 AND policy_action = 'PAPER_ELIGIBLE'

@@ -65,6 +65,7 @@ import {
   PAPER_READINESS_THRESHOLDS,
 } from "./paper-readiness";
 import type {
+  CanonicalValue,
   Env,
   ObservationReceipt,
   ObservationSetupEvidence,
@@ -100,7 +101,20 @@ import {
   EntryV2MessageTooLargeError,
   EntryV2ValidationError,
 } from "./rd-entry-wire";
+import { INSERT_MARKET_BAR_HEARTBEAT_SQL } from "./rd-entry-queries";
 import { RD_ENTRY_PROMOTION_BINDING } from "./generated/rd-entry-promotion-binding";
+import {
+  appendEntryV2Observation,
+  canonicalPaperSelectionConfigured,
+  EntryStoreConflict,
+  EntryStoreIdempotencyConflict,
+  type EntryCodeIdentity,
+} from "./rd-entry-store";
+
+export {
+  canonicalPaperSelectionConfigured,
+  type EntryCodeIdentity,
+};
 
 const DEFAULT_MAX_BODY_BYTES = 262_144;
 const MIN_MAX_BODY_BYTES = 1_024;
@@ -108,42 +122,6 @@ const MAX_MAX_BODY_BYTES = 1_048_576;
 const PAPER_MAX_BODY_BYTES = 16_384;
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const SHA256 = /^[a-f0-9]{64}$/;
-const SHA256_HEX = /^[0-9a-f]{64}$/u;
-const GIT_COMMIT_HEX = /^[0-9a-f]{40}$/u;
-
-export interface EntryCodeIdentity {
-  readonly rule_contract_version: string;
-  readonly strategy_version: string;
-  readonly detector_code_hash: string;
-  readonly settings_hash: string;
-}
-
-export function canonicalPaperSelectionConfigured(
-  env: Env,
-  identity: EntryCodeIdentity,
-): boolean {
-  const approved = RD_ENTRY_PROMOTION_BINDING;
-  return (
-    approved !== null &&
-    env.RD_ENTRY_CANONICAL_PAPER_ENABLED === "true" &&
-    SHA256_HEX.test(approved.report_sha256) &&
-    GIT_COMMIT_HEX.test(approved.source_commit) &&
-    SHA256_HEX.test(approved.pine_artifact_sha256) &&
-    approved.rule_contract_version.length > 0 &&
-    approved.producer_strategy_version.length > 0 &&
-    SHA256_HEX.test(approved.detector_code_hash) &&
-    SHA256_HEX.test(approved.settings_hash) &&
-    SHA256_HEX.test(approved.build_metadata_digest) &&
-    env.RD_ENTRY_PROMOTION_REPORT_SHA256 === approved.report_sha256 &&
-    env.RD_ENTRY_PROMOTION_SOURCE_COMMIT === approved.source_commit &&
-    env.RD_ENTRY_PROMOTION_PINE_SHA256 === approved.pine_artifact_sha256 &&
-    env.CF_VERSION_METADATA?.tag === approved.build_metadata_digest &&
-    identity.rule_contract_version === approved.rule_contract_version &&
-    identity.strategy_version === approved.producer_strategy_version &&
-    identity.detector_code_hash === approved.detector_code_hash &&
-    identity.settings_hash === approved.settings_hash
-  );
-}
 
 class BodyTooLargeError extends Error {}
 class MalformedBodyError extends Error {}
@@ -446,11 +424,62 @@ function insertSetupEvidenceStatement(
     );
 }
 
+function insertLegacyHeartbeatStatement(
+  env: Env,
+  receiptId: string,
+  recordedAt: string,
+  metadata: ReceiptMetadata,
+  canonicalPayload: Readonly<Record<string, CanonicalValue>>,
+): D1PreparedStatement | null {
+  const barOpenMilliseconds = canonicalPayload.bar_open_epoch;
+  const barCloseMilliseconds = canonicalPayload.bar_close_epoch;
+  const detectorCodeHash = canonicalPayload.detector_code_hash;
+  const settingsHash = canonicalPayload.settings_hash;
+  if (
+    metadata.schemaVersion !== "1.2" ||
+    typeof barOpenMilliseconds !== "number" ||
+    typeof barCloseMilliseconds !== "number" ||
+    !Number.isSafeInteger(barOpenMilliseconds) ||
+    !Number.isSafeInteger(barCloseMilliseconds) ||
+    barOpenMilliseconds < 0 ||
+    barOpenMilliseconds % 1_000 !== 0 ||
+    barCloseMilliseconds % 1_000 !== 0 ||
+    barCloseMilliseconds - barOpenMilliseconds !== 300_000 ||
+    typeof detectorCodeHash !== "string" ||
+    !SHA256.test(detectorCodeHash) ||
+    typeof settingsHash !== "string" ||
+    !SHA256.test(settingsHash)
+  ) {
+    return null;
+  }
+  return env.DB
+    .prepare(INSERT_MARKET_BAR_HEARTBEAT_SQL)
+    .bind(
+      receiptId,
+      null,
+      "1.2",
+      "LEGACY_REFERENCE",
+      metadata.producerInstanceId,
+      metadata.sequence,
+      metadata.strategyVersion,
+      metadata.symbol,
+      metadata.tickerId,
+      metadata.feed,
+      metadata.timeframe,
+      barOpenMilliseconds / 1_000,
+      barCloseMilliseconds / 1_000,
+      detectorCodeHash,
+      settingsHash,
+      recordedAt,
+    );
+}
+
 async function appendContractReceipt(
   env: Env,
   metadata: ReceiptMetadata,
   payloadSha256: string,
   evidenceItems: readonly SetupEvidenceInsert[],
+  canonicalPayload: Readonly<Record<string, CanonicalValue>>,
 ): Promise<{ readonly record: StoredReceipt; readonly inserted: boolean }> {
   if (env.DB === undefined || env.DB === null) {
     throw new StorageUnavailableError();
@@ -465,6 +494,13 @@ async function appendContractReceipt(
 
   const receiptId = crypto.randomUUID();
   const receivedAt = new Date().toISOString();
+  const heartbeat = insertLegacyHeartbeatStatement(
+    env,
+    receiptId,
+    receivedAt,
+    metadata,
+    canonicalPayload,
+  );
   let results: D1Result[];
   try {
     results = await env.DB.batch([
@@ -475,6 +511,7 @@ async function appendContractReceipt(
         metadata,
         payloadSha256,
       ),
+      ...(heartbeat === null ? [] : [heartbeat]),
       ...(evidenceItems.length === 0
         ? []
         : [
@@ -1132,6 +1169,82 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
     canonicalStringify(observation.canonicalPayload),
   );
   try {
+    if (observation.version === "entry-v2") {
+      let result;
+      try {
+        result = await appendEntryV2Observation(
+          env,
+          observation,
+          payloadSha256,
+        );
+      } catch (error) {
+        if (error instanceof EntryStoreIdempotencyConflict) {
+          return errorResponse(
+            409,
+            "IDEMPOTENCY_CONFLICT",
+            "Idempotency key was already used for different observation content",
+          );
+        }
+        if (error instanceof EntryStoreConflict) {
+          return jsonResponse(
+            {
+              error: {
+                code: error.code,
+                quarantine_id: error.quarantineId,
+              },
+              execution: "DISABLED",
+            },
+            409,
+          );
+        }
+        throw error;
+      }
+      if (result.status === "CONFLICT") {
+        return jsonResponse(
+          {
+            error: {
+              code: result.conflictCode,
+              quarantine_id: result.quarantineId,
+              batch_id: result.batchId,
+            },
+            execution: "DISABLED",
+          },
+          409,
+        );
+      }
+      return jsonResponse(
+        {
+          ...receipt(
+            result.record,
+            result.inserted ? "RECEIVED" : "DUPLICATE",
+          ),
+          assembly: {
+            batch_id: result.batchId,
+            status: result.assemblyStatus,
+            missing_chunk_indexes: result.missingChunkIndexes,
+          },
+          evaluation_count: result.evaluations.length,
+          parity: {
+            matches: result.evaluations.filter(
+              (item) => item.parityStatus === "MATCH",
+            ).length,
+            mismatches: result.evaluations.filter(
+              (item) => item.parityStatus === "MISMATCH",
+            ).length,
+            not_provided: result.evaluations.filter(
+              (item) => item.parityStatus === "NOT_PROVIDED",
+            ).length,
+          },
+          canonical_paper_enabled:
+            canonicalPaperSelectionConfigured(
+              env,
+              observation.batchMetadata,
+            ),
+          execution: "DISABLED",
+        },
+        result.inserted ? 202 : 200,
+      );
+    }
     if (observation.metadata.schemaVersion === "1.1") {
       return await appendAutomatedObservation(
         env,
@@ -1147,6 +1260,7 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
             observation.metadata,
             payloadSha256,
             extractSetupEvidence(observation.canonicalPayload),
+            observation.canonicalPayload,
           )
         : await appendReceipt(env, observation.metadata, payloadSha256);
     if (!result.inserted && result.record.payload_sha256 !== payloadSha256) {

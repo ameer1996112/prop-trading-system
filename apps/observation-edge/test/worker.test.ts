@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { handleRequest } from "../src/index";
+import { SOURCE_CLAIMS } from "../src/rd-entry-policy";
 import {
   INSERT_RECEIPT_SQL,
   INSERT_SETUP_EVIDENCE_SQL,
@@ -30,6 +31,12 @@ import type {
 
 const CREDENTIAL = "edge-test-secret";
 const BASE_URL = "https://prop-trading-observation-edge.example";
+type SqliteInput =
+  | null
+  | number
+  | bigint
+  | string
+  | NodeJS.ArrayBufferView;
 const ENTRY_STORAGE_TABLES = [
   "observation_entry_batches",
   "observation_market_bar_heartbeats",
@@ -642,6 +649,9 @@ class FakeStatement {
         );
       }
       this.database.records.set(record.idempotency_key, record);
+      this.database.sqlite
+        .prepare(this.sql)
+        .run(...(this.values as SqliteInput[]));
       return {
         success: true,
         results: [],
@@ -717,21 +727,39 @@ class FakeStatement {
         }
         this.database.evidence.set(record.evidence_id, record);
       }
+      this.database.sqlite
+        .prepare(this.sql)
+        .run(...(this.values as SqliteInput[]));
       return {
         success: true,
         results: [],
         meta: { changes: rows.length },
       } as unknown as D1Result;
     }
-    throw new Error("unexpected run statement");
+    const result = this.database.sqlite
+      .prepare(this.sql)
+      .run(...(this.values as SqliteInput[]));
+    if (!this.database.inBatch) {
+      this.database.syncEntryMaps();
+    }
+    return {
+      success: true,
+      results: [],
+      meta: { changes: Number(result.changes) },
+    } as unknown as D1Result;
   }
 
   async first<T>(): Promise<T | null> {
-    if (!this.sql.includes("WHERE idempotency_key = ?")) {
-      throw new Error("unexpected first statement");
+    if (this.sql.includes("WHERE idempotency_key = ?")) {
+      return (
+        (this.database.records.get(String(this.values[0])) as T | undefined) ??
+        null
+      );
     }
     return (
-      (this.database.records.get(String(this.values[0])) as T | undefined) ?? null
+      (this.database.sqlite
+        .prepare(this.sql)
+        .get(...(this.values as SqliteInput[])) as T | undefined) ?? null
     );
   }
 
@@ -757,7 +785,9 @@ class FakeStatement {
         })
         .slice(0, limit) as T[];
     } else {
-      throw new Error("unexpected all statement");
+      results = this.database.sqlite
+        .prepare(this.sql)
+        .all(...(this.values as SqliteInput[])) as T[];
     }
     return {
       success: true,
@@ -770,9 +800,125 @@ class FakeStatement {
 class FakeD1 {
   readonly records = new Map<string, StoredReceipt>();
   readonly evidence = new Map<string, StoredSetupEvidence>();
+  readonly batches = new Map<string, Record<string, unknown>>();
+  readonly chunks = new Map<string, Record<string, unknown>>();
+  readonly setupEvents = new Map<string, StoredEntrySetupEvent>();
+  readonly terminals = new Map<string, StoredEntrySetupTerminal>();
+  readonly candidates = new Map<string, StoredEntryCandidate>();
+  readonly entryEvidence = new Map<string, StoredEntryCandidateEvidence>();
+  readonly handling = new Map<string, StoredEntryHandling>();
+  readonly producerDiagnostics: StoredProducerDiagnostic[] = [];
+  readonly selections: StoredEntrySelection[] = [];
+  readonly parity: StoredEntryParity[] = [];
+  readonly completions = new Map<string, Record<string, unknown>>();
+  readonly quarantine = new Map<string, Record<string, unknown>>();
+  readonly marketBarHeartbeats: StoredMarketBarHeartbeat[] = [];
+  readonly paperTradeIntents: Record<string, unknown>[] = [];
   readonly preparedSql: string[] = [];
+  readonly sqlite = new DatabaseSync(":memory:");
+  inBatch = false;
+  private entryBatchRaceInjected = false;
 
-  constructor(readonly failEvidenceWrites = false) {}
+  constructor(
+    readonly failEvidenceWrites = false,
+    private readonly failEntryBatchOnce = false,
+  ) {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    this.sqlite.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(this.sqlite, root, 23);
+    this.syncEntryMaps();
+  }
+
+  private replaceMap<T>(
+    target: Map<string, T>,
+    rows: readonly T[],
+    key: (row: T) => string,
+  ): void {
+    target.clear();
+    for (const row of rows) {
+      target.set(key(row), row);
+    }
+  }
+
+  private replaceArray<T>(target: T[], rows: readonly T[]): void {
+    target.splice(0, target.length, ...rows);
+  }
+
+  syncEntryMaps(): void {
+    const rows = <T>(table: string): T[] =>
+      this.sqlite.prepare(`SELECT * FROM ${table}`).all() as T[];
+    this.replaceMap(
+      this.batches,
+      rows<Record<string, unknown>>("observation_entry_batches"),
+      (item) => String(item.batch_id),
+    );
+    this.replaceMap(
+      this.chunks,
+      rows<Record<string, unknown>>("observation_entry_chunks"),
+      (item) => `${String(item.batch_id)}:${String(item.chunk_index)}`,
+    );
+    this.replaceMap(
+      this.setupEvents,
+      rows<StoredEntrySetupEvent>("observation_entry_setup_events"),
+      (item) => item.event_id,
+    );
+    this.replaceMap(
+      this.terminals,
+      rows<StoredEntrySetupTerminal>("observation_entry_setup_terminals"),
+      (item) => item.setup_id,
+    );
+    this.replaceMap(
+      this.candidates,
+      rows<StoredEntryCandidate>("observation_entry_candidates"),
+      (item) => item.candidate_id,
+    );
+    this.replaceMap(
+      this.entryEvidence,
+      rows<StoredEntryCandidateEvidence>(
+        "observation_entry_candidate_evidence",
+      ),
+      (item) => item.evidence_id,
+    );
+    this.replaceMap(
+      this.handling,
+      rows<StoredEntryHandling>("observation_entry_handling"),
+      (item) => item.handling_id,
+    );
+    this.replaceArray(
+      this.producerDiagnostics,
+      rows<StoredProducerDiagnostic>(
+        "observation_entry_producer_diagnostics",
+      ),
+    );
+    this.replaceArray(
+      this.selections,
+      rows<StoredEntrySelection>("observation_entry_selections"),
+    );
+    this.replaceArray(
+      this.parity,
+      rows<StoredEntryParity>("observation_entry_parity"),
+    );
+    this.replaceMap(
+      this.completions,
+      rows<Record<string, unknown>>(
+        "observation_entry_batch_completions",
+      ),
+      (item) => String(item.completion_id),
+    );
+    this.replaceMap(
+      this.quarantine,
+      rows<Record<string, unknown>>("observation_entry_quarantine"),
+      (item) => String(item.quarantine_id),
+    );
+    this.replaceArray(
+      this.marketBarHeartbeats,
+      rows<StoredMarketBarHeartbeat>("observation_market_bar_heartbeats"),
+    );
+    this.replaceArray(
+      this.paperTradeIntents,
+      rows<Record<string, unknown>>("paper_trade_intents"),
+    );
+  }
 
   prepare(sql: string): FakeStatement {
     this.preparedSql.push(sql);
@@ -782,13 +928,39 @@ class FakeD1 {
   async batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
     const receiptSnapshot = new Map(this.records);
     const evidenceSnapshot = new Map(this.evidence);
+    this.sqlite.exec("BEGIN");
+    this.inBatch = true;
     try {
       const results: D1Result[] = [];
       for (const statement of statements) {
         results.push(await (statement as unknown as FakeStatement).run());
       }
+      const selectionCount = Number(
+        (
+          this.sqlite
+            .prepare(
+              "SELECT COUNT(*) AS count FROM observation_entry_selections",
+            )
+            .get() as { readonly count: number }
+        ).count,
+      );
+      if (
+        this.failEntryBatchOnce &&
+        !this.entryBatchRaceInjected &&
+        selectionCount > 0
+      ) {
+        this.entryBatchRaceInjected = true;
+        throw new Error(
+          "D1_ERROR: UNIQUE constraint failed: observation_entry_selections.setup_id, observation_entry_selections.policy_version, observation_entry_selections.revision",
+        );
+      }
+      this.sqlite.exec("COMMIT");
+      this.inBatch = false;
+      this.syncEntryMaps();
       return results;
     } catch (error) {
+      this.sqlite.exec("ROLLBACK");
+      this.inBatch = false;
       this.records.clear();
       this.evidence.clear();
       for (const [key, value] of receiptSnapshot) {
@@ -797,6 +969,7 @@ class FakeD1 {
       for (const [key, value] of evidenceSnapshot) {
         this.evidence.set(key, value);
       }
+      this.syncEntryMaps();
       throw error;
     }
   }
@@ -1005,6 +1178,141 @@ function entryV2Payload(): Record<string, unknown> {
         q: null,
       },
     ],
+  };
+}
+
+function entryV2Setup(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return (value.eb as Record<string, unknown>[])[0]!;
+}
+
+function addConfirmedEntryV2Diagnostic(
+  value: Record<string, unknown>,
+): void {
+  const setup = entryV2Setup(value);
+  setup.c = [
+    {
+      i: 0,
+      m: "DIR_CLOSE",
+      st: "MATCHED",
+      a: 1_721_808_000,
+      o: 1,
+      n: null,
+      sc: [...SOURCE_CLAIMS.DIR_CLOSE],
+    },
+  ];
+  setup.e = [
+    {
+      i: 0,
+      ci: 0,
+      t: 1_721_808_300,
+      px: 103,
+      h: [],
+      f: "EXACT",
+      p: "CONFIRMED_5M",
+      r: 300,
+      cs: 1_721_808_000,
+      ce: 1_721_808_300,
+      ac: [],
+      pr: ["ENTRY_DIR_CLOSE"],
+      fr: [],
+      sc: [...SOURCE_CLAIMS.DIR_CLOSE],
+    },
+  ];
+  setup.h = [
+    {
+      ci: 0,
+      ei: 0,
+      m: "CLOSE_CONFIRMATION",
+      a: "INITIAL",
+      t: 1_721_808_300,
+      px: 103,
+      f: "EXACT",
+      sc: [...SOURCE_CLAIMS.DIR_CLOSE],
+    },
+  ];
+  setup.q = {
+    v: "PINE_DIAGNOSTIC_ONLY",
+    k: "DIR_CLOSE:1721808000:1",
+    m: "DIR_CLOSE",
+    a: 1_721_808_000,
+    o: 1,
+    r: "ONLY_EXACT_TRIGGER",
+    f: "EXACT",
+    x: "SHADOW_ONLY",
+  };
+}
+
+function configureEntryV2Batch(
+  value: Record<string, unknown>,
+  {
+    producerInstanceId = String(value.producer_instance_id),
+    sequence,
+    kind = "incremental",
+    closeEpoch,
+    setupId,
+    directionalClose = true,
+  }: {
+    readonly producerInstanceId?: string;
+    readonly sequence: number;
+    readonly kind?: "snapshot" | "incremental";
+    readonly closeEpoch: number;
+    readonly setupId: string;
+    readonly directionalClose?: boolean;
+  },
+): void {
+  value.producer_instance_id = producerInstanceId;
+  value.sequence = sequence;
+  value.kind = kind;
+  value.bar_open_epoch = closeEpoch - 300;
+  value.bar_close_epoch = closeEpoch;
+  value.idempotency_key =
+    `${producerInstanceId}:${sequence}:${kind}:${closeEpoch}:0`;
+  const setup = entryV2Setup(value);
+  setup.s = setupId;
+  const facts = setup.f as Record<string, unknown>;
+  const bar = (facts.b as Record<string, unknown>[]).at(-1)!;
+  bar.oe = closeEpoch - 300;
+  bar.ce = closeEpoch;
+  bar.c = directionalClose ? 103 : 99;
+  bar.h = directionalClose ? 105 : 100;
+}
+
+function currentMatchedEntryTranscript(
+  closeEpoch: number,
+): Record<string, unknown> {
+  const htfOpenEpoch = closeEpoch - 300;
+  return {
+    m: 15,
+    ae: htfOpenEpoch,
+    ao: 100,
+    cu: closeEpoch,
+    rs: 60,
+    cs: htfOpenEpoch,
+    ce: closeEpoch,
+    ec: 5,
+    oc: 5,
+    gp: false,
+    lo: true,
+    db: false,
+    cc: {
+      oe: closeEpoch - 180,
+      ce: closeEpoch - 120,
+      o: 95,
+      h: 98,
+      l: 89,
+      c: 96,
+    },
+    rc: {
+      oe: closeEpoch - 120,
+      ce: closeEpoch - 60,
+      o: 96,
+      h: 101,
+      l: 94,
+      c: 100,
+    },
+    sb: false,
   };
 }
 
@@ -1481,6 +1789,537 @@ describe("observation edge Worker", () => {
       "paper_trade",
     );
     expect(rejectedDatabase.preparedSql).toHaveLength(0);
+  });
+
+  it("accepts v2 in shadow while canonical paper defaults false", async () => {
+    const response = await handleRequest(
+      postBody(entryV2Payload()),
+      await environment(),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await body(response)).toMatchObject({
+      assembly: { status: "COMPLETE" },
+      canonical_paper_enabled: false,
+      evaluation_count: 1,
+      execution: "DISABLED",
+    });
+  });
+
+  it("keeps paper shadowed when only the canonical flag is enabled", async () => {
+    const database = new FakeD1();
+    const response = await handleRequest(
+      postBody(entryV2Payload()),
+      await environment(database, {
+        RD_ENTRY_CANONICAL_PAPER_ENABLED: "true",
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await body(response)).toMatchObject({
+      canonical_paper_enabled: false,
+      execution: "DISABLED",
+    });
+    expect(database.selections).toHaveLength(1);
+    expect(database.selections[0]).toMatchObject({
+      policy_action: "PAPER_ELIGIBLE",
+      action: "SHADOW_ONLY",
+      effective_action_reason: null,
+    });
+    expect(database.paperTradeIntents).toHaveLength(0);
+  });
+
+  it("persists one complete evaluation atomically without paper intents", async () => {
+    const database = new FakeD1();
+    const response = await handleRequest(
+      postBody(entryV2Payload()),
+      await environment(database),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await body(response)).toMatchObject({
+      assembly: { status: "COMPLETE" },
+      evaluation_count: 1,
+      execution: "DISABLED",
+    });
+    expect(database.candidates.size).toBeGreaterThan(0);
+    expect(database.selections).toHaveLength(1);
+    expect(database.selections[0]?.action).toBe("SHADOW_ONLY");
+    expect(database.paperTradeIntents).toHaveLength(0);
+  });
+
+  it("stores a producer mismatch separately and forces authoritative shadow", async () => {
+    const database = new FakeD1();
+    const value = entryV2Payload();
+    addConfirmedEntryV2Diagnostic(value);
+    const diagnostic = entryV2Setup(value);
+    diagnostic.q = {
+      ...(diagnostic.q as Record<string, unknown>),
+      r: "FALLBACK_TO_CONFIRMED_CLOSE",
+    };
+
+    const response = await handleRequest(
+      postBody(value),
+      await environment(database),
+    );
+
+    expect(response.status).toBe(202);
+    expect(database.producerDiagnostics).toHaveLength(1);
+    expect(database.parity[0]).toMatchObject({
+      parity_status: "MISMATCH",
+      mismatch_reason: "REASON",
+    });
+    expect(database.selections[0]).toMatchObject({
+      policy_action: "PAPER_ELIGIBLE",
+      action: "SHADOW_ONLY",
+    });
+  });
+
+  it("assembles two chunks out of order and preserves both receipt origins", async () => {
+    const database = new FakeD1();
+    const second = entryV2Payload();
+    second.chunk_index = 1;
+    second.chunk_count = 2;
+    second.idempotency_key =
+      "pine-v3-worker:1:incremental:1721808300:1";
+    entryV2Setup(second).s = "worker-setup-b";
+    const first = entryV2Payload();
+    first.chunk_count = 2;
+    entryV2Setup(first).s = "worker-setup-a";
+
+    const incomplete = await handleRequest(
+      postBody(second),
+      await environment(database),
+    );
+    const complete = await handleRequest(
+      postBody(first),
+      await environment(database),
+    );
+
+    expect(await body(incomplete)).toMatchObject({
+      assembly: {
+        status: "INCOMPLETE",
+        missing_chunk_indexes: [0],
+      },
+    });
+    expect(await body(complete)).toMatchObject({
+      assembly: {
+        status: "COMPLETE",
+        missing_chunk_indexes: [],
+      },
+      evaluation_count: 2,
+    });
+    const receiptByIdempotency = new Map(
+      [...database.records.values()].map((item) => [
+        item.idempotency_key,
+        item.receipt_id,
+      ]),
+    );
+    expect(
+      [...database.setupEvents.values()]
+        .sort((left, right) => left.setup_id.localeCompare(right.setup_id))
+        .map((item) => [item.setup_id, item.receipt_id]),
+    ).toEqual([
+      [
+        "worker-setup-a",
+        receiptByIdempotency.get(String(first.idempotency_key)),
+      ],
+      [
+        "worker-setup-b",
+        receiptByIdempotency.get(String(second.idempotency_key)),
+      ],
+    ]);
+    const candidateReceiptById = new Map(
+      [...database.candidates.values()].map((item) => [
+        item.candidate_id,
+        {
+          setupId: item.setup_id,
+          receiptId: item.first_receipt_id,
+        },
+      ]),
+    );
+    expect(
+      [...candidateReceiptById.values()].sort((left, right) =>
+        left.setupId.localeCompare(right.setupId),
+      ),
+    ).toEqual([
+      {
+        setupId: "worker-setup-a",
+        receiptId: receiptByIdempotency.get(String(first.idempotency_key)),
+      },
+      {
+        setupId: "worker-setup-b",
+        receiptId: receiptByIdempotency.get(String(second.idempotency_key)),
+      },
+    ]);
+    for (const evidence of database.entryEvidence.values()) {
+      expect(evidence.receipt_id).toBe(
+        candidateReceiptById.get(evidence.candidate_id)?.receiptId,
+      );
+    }
+    for (const handling of database.handling.values()) {
+      expect(handling.receipt_id).toBe(
+        candidateReceiptById.get(handling.candidate_id)?.receiptId,
+      );
+    }
+  });
+
+  it("normalizes compatible legacy and v3 heartbeats onto one schedule epoch", async () => {
+    const database = new FakeD1();
+    const env = await environment(database);
+    const legacy = contractIncrementalPayload();
+    const v3 = entryV2Payload();
+    v3.producer_instance_id = "pine-v3-compatible-heartbeat";
+    v3.idempotency_key =
+      "pine-v3-compatible-heartbeat:1:incremental:1710000300:0";
+    v3.bar_open_epoch = 1_710_000_000;
+    v3.bar_close_epoch = 1_710_000_300;
+    const setup = entryV2Setup(v3);
+    setup.s = "compatible-heartbeat-setup";
+    const facts = setup.f as Record<string, unknown>;
+    facts.ge = 1_710_000_010;
+    const bar = (facts.b as Record<string, unknown>[])[0]!;
+    bar.oe = 1_710_000_000;
+    bar.ce = 1_710_000_300;
+
+    const legacyResponse = await handleRequest(postBody(legacy), env);
+    const v3Response = await handleRequest(postBody(v3), env);
+
+    expect(legacyResponse.status).toBe(202);
+    expect(v3Response.status).toBe(202);
+    expect(
+      database.marketBarHeartbeats
+        .map((item) => ({
+          producer_role: item.producer_role,
+          bar_open_epoch: item.bar_open_epoch,
+          bar_close_epoch: item.bar_close_epoch,
+        }))
+        .sort((left, right) =>
+          left.producer_role.localeCompare(right.producer_role),
+        ),
+    ).toEqual([
+      {
+        producer_role: "ENTRY_V3_CANARY",
+        bar_open_epoch: 1_710_000_000,
+        bar_close_epoch: 1_710_000_300,
+      },
+      {
+        producer_role: "LEGACY_REFERENCE",
+        bar_open_epoch: 1_710_000_000,
+        bar_close_epoch: 1_710_000_300,
+      },
+    ]);
+  });
+
+  it("persists q null as not provided and keeps the effective action closed", async () => {
+    const database = new FakeD1();
+    const value = entryV2Payload();
+    configureEntryV2Batch(value, {
+      sequence: 1,
+      closeEpoch: 1_721_808_300,
+      setupId: "not-provided-setup",
+      directionalClose: false,
+    });
+
+    const response = await handleRequest(
+      postBody(value),
+      await environment(database),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await body(response)).toMatchObject({
+      parity: {
+        matches: 0,
+        mismatches: 0,
+        not_provided: 1,
+      },
+      canonical_paper_enabled: false,
+      execution: "DISABLED",
+    });
+    expect(database.parity[0]).toMatchObject({
+      parity_status: "NOT_PROVIDED",
+      mismatch_reason: null,
+    });
+    expect(database.selections[0]).toMatchObject({
+      policy_action: "NONE",
+      action: "NONE",
+    });
+  });
+
+  it("recomputes a prior flip plus later close as selection revision two", async () => {
+    const database = new FakeD1();
+    const env = await environment(database);
+    const flip = entryV2Payload();
+    configureEntryV2Batch(flip, {
+      sequence: 1,
+      closeEpoch: 1_721_808_300,
+      setupId: "stored-stream-setup",
+      directionalClose: false,
+    });
+    const flipFacts = entryV2Setup(flip).f as Record<string, unknown>;
+    flipFacts.x = [currentMatchedEntryTranscript(1_721_808_300)];
+
+    const close = entryV2Payload();
+    configureEntryV2Batch(close, {
+      sequence: 2,
+      kind: "snapshot",
+      closeEpoch: 1_721_808_600,
+      setupId: "stored-stream-setup",
+    });
+    const closeFacts = entryV2Setup(close).f as Record<string, unknown>;
+    closeFacts.tr = "BOTH_ACTIVE_MODELS_OBSERVED";
+    closeFacts.te = 1_721_808_600;
+    closeFacts.ng = {
+      oe: 1_721_808_600,
+      ce: 1_721_808_900,
+      o: 103,
+      h: 104,
+      l: 98,
+      c: 102,
+      ak: "INITIAL",
+    };
+
+    const first = await handleRequest(postBody(flip), env);
+    const second = await handleRequest(postBody(close), env);
+
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    expect(
+      database.selections
+        .map((item) => ({
+          revision: item.revision,
+          canonical_model: item.canonical_model,
+        }))
+        .sort((left, right) => left.revision - right.revision),
+    ).toEqual([
+      { revision: 1, canonical_model: "HTF_FLIP" },
+      { revision: 2, canonical_model: "HTF_FLIP" },
+    ]);
+    expect(
+      [...database.candidates.values()]
+        .map((item) => item.model)
+        .sort(),
+    ).toEqual(["DIR_CLOSE", "HTF_FLIP"]);
+    expect(database.terminals.get("stored-stream-setup")).toMatchObject({
+      terminal_reason: "BOTH_ACTIVE_MODELS_OBSERVED",
+      terminal_epoch: 1_721_808_600,
+    });
+    expect(database.setupEvents).toHaveLength(3);
+    expect(database.parity.at(-1)).toMatchObject({
+      parity_status: "MISMATCH",
+      mismatch_reason: "MULTIPLE",
+    });
+    expect(database.selections.at(-1)?.action).toBe("SHADOW_ONLY");
+    expect(
+      [...database.handling.values()].some(
+        (item) =>
+          item.handling_mode === "NEXT_CANDLE_WICK" &&
+          item.observed_epoch === 1_721_808_900,
+      ),
+    ).toBe(true);
+  });
+
+  it("quarantines a first-live snapshot whose retained context is absent", async () => {
+    const database = new FakeD1();
+    const value = entryV2Payload();
+    configureEntryV2Batch(value, {
+      sequence: 1,
+      kind: "snapshot",
+      closeEpoch: 1_721_808_300,
+      setupId: "missing-context-setup",
+    });
+    const facts = entryV2Setup(value).f as Record<string, unknown>;
+    facts.b = [
+      {
+        oe: 1_721_807_700,
+        ce: 1_721_808_000,
+        o: 98,
+        h: 102,
+        l: 96,
+        c: 99,
+        gb: false,
+        rr: false,
+      },
+      ...(facts.b as Record<string, unknown>[]),
+    ];
+
+    const response = await handleRequest(
+      postBody(value),
+      await environment(database),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await body(response)).toMatchObject({
+      error: { code: "EVENT_STREAM_CONTEXT_MISSING" },
+      execution: "DISABLED",
+    });
+    expect(database.quarantine.size).toBe(1);
+    expect([...database.quarantine.values()][0]).toMatchObject({
+      receipt_id: null,
+      reason: "EVENT_STREAM_CONTEXT_MISSING",
+    });
+    expect(database.records).toHaveLength(0);
+    expect(database.setupEvents).toHaveLength(0);
+  });
+
+  it("persists explicit invalidation and retention terminal facts from the stored stream", async () => {
+    const beforeDatabase = new FakeD1();
+    const before = entryV2Payload();
+    configureEntryV2Batch(before, {
+      sequence: 1,
+      closeEpoch: 1_721_808_300,
+      setupId: "invalid-before-entry",
+      directionalClose: false,
+    });
+    const beforeFacts = entryV2Setup(before).f as Record<string, unknown>;
+    beforeFacts.iv = true;
+    beforeFacts.tr = "INVALIDATED";
+    beforeFacts.te = 1_721_808_300;
+    const beforeEnv = await environment(beforeDatabase);
+
+    const beforeResponse = await handleRequest(
+      postBody(before),
+      beforeEnv,
+    );
+
+    expect(beforeResponse.status).toBe(202);
+    expect(beforeDatabase.terminals.get("invalid-before-entry")).toMatchObject({
+      terminal_reason: "INVALIDATED",
+      terminal_epoch: 1_721_808_300,
+    });
+    expect(
+      JSON.parse(
+        [...beforeDatabase.setupEvents.values()][0]?.proof_input_json ?? "{}",
+      ),
+    ).toMatchObject({
+      setup: { invalidated_before_entry: true },
+    });
+    const terminalMutation = entryV2Payload();
+    configureEntryV2Batch(terminalMutation, {
+      sequence: 2,
+      closeEpoch: 1_721_808_600,
+      setupId: "invalid-before-entry",
+      directionalClose: false,
+    });
+    const mutationResponse = await handleRequest(
+      postBody(terminalMutation),
+      beforeEnv,
+    );
+    expect(mutationResponse.status).toBe(409);
+    expect(await body(mutationResponse)).toMatchObject({
+      error: { code: "TERMINAL_FACT_CONFLICT" },
+    });
+    expect(beforeDatabase.terminals).toHaveLength(1);
+
+    const afterDatabase = new FakeD1();
+    const afterEnv = await environment(afterDatabase);
+    const active = entryV2Payload();
+    configureEntryV2Batch(active, {
+      sequence: 1,
+      closeEpoch: 1_721_808_300,
+      setupId: "invalid-after-entry",
+    });
+    const invalidated = entryV2Payload();
+    configureEntryV2Batch(invalidated, {
+      sequence: 2,
+      closeEpoch: 1_721_808_600,
+      setupId: "invalid-after-entry",
+      directionalClose: false,
+    });
+    const invalidatedFacts = entryV2Setup(invalidated).f as Record<
+      string,
+      unknown
+    >;
+    invalidatedFacts.iv = false;
+    invalidatedFacts.tr = "INVALIDATED";
+    invalidatedFacts.te = 1_721_808_600;
+
+    expect((await handleRequest(postBody(active), afterEnv)).status).toBe(202);
+    expect(
+      (await handleRequest(postBody(invalidated), afterEnv)).status,
+    ).toBe(202);
+    expect(afterDatabase.terminals.get("invalid-after-entry")).toMatchObject({
+      terminal_reason: "INVALIDATED",
+      terminal_epoch: 1_721_808_600,
+    });
+    expect(
+      [...afterDatabase.candidates.values()].map((item) => item.model),
+    ).toEqual(["DIR_CLOSE"]);
+
+    const retentionDatabase = new FakeD1();
+    const retention = entryV2Payload();
+    configureEntryV2Batch(retention, {
+      sequence: 1,
+      closeEpoch: 1_721_808_300,
+      setupId: "retention-evicted",
+      directionalClose: false,
+    });
+    const retentionFacts = entryV2Setup(retention).f as Record<
+      string,
+      unknown
+    >;
+    retentionFacts.tr = "RETENTION_EVICTED";
+    retentionFacts.te = 1_721_808_300;
+
+    expect(
+      (
+        await handleRequest(
+          postBody(retention),
+          await environment(retentionDatabase),
+        )
+      ).status,
+    ).toBe(202);
+    expect(retentionDatabase.terminals.get("retention-evicted")).toMatchObject({
+      terminal_reason: "RETENTION_EVICTED",
+    });
+  });
+
+  it("quarantines a BOTH terminal until both stored active models exist", async () => {
+    const database = new FakeD1();
+    const value = entryV2Payload();
+    configureEntryV2Batch(value, {
+      sequence: 1,
+      closeEpoch: 1_721_808_300,
+      setupId: "invalid-both-terminal",
+    });
+    const facts = entryV2Setup(value).f as Record<string, unknown>;
+    facts.tr = "BOTH_ACTIVE_MODELS_OBSERVED";
+    facts.te = 1_721_808_300;
+
+    const response = await handleRequest(
+      postBody(value),
+      await environment(database),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await body(response)).toMatchObject({
+      error: { code: "TERMINAL_FACT_CONFLICT" },
+      execution: "DISABLED",
+    });
+    expect(database.terminals).toHaveLength(0);
+    expect(database.selections).toHaveLength(0);
+    expect(database.quarantine.size).toBe(1);
+  });
+
+  it("retries one complete selection revision race without partial persistence", async () => {
+    const database = new FakeD1(false, true);
+    const response = await handleRequest(
+      postBody(entryV2Payload()),
+      await environment(database),
+    );
+
+    expect(response.status).toBe(202);
+    expect(await body(response)).toMatchObject({
+      assembly: { status: "COMPLETE" },
+      evaluation_count: 1,
+      execution: "DISABLED",
+    });
+    expect(database.records).toHaveLength(1);
+    expect(database.chunks).toHaveLength(1);
+    expect(database.setupEvents).toHaveLength(1);
+    expect(database.selections).toHaveLength(1);
+    expect(database.parity).toHaveLength(1);
+    expect(database.completions).toHaveLength(1);
   });
 
   it("preserves a valid 35,000-character legacy 1.0 envelope", async () => {
@@ -3094,7 +3933,7 @@ describe("deployment contract", () => {
     ).not.toThrow();
   });
 
-  it("allows promotion mismatch only as a paper-to-shadow reduction", () => {
+  it("allows fail-closed shadow while restricting promotion mismatch", () => {
     const root = fileURLToPath(new URL("..", import.meta.url));
     const database = new DatabaseSync(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
@@ -3146,11 +3985,20 @@ describe("deployment contract", () => {
         "SHADOW_ONLY",
         null,
       ),
-    ).toThrow(/CHECK constraint failed/u);
+    ).not.toThrow();
     expect(() =>
       insertSelection(
-        "5".repeat(64),
-        4,
+        "6".repeat(64),
+        5,
+        "OBSERVE",
+        "SHADOW_ONLY",
+        null,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      insertSelection(
+        "7".repeat(64),
+        6,
         "OBSERVE",
         "SHADOW_ONLY",
         "PROMOTION_IDENTITY_MISMATCH",
@@ -3158,18 +4006,18 @@ describe("deployment contract", () => {
     ).toThrow(/CHECK constraint failed/u);
     expect(() =>
       insertSelection(
-        "5".repeat(64),
-        4,
+        "7".repeat(64),
+        6,
         "PAPER_ELIGIBLE",
         "PAPER_ELIGIBLE",
         "PROMOTION_IDENTITY_MISMATCH",
       ),
     ).toThrow(/CHECK constraint failed/u);
     expect(() =>
-      insertSelection("5".repeat(64), 4, "PAPER_ELIGIBLE", "EXECUTE", null),
+      insertSelection("7".repeat(64), 6, "PAPER_ELIGIBLE", "EXECUTE", null),
     ).toThrow(/CHECK constraint failed/u);
     expect(() =>
-      insertSelection("5".repeat(64), 4, "OBSERVE", "OBSERVE", null, "LEGACY_BREAK_CANDLE"),
+      insertSelection("7".repeat(64), 6, "OBSERVE", "OBSERVE", null, "LEGACY_BREAK_CANDLE"),
     ).toThrow(/CHECK constraint failed/u);
 
     expect(
@@ -3194,6 +4042,16 @@ describe("deployment contract", () => {
       {
         policy_action: "PAPER_ELIGIBLE",
         action: "PAPER_ELIGIBLE",
+        effective_action_reason: null,
+      },
+      {
+        policy_action: "PAPER_ELIGIBLE",
+        action: "SHADOW_ONLY",
+        effective_action_reason: null,
+      },
+      {
+        policy_action: "OBSERVE",
+        action: "SHADOW_ONLY",
         effective_action_reason: null,
       },
     ]);
