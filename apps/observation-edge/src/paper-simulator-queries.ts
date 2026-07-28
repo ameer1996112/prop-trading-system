@@ -161,6 +161,10 @@ SELECT
   i.source,
   i.source_receipt_id,
   i.created_at,
+  v3_link.setup_id,
+  v3_selection.canonical_model AS selected_entry_model,
+  COALESCE(v3_selection.co_triggered_models_json, '[]')
+    AS co_triggered_models_json,
   a.account_id,
   a.risk_amount_minor,
   a.balance_before_minor,
@@ -175,6 +179,10 @@ SELECT
 FROM paper_trade_intents AS i
 JOIN paper_trade_allocations AS a ON a.intent_id = i.intent_id
 LEFT JOIN paper_trade_settlements AS s ON s.intent_id = i.intent_id
+LEFT JOIN observation_entry_v3_paper_links AS v3_link
+  ON v3_link.intent_id = i.intent_id
+LEFT JOIN observation_entry_v3_selections AS v3_selection
+  ON v3_selection.selection_id = v3_link.selection_id
 WHERE i.intent_id IN (
   SELECT intent_id
   FROM paper_trade_intents

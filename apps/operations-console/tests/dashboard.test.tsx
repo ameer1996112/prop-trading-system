@@ -51,6 +51,7 @@ describe("FoundationDashboard", () => {
     await waitFor(() => expect(screen.getByText("ONLINE")).toBeInTheDocument());
     expect(screen.getAllByText("ENABLED")).toHaveLength(2);
     expect(screen.getByText(/no broker connection/i)).toBeInTheDocument();
+    expect(screen.getByText(/three-model entry arbitration/i)).toBeInTheDocument();
   });
 
   it("keeps API and ingress fail-closed when polling cannot verify them", async () => {

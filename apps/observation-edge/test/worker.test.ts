@@ -1387,7 +1387,9 @@ function postBody(payload: Record<string, unknown>, credential = CREDENTIAL): Re
   });
 }
 
-function entryV3WorkerPayload(): Record<string, unknown> {
+function entryV3WorkerPayload(
+  caseId = "strict_long_boc_only",
+): Record<string, unknown> {
   const vectors = JSON.parse(
     readFileSync(
       new URL(
@@ -1408,7 +1410,7 @@ function entryV3WorkerPayload(): Record<string, unknown> {
     }>;
   };
   const vector = structuredClone(
-    vectors.cases.find((item) => item.case_id === "strict_long_boc_only")!,
+    vectors.cases.find((item) => item.case_id === caseId)!,
   );
   const evidence = vector.expected.evidence[0]!;
   const input = vector.input;
@@ -1483,6 +1485,187 @@ function entryV3WorkerPayload(): Record<string, unknown> {
   };
 }
 
+function seedEntryV3Decision(
+  database: FakeD1,
+  caseId: string,
+): void {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../contracts/vectors/rd-entry-arbitration-v3.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as {
+    cases: Array<{
+      case_id: string;
+      expected: {
+        candidates: Array<Record<string, unknown>>;
+        evidence: Array<Record<string, unknown>>;
+        selection: Record<string, unknown>;
+      };
+    }>;
+  };
+  const expected = structuredClone(
+    vectors.cases.find((item) => item.case_id === caseId)!.expected,
+  );
+  const eventId = `decision-event:${caseId}`;
+  const receiptId = `decision-receipt:${caseId}`;
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_receipts (
+        receipt_id, received_at, idempotency_key, payload_sha256,
+        schema_version, strategy_id, strategy_version, producer_instance_id,
+        sequence, symbol, ticker_id, feed, timeframe, kind
+      ) VALUES (?, '2026-07-28T00:00:00Z', ?, ?, '3.0',
+        'rd_liquidity_sd_5m_v1', '3.0.0-contract3', 'decision-test-producer',
+        1, 'EURUSD', 'OANDA:EURUSD', 'OANDA', '5', 'incremental')`,
+    )
+    .run(receiptId, `decision:${caseId}`, "9".repeat(64));
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_entry_v3_events (
+        event_id, receipt_id, producer_instance_id, producer_sequence,
+        strategy_version, rule_contract_version, event_role, is_realtime,
+        symbol, tick_size, detector_code_hash, settings_hash,
+        validated_payload_json, payload_sha256, observed_at_epoch, recorded_at
+      ) VALUES (?, ?, 'decision-test-producer', 1, '3.0.0-contract3',
+        '3.0.0', 'ENTRY_DECISION', 1, 'EURUSD', '0.00001', ?, ?,
+        ?, ?, 2400, '2026-07-28T00:00:00Z')`,
+    )
+    .run(
+      eventId,
+      receiptId,
+      "a".repeat(64),
+      "b".repeat(64),
+      JSON.stringify({ credential: CREDENTIAL, payload: "not-for-read-api" }),
+      "9".repeat(64),
+    );
+  const candidateRows = new Map<string, string>();
+  for (const [index, candidate] of expected.candidates.entries()) {
+    const logicalId = String(candidate.candidate_id);
+    const rowId = `stored-candidate:${index}:${logicalId}`;
+    candidateRows.set(logicalId, rowId);
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_candidates (
+          candidate_id, logical_candidate_id, event_id, setup_id, model,
+          state, direction, event_anchor_epoch, trigger_ordinal, boc_tier,
+          reference_candle_open_epoch, source_claim_ids_json, candidate_json,
+          observed_at_epoch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        rowId,
+        logicalId,
+        eventId,
+        candidate.setup_id as string,
+        candidate.model as string,
+        candidate.state as string,
+        candidate.direction as string,
+        candidate.event_anchor_epoch as number,
+        candidate.trigger_ordinal as number,
+        candidate.boc_tier as string | null,
+        candidate.reference_candle_open_epoch as number | null,
+        JSON.stringify(candidate.source_claim_ids),
+        JSON.stringify(candidate),
+        candidate.observed_at_epoch as number,
+      );
+  }
+  const evidenceRows = new Map<string, string>();
+  for (const [index, evidence] of expected.evidence.entries()) {
+    const logicalId = String(evidence.evidence_id);
+    const logicalCandidateId = String(evidence.candidate_id);
+    const rowId = `stored-evidence:${index}:${logicalId}`;
+    evidenceRows.set(logicalId, rowId);
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_evidence (
+          evidence_id, logical_evidence_id, event_id, candidate_id,
+          logical_candidate_id, observed_trigger_epoch, trigger_sequence,
+          observed_trigger_ticks, fidelity, proof_plane, replayability,
+          evidence_json, observed_at_epoch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        rowId,
+        logicalId,
+        eventId,
+        candidateRows.get(logicalCandidateId)!,
+        logicalCandidateId,
+        evidence.observed_trigger_epoch as number | null,
+        evidence.trigger_sequence as number,
+        evidence.observed_trigger_ticks as number | null,
+        evidence.fidelity as string,
+        evidence.proof_plane as string,
+        evidence.replayability as string,
+        JSON.stringify(evidence),
+        evidence.observed_at_epoch as number,
+      );
+  }
+  const selection = expected.selection;
+  const selectionRowId = `stored-selection:${String(selection.selection_id)}`;
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_entry_v3_selections (
+        selection_id, logical_selection_id, event_id, setup_id, attempt_kind,
+        policy_version, revision, canonical_candidate_id,
+        canonical_evidence_id, canonical_model, reason, fidelity,
+        policy_action, action, effective_action_reason,
+        co_triggered_models_json, evaluated_at_epoch, selected_trigger_epoch,
+        selected_trigger_sequence, entry_ticks, stop_ticks, target_ticks,
+        selection_json
+      ) VALUES (?, ?, ?, ?, 'INITIAL', 'rd-entry-arbitration-v3', ?, ?, ?, ?,
+        ?, ?, ?, 'SHADOW_ONLY', 'PROMOTION_IDENTITY_MISMATCH', ?, ?, ?, ?,
+        109, 101, 151, ?)`,
+    )
+    .run(
+      selectionRowId,
+      selection.selection_id as string,
+      eventId,
+      selection.setup_id as string,
+      selection.revision as number,
+      candidateRows.get(String(selection.canonical_candidate_id)) ?? null,
+      evidenceRows.get(String(selection.canonical_evidence_id)) ?? null,
+      selection.canonical_model as string | null,
+      selection.reason as string,
+      selection.fidelity as string | null,
+      selection.action as string,
+      JSON.stringify(selection.co_triggered_models),
+      selection.evaluated_at_epoch as number,
+      2100,
+      0,
+      JSON.stringify(selection),
+    );
+  for (const rowId of candidateRows.values()) {
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_selection_members (
+          selection_id, object_kind, object_id
+        ) VALUES (?, 'CANDIDATE', ?)`,
+      )
+      .run(selectionRowId, rowId);
+  }
+  for (const rowId of evidenceRows.values()) {
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_selection_members (
+          selection_id, object_kind, object_id
+        ) VALUES (?, 'EVIDENCE', ?)`,
+      )
+      .run(selectionRowId, rowId);
+  }
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_entry_v3_parity (
+        parity_id, event_id, selection_id, parity_status, mismatch_reason,
+        compared_at
+      ) VALUES (?, ?, ?, 'MATCH', NULL, '2026-07-28T00:00:00Z')`,
+    )
+    .run(`parity:${caseId}`, eventId, selectionRowId);
+}
+
 function entryV3WorkerExitPayload(
   base: Record<string, unknown>,
   eventId: string,
@@ -1554,6 +1737,117 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe("observation edge Worker", () => {
+  it("returns a protected, bounded v3 decision ledger with all competing models", async () => {
+    const database = new FakeD1();
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "d".repeat(64),
+    });
+    seedEntryV3Decision(
+      database,
+      "close_fallback_after_blocked_aggressive_models",
+    );
+
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    const report = await body(response);
+
+    expect(response.status).toBe(200);
+    expect(report.mode).toBe("PAPER_ONLY");
+    const items = report.items as Array<Record<string, unknown>>;
+    expect(items).toHaveLength(1);
+    expect(items[0]?.selection).toMatchObject({
+      canonical_model: "DIR_CLOSE",
+      policy_action: "PAPER_ELIGIBLE",
+      action: "SHADOW_ONLY",
+      effective_action_reason: "PROMOTION_IDENTITY_MISMATCH",
+    });
+    expect(
+      (items[0]?.candidates as Array<Record<string, unknown>>).map(
+        (candidate) => candidate.model,
+      ),
+    ).toEqual(["BOC", "DIR_CLOSE", "HTF_FLIP"]);
+    expect(JSON.stringify(report)).not.toContain("validated_payload_json");
+    expect(JSON.stringify(report)).not.toContain(CREDENTIAL);
+    expect(JSON.stringify(report)).not.toContain("RD_ENTRY_");
+    expect(new TextEncoder().encode(JSON.stringify(report)).byteLength).toBeLessThan(
+      1_048_576,
+    );
+
+    const decisionQueries = database.preparedSql.filter((sql) =>
+      sql.includes("observation_entry_v3_"),
+    );
+    expect(
+      decisionQueries.filter((sql) =>
+        sql.includes("observation_entry_v3_candidates"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      decisionQueries.filter((sql) =>
+        sql.includes("observation_entry_v3_evidence"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    "/api/v1/rd-entry-decisions",
+    "/api/v1/rd-entry-decisions?limit=0",
+    "/api/v1/rd-entry-decisions?limit=201",
+    "/api/v1/rd-entry-decisions?limit=x",
+    "/api/v1/rd-entry-decisions?limit=1&limit=2",
+    "/api/v1/rd-entry-decisions?limit=20&cursor=secret",
+  ])("rejects a non-exact decision limit query: %s", async (path) => {
+    const env = await environment(new FakeD1(), {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+    const response = await handleRequest(
+      new Request(`${BASE_URL}${path}`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    expect(response.status).toBe(422);
+  });
+
+  it("authenticates the decision ledger like existing protected reads", async () => {
+    const env = await environment(new FakeD1(), {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+    const unauthorized = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`),
+      env,
+    );
+    const wrongMethod = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    const empty = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    expect(unauthorized.status).toBe(401);
+    expect(wrongMethod.status).toBe(405);
+    expect(await body(empty)).toEqual({
+      schema_version: "1.0",
+      mode: "PAPER_ONLY",
+      count: 0,
+      items: [],
+    });
+  });
+
   it("routes bounded v3 audit responses and returns explicit conflicts", async () => {
     const database = new FakeD1();
     const env = await environment(database, {
@@ -1602,6 +1896,8 @@ describe("observation edge Worker", () => {
     const database = new FakeD1();
     installWorkerPaperAccount(database);
     const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
       RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
       RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
       RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
@@ -1619,6 +1915,43 @@ describe("observation edge Worker", () => {
         .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
         .get(),
     ).toEqual({ count: 1 });
+    const protectedHeaders = {
+      Authorization: `Bearer ${CREDENTIAL}`,
+    };
+    const decisionResponse = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        headers: protectedHeaders,
+      }),
+      env,
+    );
+    expect(decisionResponse.status).toBe(200);
+    expect(await body(decisionResponse)).toMatchObject({
+      items: [
+        {
+          setup_id: "setup-strict-long",
+          selection: { canonical_model: "BOC", action: "PAPER_ELIGIBLE" },
+          paper_intent_id: expect.any(String),
+          trade: { state: "OPEN" },
+        },
+      ],
+    });
+    const summaryResponse = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/paper-simulations/summary?limit=20`, {
+        headers: protectedHeaders,
+      }),
+      env,
+    );
+    expect(summaryResponse.status).toBe(200);
+    expect(await body(summaryResponse)).toMatchObject({
+      intents: [
+        {
+          setup_id: "setup-strict-long",
+          selected_entry_model: "BOC",
+          co_triggered_models: [],
+          source_receipt_id: null,
+        },
+      ],
+    });
 
     const stop = entryV3WorkerExitPayload(
       entry,

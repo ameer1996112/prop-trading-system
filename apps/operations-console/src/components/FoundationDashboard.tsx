@@ -85,8 +85,9 @@ export function FoundationDashboard() {
           <h1>Signals enter here. Orders never do.</h1>
         </div>
         <p className="header-note">
-          Alert delivery plus protected paper simulation. This console has no broker connection
-          or live execution path.
+          Alert delivery, three-model entry arbitration, and protected paper
+          simulation. This console has no broker connection or live execution
+          path.
         </p>
       </header>
 

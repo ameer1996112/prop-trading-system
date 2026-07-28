@@ -2,10 +2,20 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
+  loadEntryDecisions: vi.fn(),
   loadPaperReadiness: vi.fn(),
   loadPaperSimulationSummary: vi.fn(),
   setPaperReadinessKillSwitch: vi.fn(),
 }));
+
+vi.mock("../src/lib/entry-decisions", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/lib/entry-decisions")>();
+  return {
+    ...actual,
+    loadEntryDecisions: apiMocks.loadEntryDecisions,
+  };
+});
 
 vi.mock("../src/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/api")>();
@@ -47,6 +57,9 @@ const snapshot = {
       riskBps: 50,
       source: "TRADINGVIEW" as const,
       sourceReceiptId: "receipt-a",
+      setupId: null,
+      selectedEntryModel: null,
+      coTriggeredModels: [],
       state: "SETTLED" as const,
       createdAt: "2026-07-23T10:00:00Z",
       outcomeRMillis: 1500,
@@ -123,6 +136,11 @@ afterEach(() => {
 
 describe("PaperSimulationPanel", () => {
   it("loads summary and readiness together, refreshes, and locks again", async () => {
+    apiMocks.loadEntryDecisions.mockResolvedValue({
+      state: "EMPTY",
+      items: [],
+      message: "No decisions recorded.",
+    });
     apiMocks.loadPaperSimulationSummary.mockResolvedValue(snapshot);
     apiMocks.loadPaperReadiness.mockResolvedValue(readiness);
     render(<PaperSimulationPanel />);
@@ -138,6 +156,10 @@ describe("PaperSimulationPanel", () => {
       expect.any(AbortSignal),
     );
     expect(apiMocks.loadPaperReadiness).toHaveBeenCalledWith(
+      "operator-secret",
+      expect.any(AbortSignal),
+    );
+    expect(apiMocks.loadEntryDecisions).toHaveBeenCalledWith(
       "operator-secret",
       expect.any(AbortSignal),
     );
@@ -166,6 +188,11 @@ describe("PaperSimulationPanel", () => {
   });
 
   it("shows rejected credentials without revealing the presented value", async () => {
+    apiMocks.loadEntryDecisions.mockResolvedValue({
+      state: "ERROR",
+      items: [],
+      message: "Entry decisions are unavailable or malformed.",
+    });
     apiMocks.loadPaperSimulationSummary.mockRejectedValue(
       new Error("Paper operator credential was rejected."),
     );
@@ -184,6 +211,11 @@ describe("PaperSimulationPanel", () => {
   });
 
   it("requires a reason and preserves visible evidence when control fails", async () => {
+    apiMocks.loadEntryDecisions.mockResolvedValue({
+      state: "EMPTY",
+      items: [],
+      message: "No decisions recorded.",
+    });
     apiMocks.loadPaperSimulationSummary.mockResolvedValue(snapshot);
     apiMocks.loadPaperReadiness.mockResolvedValue(readiness);
     apiMocks.setPaperReadinessKillSwitch.mockRejectedValue(
@@ -223,6 +255,11 @@ describe("PaperSimulationPanel", () => {
   });
 
   it("engages the kill switch and reloads authoritative evidence", async () => {
+    apiMocks.loadEntryDecisions.mockResolvedValue({
+      state: "EMPTY",
+      items: [],
+      message: "No decisions recorded.",
+    });
     const stopped = {
       ...readiness,
       state: "STOPPED" as const,
@@ -263,5 +300,40 @@ describe("PaperSimulationPanel", () => {
     ).toBeInTheDocument();
     await waitFor(() => expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText("Paper kill switch engaged")).toBeInTheDocument();
+  });
+
+  it("links a v3 paper row to its selected model and keeps co-trigger context", async () => {
+    apiMocks.loadEntryDecisions.mockResolvedValue({
+      state: "EMPTY",
+      items: [],
+      message: "No decisions recorded.",
+    });
+    apiMocks.loadPaperReadiness.mockResolvedValue(readiness);
+    apiMocks.loadPaperSimulationSummary.mockResolvedValue({
+      ...snapshot,
+      intents: [
+        {
+          ...snapshot.intents[0]!,
+          setupId: "setup-a",
+          selectedEntryModel: "HTF_FLIP",
+          coTriggeredModels: ["BOC"],
+        },
+      ],
+    });
+    render(<PaperSimulationPanel />);
+    fireEvent.change(screen.getByLabelText("Paper operator credential"), {
+      target: { value: "operator-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "UNLOCK" }));
+
+    expect(await screen.findByText("HTF FLIP selected")).toHaveAttribute(
+      "href",
+      "#entry-decisions",
+    );
+    expect(screen.getByText("Co-trigger · BOC")).toBeInTheDocument();
+    expect(screen.getByText("EURUSD").closest("article")).toHaveAttribute(
+      "id",
+      "paper-intent-intent-a",
+    );
   });
 });

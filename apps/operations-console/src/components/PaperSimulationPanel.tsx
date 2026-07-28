@@ -18,6 +18,11 @@ import {
   type PaperSimulationIntent,
   type PaperSimulationSnapshot,
 } from "../lib/api";
+import {
+  loadEntryDecisions,
+  type EntryDecisionSnapshot,
+} from "../lib/entry-decisions";
+import { EntryDecisionPanel } from "./EntryDecisionPanel";
 
 function money(
   amountMinor: number,
@@ -94,7 +99,7 @@ function IntentCard({
 }) {
   const accountsById = new Map(accounts.map((account) => [account.accountId, account]));
   return (
-    <article className="simulation-intent">
+    <article className="simulation-intent" id={`paper-intent-${intent.intentId}`}>
       <div className="simulation-intent-heading">
         <div>
           <span className={`intent-side intent-side-${intent.side.toLowerCase()}`}>
@@ -103,6 +108,16 @@ function IntentCard({
           <span className="intent-source">
             {intent.source === "TRADINGVIEW" ? "AUTO · TRADINGVIEW" : "MANUAL"}
           </span>
+          {intent.selectedEntryModel === null ? null : (
+            <a className="intent-entry-model" href="#entry-decisions">
+              {intent.selectedEntryModel.replace("_", " ")} selected
+            </a>
+          )}
+          {intent.coTriggeredModels.length === 0 ? null : (
+            <span className="intent-co-trigger">
+              Co-trigger · {intent.coTriggeredModels.join(" + ")}
+            </span>
+          )}
           <h3>{intent.symbol}</h3>
         </div>
         <strong className={`intent-state intent-state-${intent.state.toLowerCase()}`}>
@@ -485,6 +500,7 @@ export function PaperSimulationPanel() {
   const [protectedData, setProtectedData] = useState<{
     simulation: PaperSimulationSnapshot;
     readiness: PaperReadinessSnapshot;
+    decisions: EntryDecisionSnapshot;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [mutating, setMutating] = useState(false);
@@ -504,13 +520,14 @@ export function PaperSimulationPanel() {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const [simulation, readiness] = await Promise.all([
+      const [simulation, readiness, decisions] = await Promise.all([
         loadPaperSimulationSummary(presentedCredential, controller.signal),
         loadPaperReadiness(presentedCredential, controller.signal),
+        loadEntryDecisions(presentedCredential, controller.signal),
       ]);
       if (controller.signal.aborted || version !== sessionVersion.current) return;
       sessionCredential.current = presentedCredential;
-      setProtectedData({ readiness, simulation });
+      setProtectedData({ decisions, readiness, simulation });
     } catch (cause) {
       if (controller.signal.aborted || version !== sessionVersion.current) return;
       setError(cause instanceof Error ? cause.message : "Paper simulator is unavailable.");
@@ -709,6 +726,8 @@ export function PaperSimulationPanel() {
             readiness={protectedData.readiness}
             simulation={protectedData.simulation}
           />
+
+          <EntryDecisionPanel initialSnapshot={protectedData.decisions} />
 
           <div className="simulation-account-grid">
             {protectedData.simulation.accounts.map((account) => (

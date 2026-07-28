@@ -114,6 +114,23 @@ import {
   appendEntryV3Observation,
   EntryV3StoreConflict,
 } from "./rd-entry-store-v3";
+import {
+  LIST_ENTRY_V3_DECISION_CANDIDATES_SQL,
+  LIST_ENTRY_V3_DECISION_EVIDENCE_SQL,
+  LIST_ENTRY_V3_DECISION_PAPER_SQL,
+  LIST_ENTRY_V3_DECISION_PARITY_SQL,
+  LIST_ENTRY_V3_DECISION_SHADOW_SQL,
+  LIST_ENTRY_V3_DECISIONS_SQL,
+} from "./rd-entry-queries-v3";
+import {
+  validateEntryCandidateV3,
+  validateEntryEvidenceV3,
+  validateSelectionShapeV3,
+  type EntryCandidateEvidenceV3,
+  type EntryCandidateV3,
+  type EntrySelectionV3,
+  type SelectionActionV3,
+} from "./rd-entry-domain-v3";
 
 export {
   canonicalPaperSelectionConfigured,
@@ -124,6 +141,8 @@ const DEFAULT_MAX_BODY_BYTES = 262_144;
 const MIN_MAX_BODY_BYTES = 1_024;
 const MAX_MAX_BODY_BYTES = 1_048_576;
 const PAPER_MAX_BODY_BYTES = 16_384;
+const MAX_DECISION_RESPONSE_BYTES = 1_048_576;
+const MAX_STORED_DECISION_JSON_BYTES = 65_536;
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const SHA256 = /^[a-f0-9]{64}$/;
 
@@ -1344,6 +1363,397 @@ function parseLimit(url: URL): number | null {
     return null;
   }
   return limit;
+}
+
+function parseExactDecisionLimit(url: URL): number | null {
+  if (
+    [...url.searchParams.keys()].some((key) => key !== "limit") ||
+    url.searchParams.getAll("limit").length !== 1
+  ) {
+    return null;
+  }
+  const raw = url.searchParams.get("limit") ?? "";
+  if (!/^[0-9]+$/u.test(raw)) return null;
+  const limit = Number(raw);
+  return Number.isSafeInteger(limit) && limit >= 1 && limit <= 200
+    ? limit
+    : null;
+}
+
+interface DecisionSelectionRow {
+  readonly selection_id: string;
+  readonly event_id: string;
+  readonly setup_id: string;
+  readonly attempt_kind: "INITIAL" | "RE_ENTRY";
+  readonly policy_action: SelectionActionV3;
+  readonly action: SelectionActionV3;
+  readonly effective_action_reason:
+    | "PROMOTION_IDENTITY_MISMATCH"
+    | "PAPER_CONFIGURATION_UNAVAILABLE"
+    | "NOT_SELECTED_ALREADY_OPEN"
+    | null;
+  readonly co_triggered_models_json: string;
+  readonly evaluated_at_epoch: number;
+  readonly selected_trigger_epoch: number | null;
+  readonly selected_trigger_sequence: number | null;
+  readonly entry_ticks: number;
+  readonly stop_ticks: number;
+  readonly target_ticks: number;
+  readonly selection_json: string;
+  readonly symbol: string;
+  readonly tick_size: string;
+}
+
+interface DecisionCandidateRow {
+  readonly selection_id: string;
+  readonly candidate_id: string;
+  readonly logical_candidate_id: string;
+  readonly candidate_json: string;
+}
+
+interface DecisionEvidenceRow {
+  readonly selection_id: string;
+  readonly evidence_id: string;
+  readonly logical_evidence_id: string;
+  readonly evidence_json: string;
+}
+
+interface DecisionParityRow {
+  readonly selection_id: string;
+  readonly parity_status: "MATCH" | "MISMATCH" | "NOT_PROVIDED";
+  readonly mismatch_reason:
+    | "CANDIDATE_IDENTITIES"
+    | "EVIDENCE_IDENTITIES"
+    | "SELECTED_CANDIDATE"
+    | "REASON"
+    | "ACTION"
+    | "MULTIPLE"
+    | null;
+}
+
+interface DecisionPaperRow {
+  readonly selection_id: string;
+  readonly intent_id: string;
+  readonly entry_price: string;
+  readonly stop_loss: string;
+  readonly take_profit: string;
+  readonly trade_state: "OPEN" | "SETTLED";
+}
+
+interface DecisionShadowRow {
+  readonly selection_id: string;
+  readonly state: "OPEN" | "STOPPED" | "TARGET_HIT" | "AMBIGUOUS";
+  readonly outcome_r_millis: number | null;
+}
+
+function parseStoredDecisionJson<T>(
+  value: string,
+  validate: (parsed: T) => void,
+): T {
+  if (
+    typeof value !== "string" ||
+    new TextEncoder().encode(value).byteLength > MAX_STORED_DECISION_JSON_BYTES
+  ) {
+    throw new StorageUnavailableError();
+  }
+  const parsed = JSON.parse(value) as T;
+  validate(parsed);
+  return parsed;
+}
+
+function decisionCandidateView(
+  candidate: EntryCandidateV3,
+  evidence: EntryCandidateEvidenceV3,
+): Record<string, unknown> {
+  if (evidence.candidate_id !== candidate.candidate_id) {
+    throw new StorageUnavailableError();
+  }
+  const referenceCandle =
+    evidence.boc_tier === null
+      ? null
+      : {
+          open_epoch: evidence.reference_candle_open_epoch,
+          open_ticks: evidence.reference_candle_open_ticks,
+          high_ticks: evidence.reference_candle_high_ticks,
+          low_ticks: evidence.reference_candle_low_ticks,
+          close_ticks: evidence.reference_candle_close_ticks,
+        };
+  return {
+    candidate_id: candidate.candidate_id,
+    model: candidate.model,
+    state: candidate.state,
+    direction: candidate.direction,
+    event_anchor_epoch: candidate.event_anchor_epoch,
+    trigger_ordinal: candidate.trigger_ordinal,
+    boc_tier: candidate.boc_tier,
+    reference_candle_open_epoch: candidate.reference_candle_open_epoch,
+    source_claim_ids: [...candidate.source_claim_ids],
+    evidence: {
+      evidence_id: evidence.evidence_id,
+      observed_trigger_epoch: evidence.observed_trigger_epoch,
+      trigger_sequence: evidence.trigger_sequence,
+      observed_trigger_ticks: evidence.observed_trigger_ticks,
+      fidelity: evidence.fidelity,
+      proof_plane: evidence.proof_plane,
+      replayability: evidence.replayability,
+      htf_context_minutes: [...evidence.htf_context_minutes],
+      coverage_start_epoch: evidence.coverage_start_epoch,
+      coverage_end_epoch: evidence.coverage_end_epoch,
+      ambiguity_codes: [...evidence.ambiguity_codes],
+      passed_rule_ids: [...evidence.passed_rule_ids],
+      failed_rule_ids: [...evidence.failed_rule_ids],
+      reference_candle: referenceCandle,
+      contact_candle: evidence.contact_candle,
+      recross_candle: evidence.recross_candle,
+    },
+  };
+}
+
+function decisionSelectionView(
+  selection: EntrySelectionV3,
+  row: DecisionSelectionRow,
+): Record<string, unknown> {
+  if (
+    selection.setup_id !== row.setup_id ||
+    selection.action !== row.policy_action ||
+    selection.evaluated_at_epoch !== row.evaluated_at_epoch
+  ) {
+    throw new StorageUnavailableError();
+  }
+  return {
+    selection_id: selection.selection_id,
+    setup_id: selection.setup_id,
+    policy_version: selection.policy_version,
+    revision: selection.revision,
+    candidate_ids_considered: [...selection.candidate_ids_considered],
+    canonical_candidate_id: selection.canonical_candidate_id,
+    canonical_evidence_id: selection.canonical_evidence_id,
+    canonical_model: selection.canonical_model,
+    reason: selection.reason,
+    fidelity: selection.fidelity,
+    policy_action: row.policy_action,
+    action: row.action,
+    effective_action_reason: row.effective_action_reason,
+    co_triggered_models: [...selection.co_triggered_models],
+    evaluated_at_epoch: selection.evaluated_at_epoch,
+    selected_trigger_epoch: row.selected_trigger_epoch,
+    selected_trigger_sequence: row.selected_trigger_sequence,
+  };
+}
+
+async function listRdEntryDecisions(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const authorizationError = await requirePaperAuthorization(request, env);
+  if (authorizationError !== null) return authorizationError;
+  const limit = parseExactDecisionLimit(new URL(request.url));
+  if (limit === null) {
+    return errorResponse(
+      422,
+      "INVALID_LIMIT",
+      "Entry decision limit must be supplied once as an integer between 1 and 200",
+    );
+  }
+  try {
+    const selectionResult = await env.DB
+      .prepare(LIST_ENTRY_V3_DECISIONS_SQL)
+      .bind(limit)
+      .all<DecisionSelectionRow>();
+    const selectionRows = selectionResult.results;
+    if (selectionRows.length === 0) {
+      return jsonResponse({
+        schema_version: "1.0",
+        mode: "PAPER_ONLY",
+        count: 0,
+        items: [],
+      });
+    }
+    const storageIds = selectionRows.map((row) => row.selection_id);
+    if (
+      storageIds.length > limit ||
+      new Set(storageIds).size !== storageIds.length
+    ) {
+      throw new StorageUnavailableError();
+    }
+    const ids = JSON.stringify(storageIds);
+    const [candidateResult, evidenceResult, parityResult, paperResult, shadowResult] =
+      await env.DB.batch([
+        env.DB.prepare(LIST_ENTRY_V3_DECISION_CANDIDATES_SQL).bind(ids),
+        env.DB.prepare(LIST_ENTRY_V3_DECISION_EVIDENCE_SQL).bind(ids),
+        env.DB.prepare(LIST_ENTRY_V3_DECISION_PARITY_SQL).bind(ids),
+        env.DB.prepare(LIST_ENTRY_V3_DECISION_PAPER_SQL).bind(ids),
+        env.DB.prepare(LIST_ENTRY_V3_DECISION_SHADOW_SQL).bind(ids),
+      ]);
+    const candidateRows =
+      (candidateResult?.results as unknown as DecisionCandidateRow[] | undefined) ??
+      [];
+    const evidenceRows =
+      (evidenceResult?.results as unknown as DecisionEvidenceRow[] | undefined) ??
+      [];
+    const parityRows =
+      (parityResult?.results as unknown as DecisionParityRow[] | undefined) ?? [];
+    const paperRows =
+      (paperResult?.results as unknown as DecisionPaperRow[] | undefined) ?? [];
+    const shadowRows =
+      (shadowResult?.results as unknown as DecisionShadowRow[] | undefined) ?? [];
+
+    const candidatesBySelection = new Map<string, DecisionCandidateRow[]>();
+    const evidenceBySelection = new Map<string, DecisionEvidenceRow[]>();
+    for (const row of candidateRows) {
+      const current = candidatesBySelection.get(row.selection_id) ?? [];
+      current.push(row);
+      candidatesBySelection.set(row.selection_id, current);
+    }
+    for (const row of evidenceRows) {
+      const current = evidenceBySelection.get(row.selection_id) ?? [];
+      current.push(row);
+      evidenceBySelection.set(row.selection_id, current);
+    }
+    const parityBySelection = new Map(
+      parityRows.map((row) => [row.selection_id, row]),
+    );
+    const paperBySelection = new Map(
+      paperRows.map((row) => [row.selection_id, row]),
+    );
+    const shadowBySelection = new Map(
+      shadowRows.map((row) => [row.selection_id, row]),
+    );
+    if (
+      parityBySelection.size !== selectionRows.length ||
+      paperBySelection.size !== paperRows.length ||
+      shadowBySelection.size !== shadowRows.length
+    ) {
+      throw new StorageUnavailableError();
+    }
+
+    const items = selectionRows.map((row) => {
+      if (
+        !Number.isSafeInteger(row.entry_ticks) ||
+        !Number.isSafeInteger(row.stop_ticks) ||
+        !Number.isSafeInteger(row.target_ticks) ||
+        typeof row.tick_size !== "string" ||
+        row.tick_size.length < 1 ||
+        row.tick_size.length > 32 ||
+        typeof row.symbol !== "string" ||
+        row.symbol.length < 1 ||
+        row.symbol.length > 64
+      ) {
+        throw new StorageUnavailableError();
+      }
+      const selection = parseStoredDecisionJson<EntrySelectionV3>(
+        row.selection_json,
+        validateSelectionShapeV3,
+      );
+      const storedCandidates = candidatesBySelection.get(row.selection_id) ?? [];
+      const storedEvidence = evidenceBySelection.get(row.selection_id) ?? [];
+      if (
+        storedCandidates.length < 1 ||
+        storedCandidates.length > 3 ||
+        storedEvidence.length !== storedCandidates.length
+      ) {
+        throw new StorageUnavailableError();
+      }
+      const candidates = storedCandidates.map((item) => {
+        const candidate = parseStoredDecisionJson<EntryCandidateV3>(
+          item.candidate_json,
+          validateEntryCandidateV3,
+        );
+        if (
+          candidate.candidate_id !== item.logical_candidate_id ||
+          item.candidate_id.length < 1
+        ) {
+          throw new StorageUnavailableError();
+        }
+        return candidate;
+      });
+      const evidenceByCandidate = new Map<string, EntryCandidateEvidenceV3>();
+      for (const item of storedEvidence) {
+        const evidence = parseStoredDecisionJson<EntryCandidateEvidenceV3>(
+          item.evidence_json,
+          validateEntryEvidenceV3,
+        );
+        if (
+          evidence.evidence_id !== item.logical_evidence_id ||
+          evidenceByCandidate.has(evidence.candidate_id)
+        ) {
+          throw new StorageUnavailableError();
+        }
+        evidenceByCandidate.set(evidence.candidate_id, evidence);
+      }
+      const considered = new Set(selection.candidate_ids_considered);
+      if (
+        considered.size !== candidates.length ||
+        candidates.some((candidate) => !considered.has(candidate.candidate_id))
+      ) {
+        throw new StorageUnavailableError();
+      }
+      const directions = new Set(candidates.map((candidate) => candidate.direction));
+      const parity = parityBySelection.get(row.selection_id);
+      if (directions.size !== 1 || parity === undefined) {
+        throw new StorageUnavailableError();
+      }
+      const paper = paperBySelection.get(row.selection_id) ?? null;
+      const shadow = shadowBySelection.get(row.selection_id) ?? null;
+      return {
+        setup_id: row.setup_id,
+        symbol: row.symbol,
+        direction: candidates[0]!.direction,
+        selection: decisionSelectionView(selection, row),
+        parity: {
+          status: parity.parity_status,
+          mismatch_reason: parity.mismatch_reason,
+        },
+        candidates: candidates.map((candidate) => {
+          const evidence = evidenceByCandidate.get(candidate.candidate_id);
+          if (evidence === undefined) throw new StorageUnavailableError();
+          return decisionCandidateView(candidate, evidence);
+        }),
+        trade_plan: {
+          tick_size: row.tick_size,
+          entry_ticks: row.entry_ticks,
+          stop_ticks: row.stop_ticks,
+          target_ticks: row.target_ticks,
+        },
+        paper_intent_id: paper?.intent_id ?? null,
+        trade:
+          paper === null
+            ? null
+            : {
+                entry_price: paper.entry_price,
+                stop_loss: paper.stop_loss,
+                take_profit: paper.take_profit,
+                state: paper.trade_state,
+              },
+        shadow_outcome:
+          shadow === null
+            ? null
+            : {
+                state: shadow.state,
+                outcome_r_millis: shadow.outcome_r_millis,
+              },
+      };
+    });
+    const report = {
+      schema_version: "1.0",
+      mode: "PAPER_ONLY",
+      count: items.length,
+      items,
+    };
+    if (
+      new TextEncoder().encode(JSON.stringify(report)).byteLength >
+      MAX_DECISION_RESPONSE_BYTES
+    ) {
+      throw new StorageUnavailableError();
+    }
+    return jsonResponse(report);
+  } catch {
+    return errorResponse(
+      503,
+      "ENTRY_DECISIONS_UNAVAILABLE",
+      "Entry decision storage is unavailable",
+    );
+  }
 }
 
 async function listReceipts(request: Request, env: Env): Promise<Response> {
@@ -2760,6 +3170,29 @@ function simulationAccountStatIsSafe(
 
 function simulationRowIsSafe(value: PaperSimulationRow): boolean {
   const settled = value.settlement_id !== null;
+  let parsedCoTriggeredModels: unknown;
+  try {
+    parsedCoTriggeredModels = JSON.parse(value.co_triggered_models_json ?? "[]");
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(parsedCoTriggeredModels)) return false;
+  const coTriggeredModels = parsedCoTriggeredModels;
+  const setupId = value.setup_id ?? null;
+  const selectedEntryModel = value.selected_entry_model ?? null;
+  const v3Context =
+    typeof setupId === "string" &&
+    setupId.length > 0 &&
+    (selectedEntryModel === "BOC" ||
+      selectedEntryModel === "DIR_CLOSE" ||
+      selectedEntryModel === "HTF_FLIP");
+  const coTriggerSafe =
+    coTriggeredModels.length <= 3 &&
+    new Set(coTriggeredModels).size === coTriggeredModels.length &&
+    coTriggeredModels.every(
+      (model) =>
+        model === "BOC" || model === "DIR_CLOSE" || model === "HTF_FLIP",
+    );
   return (
     (value.side === "BUY" || value.side === "SELL") &&
     Number.isSafeInteger(value.risk_bps) &&
@@ -2769,10 +3202,18 @@ function simulationRowIsSafe(value: PaperSimulationRow): boolean {
     value.risk_amount_minor > 0 &&
     Number.isSafeInteger(value.balance_before_minor) &&
     (value.source === "MANUAL" || value.source === "TRADINGVIEW") &&
+    coTriggerSafe &&
     (value.source === "MANUAL"
-      ? value.source_receipt_id === null
-      : typeof value.source_receipt_id === "string" &&
-        value.source_receipt_id.length > 0) &&
+      ? value.source_receipt_id === null &&
+        setupId === null &&
+        selectedEntryModel === null &&
+        coTriggeredModels.length === 0
+      : (typeof value.source_receipt_id === "string" &&
+          value.source_receipt_id.length > 0 &&
+          setupId === null &&
+          selectedEntryModel === null &&
+          coTriggeredModels.length === 0) ||
+        (value.source_receipt_id === null && v3Context)) &&
     (settled
       ? value.outcome_r_millis !== null &&
         Number.isSafeInteger(value.outcome_r_millis) &&
@@ -2831,6 +3272,9 @@ async function listPaperSimulationSummary(
         risk_bps: number;
         source: "MANUAL" | "TRADINGVIEW";
         source_receipt_id: string | null;
+        setup_id: string | null;
+        selected_entry_model: "BOC" | "DIR_CLOSE" | "HTF_FLIP" | null;
+        co_triggered_models: Array<"BOC" | "DIR_CLOSE" | "HTF_FLIP">;
         state: "OPEN" | "SETTLED";
         created_at: string;
         settlement: null | {
@@ -2859,6 +3303,11 @@ async function listPaperSimulationSummary(
           risk_bps: row.risk_bps,
           source: row.source,
           source_receipt_id: row.source_receipt_id,
+          setup_id: row.setup_id ?? null,
+          selected_entry_model: row.selected_entry_model ?? null,
+          co_triggered_models: JSON.parse(
+            row.co_triggered_models_json ?? "[]",
+          ) as Array<"BOC" | "DIR_CLOSE" | "HTF_FLIP">,
           state: row.settlement_id === null ? "OPEN" : "SETTLED",
           created_at: row.created_at,
           settlement:
@@ -2975,6 +3424,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       return listPaperSimulationSummary(request, env);
     }
     return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
+  }
+  if (url.pathname === "/api/v1/rd-entry-decisions") {
+    if (request.method !== "GET") {
+      return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
+    }
+    return listRdEntryDecisions(request, env);
   }
   if (url.pathname === "/api/v1/paper-readiness") {
     if (request.method === "GET") {

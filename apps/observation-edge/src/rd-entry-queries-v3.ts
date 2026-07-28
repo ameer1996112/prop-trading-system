@@ -233,3 +233,103 @@ INSERT INTO observation_entry_v3_exit_applications (
   applied_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
+
+export const LIST_ENTRY_V3_DECISIONS_SQL = `
+SELECT
+  selection.selection_id,
+  selection.event_id,
+  selection.setup_id,
+  selection.attempt_kind,
+  selection.policy_action,
+  selection.action,
+  selection.effective_action_reason,
+  selection.co_triggered_models_json,
+  selection.evaluated_at_epoch,
+  selection.selected_trigger_epoch,
+  selection.selected_trigger_sequence,
+  selection.entry_ticks,
+  selection.stop_ticks,
+  selection.target_ticks,
+  selection.selection_json,
+  event.symbol,
+  event.tick_size
+FROM observation_entry_v3_selections AS selection
+JOIN observation_entry_v3_events AS event
+  ON event.event_id = selection.event_id
+ORDER BY selection.evaluated_at_epoch DESC, selection.selection_id DESC
+LIMIT ?
+`;
+
+export const LIST_ENTRY_V3_DECISION_CANDIDATES_SQL = `
+SELECT
+  member.selection_id,
+  candidate.candidate_id,
+  candidate.logical_candidate_id,
+  candidate.candidate_json
+FROM observation_entry_v3_selection_members AS member
+JOIN observation_entry_v3_candidates AS candidate
+  ON candidate.candidate_id = member.object_id
+WHERE
+  member.object_kind = 'CANDIDATE'
+  AND member.selection_id IN (SELECT value FROM json_each(?))
+ORDER BY
+  member.selection_id,
+  CASE candidate.model
+    WHEN 'BOC' THEN 1
+    WHEN 'DIR_CLOSE' THEN 2
+    ELSE 3
+  END,
+  candidate.candidate_id
+`;
+
+export const LIST_ENTRY_V3_DECISION_EVIDENCE_SQL = `
+SELECT
+  member.selection_id,
+  evidence.evidence_id,
+  evidence.logical_evidence_id,
+  evidence.evidence_json
+FROM observation_entry_v3_selection_members AS member
+JOIN observation_entry_v3_evidence AS evidence
+  ON evidence.evidence_id = member.object_id
+WHERE
+  member.object_kind = 'EVIDENCE'
+  AND member.selection_id IN (SELECT value FROM json_each(?))
+ORDER BY member.selection_id, evidence.evidence_id
+`;
+
+export const LIST_ENTRY_V3_DECISION_PARITY_SQL = `
+SELECT selection_id, parity_status, mismatch_reason
+FROM observation_entry_v3_parity
+WHERE selection_id IN (SELECT value FROM json_each(?))
+ORDER BY selection_id
+`;
+
+export const LIST_ENTRY_V3_DECISION_PAPER_SQL = `
+SELECT
+  link.selection_id,
+  link.intent_id,
+  intent.entry_price,
+  intent.stop_loss,
+  intent.take_profit,
+  CASE WHEN settlement.settlement_id IS NULL THEN 'OPEN' ELSE 'SETTLED' END
+    AS trade_state
+FROM observation_entry_v3_paper_links AS link
+JOIN paper_trade_intents AS intent ON intent.intent_id = link.intent_id
+LEFT JOIN paper_trade_settlements AS settlement
+  ON settlement.intent_id = intent.intent_id
+WHERE link.selection_id IN (SELECT value FROM json_each(?))
+ORDER BY link.selection_id
+`;
+
+export const LIST_ENTRY_V3_DECISION_SHADOW_SQL = `
+SELECT
+  selection.selection_id,
+  shadow.state,
+  shadow.outcome_r_millis
+FROM observation_entry_v3_selections AS selection
+JOIN observation_entry_v3_shadow_positions AS shadow
+  ON shadow.setup_id = selection.setup_id
+  AND shadow.attempt_kind = selection.attempt_kind
+WHERE selection.selection_id IN (SELECT value FROM json_each(?))
+ORDER BY selection.selection_id
+`;

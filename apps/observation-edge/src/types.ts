@@ -545,6 +545,9 @@ export interface PaperSimulationRow {
   readonly source: "MANUAL" | "TRADINGVIEW";
   readonly source_receipt_id: string | null;
   readonly created_at: string;
+  readonly setup_id?: string | null;
+  readonly selected_entry_model?: "BOC" | "DIR_CLOSE" | "HTF_FLIP" | null;
+  readonly co_triggered_models_json?: string;
   readonly account_id: string;
   readonly risk_amount_minor: number;
   readonly balance_before_minor: number;

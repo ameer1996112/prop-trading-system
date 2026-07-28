@@ -59,6 +59,9 @@ export type PaperSimulationIntent = {
   riskBps: number;
   source: "MANUAL" | "TRADINGVIEW";
   sourceReceiptId: string | null;
+  setupId: string | null;
+  selectedEntryModel: "BOC" | "DIR_CLOSE" | "HTF_FLIP" | null;
+  coTriggeredModels: Array<"BOC" | "DIR_CLOSE" | "HTF_FLIP">;
   state: "OPEN" | "SETTLED";
   createdAt: string;
   outcomeRMillis: number | null;
@@ -191,7 +194,7 @@ function isRealUtcTimestamp(value: unknown): value is string {
   );
 }
 
-async function parseStrictResponse(response: Response): Promise<unknown> {
+export async function parseStrictResponse(response: Response): Promise<unknown> {
   try {
     return parseCanonicalJson(await response.text());
   } catch (error) {
@@ -206,7 +209,7 @@ function endpoint(path: string): string {
   return `${getConsoleConfig().apiBaseUrl}${path}`;
 }
 
-async function fetchBounded(
+export async function fetchBounded(
   path: string,
   externalSignal?: AbortSignal,
   additionalHeaders: Record<string, string> = {},
@@ -478,6 +481,35 @@ function parsePaperSimulationAllocation(
 }
 
 function parsePaperSimulationIntent(value: unknown): PaperSimulationIntent {
+  const setupId = isRecord(value)
+    ? value.setup_id === undefined
+      ? null
+      : value.setup_id
+    : null;
+  const selectedEntryModel = isRecord(value)
+    ? value.selected_entry_model === undefined
+      ? null
+      : value.selected_entry_model
+    : null;
+  const rawCoTriggeredModels =
+    isRecord(value) && value.co_triggered_models !== undefined
+      ? value.co_triggered_models
+      : [];
+  const coTriggeredModels =
+    Array.isArray(rawCoTriggeredModels) &&
+    rawCoTriggeredModels.length <= 3 &&
+    rawCoTriggeredModels.every(
+      (model) =>
+        model === "BOC" || model === "DIR_CLOSE" || model === "HTF_FLIP",
+    ) &&
+    new Set(rawCoTriggeredModels).size === rawCoTriggeredModels.length
+      ? (rawCoTriggeredModels as Array<"BOC" | "DIR_CLOSE" | "HTF_FLIP">)
+      : null;
+  const hasV3Context =
+    isNonEmptyString(setupId) &&
+    (selectedEntryModel === "BOC" ||
+      selectedEntryModel === "DIR_CLOSE" ||
+      selectedEntryModel === "HTF_FLIP");
   if (
     !isRecord(value) ||
     !isNonEmptyString(value.intent_id) ||
@@ -489,8 +521,18 @@ function parsePaperSimulationIntent(value: unknown): PaperSimulationIntent {
     !safeInteger(value.risk_bps, 1, 500) ||
     (value.source !== "MANUAL" && value.source !== "TRADINGVIEW") ||
     (value.source === "MANUAL"
-      ? value.source_receipt_id !== null
-      : !isNonEmptyString(value.source_receipt_id)) ||
+      ? value.source_receipt_id !== null ||
+        setupId !== null ||
+        selectedEntryModel !== null ||
+        coTriggeredModels?.length !== 0
+      : !(
+          (isNonEmptyString(value.source_receipt_id) &&
+            setupId === null &&
+            selectedEntryModel === null &&
+            coTriggeredModels?.length === 0) ||
+          (value.source_receipt_id === null && hasV3Context)
+        )) ||
+    coTriggeredModels === null ||
     (value.state !== "OPEN" && value.state !== "SETTLED") ||
     !isRealUtcTimestamp(value.created_at) ||
     !Array.isArray(value.allocations) ||
@@ -520,7 +562,9 @@ function parsePaperSimulationIntent(value: unknown): PaperSimulationIntent {
     throw new InvalidApiPayload("open paper simulation has a settlement");
   }
   const sourceReceiptId =
-    value.source === "TRADINGVIEW" ? (value.source_receipt_id as string) : null;
+    value.source === "TRADINGVIEW" && isNonEmptyString(value.source_receipt_id)
+      ? value.source_receipt_id
+      : null;
   return {
     intentId: value.intent_id,
     symbol: value.symbol,
@@ -531,6 +575,9 @@ function parsePaperSimulationIntent(value: unknown): PaperSimulationIntent {
     riskBps: value.risk_bps,
     source: value.source,
     sourceReceiptId,
+    setupId: hasV3Context ? setupId : null,
+    selectedEntryModel: hasV3Context ? selectedEntryModel : null,
+    coTriggeredModels,
     state: value.state,
     createdAt: value.created_at,
     outcomeRMillis,

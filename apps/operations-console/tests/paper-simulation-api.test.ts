@@ -180,6 +180,52 @@ describe("loadPaperSimulationSummary", () => {
       "counts do not match",
     );
   });
+
+  it("parses v3 model context while keeping legacy context explicitly null", async () => {
+    const legacy = summary();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(legacy)));
+    const legacyResult = await loadPaperSimulationSummary("operator-secret");
+    expect(legacyResult.intents[0]).toMatchObject({
+      setupId: null,
+      selectedEntryModel: null,
+      coTriggeredModels: [],
+    });
+
+    const v3Intent = {
+      ...(legacy.intents[0] as Record<string, unknown>),
+      source_receipt_id: null,
+      setup_id: "setup-v3",
+      selected_entry_model: "HTF_FLIP",
+      co_triggered_models: ["BOC", "HTF_FLIP"],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response(summary({ intents: [v3Intent] })),
+      ),
+    );
+    const v3Result = await loadPaperSimulationSummary("operator-secret");
+    expect(v3Result.intents[0]).toMatchObject({
+      sourceReceiptId: null,
+      setupId: "setup-v3",
+      selectedEntryModel: "HTF_FLIP",
+      coTriggeredModels: ["BOC", "HTF_FLIP"],
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response(
+          summary({
+            intents: [{ ...v3Intent, selected_entry_model: "BROKER_FILL" }],
+          }),
+        ),
+      ),
+    );
+    await expect(loadPaperSimulationSummary("operator-secret")).rejects.toThrow(
+      "intent is malformed",
+    );
+  });
 });
 
 describe("paper readiness API", () => {

@@ -936,6 +936,21 @@ h1 {
   letter-spacing: 0.08em;
 }
 
+.intent-entry-model,
+.intent-co-trigger {
+  display: inline-block;
+  margin-left: 9px;
+  color: var(--oxide);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.intent-entry-model {
+  text-underline-offset: 3px;
+}
+
 .simulation-card-heading h3,
 .simulation-intent-heading h3 {
   margin: 6px 0 0;
@@ -1003,6 +1018,240 @@ h1 {
 
 .simulation-intent {
   padding: 19px;
+}
+
+.entry-decision-panel {
+  margin: 34px 0;
+  padding: 24px;
+  border: 1px solid var(--line-bright);
+  background:
+    linear-gradient(135deg, rgba(130, 167, 144, 0.06), transparent 38%),
+    var(--ink-raised);
+}
+
+.entry-decision-panel-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.entry-decision-panel-heading p,
+.entry-decision-heading p,
+.entry-candidate header p {
+  margin: 0;
+  color: var(--oxide);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.entry-decision-panel-heading h2 {
+  margin: 7px 0 0;
+  font-family: var(--display);
+  font-size: clamp(2rem, 4vw, 3.3rem);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+.entry-decision-panel-heading > strong {
+  padding: 7px 9px;
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+}
+
+.entry-decision-intro {
+  max-width: 790px;
+  margin: 16px 0 24px;
+  color: var(--paper-muted);
+  font-size: 0.72rem;
+  line-height: 1.7;
+}
+
+.entry-decision-list {
+  display: grid;
+  gap: 16px;
+}
+
+.entry-decision-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: rgba(10, 13, 11, 0.68);
+  content-visibility: auto;
+  contain-intrinsic-size: 680px;
+}
+
+.entry-decision-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+}
+
+.entry-decision-heading h3 {
+  margin: 7px 0 4px;
+  font-family: var(--display);
+  font-size: clamp(1.55rem, 3vw, 2.4rem);
+  font-weight: 400;
+}
+
+.entry-decision-heading span {
+  color: var(--paper-muted);
+  font-size: 0.67rem;
+  line-height: 1.6;
+}
+
+.entry-decision-states {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+  text-align: right;
+}
+
+.entry-decision-states strong {
+  color: var(--amber);
+  font-size: 0.7rem;
+  letter-spacing: 0.09em;
+}
+
+.entry-decision-states span {
+  max-width: 260px;
+  color: var(--paper-muted);
+}
+
+.entry-decision-levels {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 18px 0;
+  border-block: 1px solid var(--line);
+}
+
+.entry-decision-levels div {
+  min-width: 0;
+  padding: 11px;
+  border-right: 1px solid var(--line);
+}
+
+.entry-decision-levels div:last-child {
+  border-right: 0;
+}
+
+.entry-decision-levels dt,
+.entry-candidate dt {
+  margin-bottom: 6px;
+  color: var(--paper-muted);
+  font-size: 0.57rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.entry-decision-levels dd,
+.entry-candidate dd {
+  margin: 0;
+  color: var(--paper);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.entry-decision-levels a {
+  color: var(--oxide);
+  text-underline-offset: 3px;
+}
+
+.entry-co-trigger {
+  width: fit-content;
+  margin: 0 0 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--oxide-deep);
+  color: var(--oxide);
+  font-size: 0.63rem;
+  font-weight: 700;
+}
+
+.entry-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.entry-candidate {
+  min-width: 0;
+  padding: 14px;
+  border-top: 2px solid var(--oxide-deep);
+  background: var(--ink-soft);
+}
+
+.entry-candidate-blocked,
+.entry-candidate-rejected {
+  border-top-color: var(--red);
+}
+
+.entry-candidate header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+}
+
+.entry-candidate h4 {
+  margin: 5px 0 0;
+  color: var(--paper);
+  font-family: var(--display);
+  font-size: 1.12rem;
+  font-weight: 400;
+}
+
+.entry-candidate header strong {
+  color: var(--paper-muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+.entry-candidate dl {
+  display: grid;
+  gap: 9px;
+  margin: 14px 0;
+}
+
+.entry-candidate dl div {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.entry-candidate ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  color: var(--paper-muted);
+  font-size: 0.64rem;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.entry-candidate li::before {
+  content: "— ";
+  color: var(--oxide);
+}
+
+.entry-decision-message {
+  margin: 20px 0 0;
+  padding: 16px;
+  border: 1px dashed var(--line-bright);
+  color: var(--paper-muted);
+  font-size: 0.72rem;
+}
+
+.entry-decision-error {
+  border-color: var(--red);
+  color: var(--red);
 }
 
 .intent-side-sell,
@@ -1139,6 +1388,18 @@ h1 {
   .simulation-metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .entry-decision-levels {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .entry-decision-levels div:nth-child(3) {
+    border-right: 0;
+  }
+
+  .entry-candidate-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 680px) {
@@ -1188,6 +1449,37 @@ h1 {
   .simulation-metrics,
   .intent-levels {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .entry-decision-panel {
+    padding: 15px;
+  }
+
+  .entry-decision-panel-heading,
+  .entry-decision-heading {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+
+  .entry-decision-panel-heading {
+    flex-direction: column;
+  }
+
+  .entry-decision-states {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .entry-decision-levels {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .entry-decision-levels div:nth-child(3) {
+    border-right: 1px solid var(--line);
+  }
+
+  .entry-decision-levels div:nth-child(even) {
+    border-right: 0;
   }
 
   .simulation-toolbar {
