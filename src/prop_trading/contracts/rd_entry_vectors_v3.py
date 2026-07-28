@@ -7,6 +7,7 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, model_validator
 
 from prop_trading.contracts.models import ContractModel, Identifier, SafeInteger, Sha256
+from prop_trading.contracts.rd_strategy_v3 import REQUIRED_V3_RULE_SOURCE_CLAIM_IDS
 from prop_trading.domain.rd_entry_models import (
     AmbiguityCode as DomainAmbiguityCode,
 )
@@ -164,11 +165,34 @@ class RDEntryTriggerProofVectorV3(ContractModel):
 
     @model_validator(mode="after")
     def _htf_anchor_chronology_is_valid(self) -> Self:
+        if self.coverage_end_epoch <= self.coverage_start_epoch:
+            raise ValueError("flip proof coverage epochs must increase")
+        if not self.coverage_start_epoch <= self.trigger_epoch <= self.coverage_end_epoch:
+            raise ValueError("flip trigger must be inside proof coverage")
+        if self.recross_candle is not None and self.contact_candle is None:
+            raise ValueError("flip recross requires contact")
+        for name, candle in (
+            ("contact", self.contact_candle),
+            ("recross", self.recross_candle),
+        ):
+            if candle is not None and (
+                candle.open_epoch < self.coverage_start_epoch
+                or candle.close_epoch > self.coverage_end_epoch
+            ):
+                raise ValueError(f"flip {name} candle must be inside proof coverage")
         if (
             self.contact_candle is not None
             and self.event_anchor_epoch > self.contact_candle.open_epoch
         ):
             raise ValueError("HTF anchor must precede contact")
+        if self.contact_candle is not None and self.recross_candle is not None:
+            if self.contact_candle.close_epoch > self.recross_candle.open_epoch:
+                raise ValueError("flip contact must precede recross")
+            if (
+                self.trigger_epoch != self.recross_candle.close_epoch
+                or self.trigger_ticks != self.recross_candle.close_ticks
+            ):
+                raise ValueError("flip trigger must equal the retained recross close")
         if self.htf_context_minutes and any(
             self.trigger_epoch >= self.event_anchor_epoch + context * 60
             for context in self.htf_context_minutes
@@ -445,6 +469,12 @@ class RDEntryExpectedVectorV3(ContractModel):
             raise ValueError("evidence IDs must be unique")
         if any(item.candidate_id not in set(candidate_ids) for item in self.evidence):
             raise ValueError("evidence references an unknown candidate")
+        candidate_models = tuple(candidate.model for candidate in self.candidates)
+        if len(candidate_models) != len(set(candidate_models)):
+            raise ValueError("expected graph must contain at most one candidate per model")
+        evidence_candidate_ids = tuple(item.candidate_id for item in self.evidence)
+        if sorted(evidence_candidate_ids) != sorted(candidate_ids):
+            raise ValueError("expected graph requires exactly one evidence record per candidate")
         if self.selection.candidate_ids_considered != candidate_ids:
             raise ValueError("selection candidate IDs considered must match candidate records")
         if any(
@@ -464,6 +494,17 @@ class RDEntryExpectedVectorV3(ContractModel):
         }
         for item in self.evidence:
             candidate = candidate_by_id[item.candidate_id]
+            rule_id = (
+                "ENTRY_BOC_DISCRETIONARY_5M"
+                if candidate.model == "BOC" and candidate.boc_tier == "DISCRETIONARY_5M"
+                else expected_rules[candidate.model]
+            )
+            expected_claims = REQUIRED_V3_RULE_SOURCE_CLAIM_IDS[rule_id]
+            if (
+                candidate.source_claim_ids != expected_claims
+                or item.source_claim_ids != expected_claims
+            ):
+                raise ValueError("source claims conflict with candidate model")
             if item.fidelity != "EXACT":
                 continue
             if item.passed_rule_ids != (expected_rules[candidate.model],) or item.failed_rule_ids:
@@ -563,7 +604,282 @@ class RDEntryArbitrationVectorCaseV3(ContractModel):
             candidate.setup_id != self.input.setup_id for candidate in self.expected.candidates
         ):
             raise ValueError("case setup identity is inconsistent")
+        if any(
+            candidate.direction != self.input.direction for candidate in self.expected.candidates
+        ):
+            raise ValueError("expected candidate direction conflicts with input setup direction")
+
+        candidate_by_model = {candidate.model: candidate for candidate in self.expected.candidates}
+        evidence_by_candidate = {item.candidate_id: item for item in self.expected.evidence}
+        if self.input.opened_selection_seed is not None:
+            self._bind_opened_selection(
+                candidate_by_model=candidate_by_model,
+                evidence_by_candidate=evidence_by_candidate,
+            )
+            return self
+
+        expected_models = {
+            model
+            for model, present in (
+                ("BOC", self.input.boc_proof is not None),
+                ("DIR_CLOSE", self.input.directional_close),
+                ("HTF_FLIP", self.input.htf_flip_proof is not None),
+            )
+            if present
+        }
+        if set(candidate_by_model) != expected_models:
+            raise ValueError("expected candidate graph conflicts with observed input models")
+        if (
+            self.expected.selection.policy_version != self.input.policy_version
+            or self.expected.selection.revision != self.input.revision
+            or self.expected.selection.evaluated_at_epoch != self.input.evaluated_at_epoch
+        ):
+            raise ValueError("expected selection evaluation conflicts with input evaluation")
+        if any(
+            candidate.observed_at_epoch != self.input.observed_at_epoch
+            for candidate in self.expected.candidates
+        ) or any(
+            item.observed_at_epoch != self.input.observed_at_epoch
+            for item in self.expected.evidence
+        ):
+            raise ValueError("expected observation time conflicts with input observation")
+
+        if self.input.boc_proof is not None:
+            self._bind_boc(
+                proof=self.input.boc_proof,
+                candidate=candidate_by_model["BOC"],
+                evidence=evidence_by_candidate[candidate_by_model["BOC"].candidate_id],
+            )
+        if self.input.confirmed_bar is not None:
+            self._bind_directional_close(
+                bar=self.input.confirmed_bar,
+                candidate=candidate_by_model["DIR_CLOSE"],
+                evidence=evidence_by_candidate[candidate_by_model["DIR_CLOSE"].candidate_id],
+            )
+        if self.input.htf_flip_proof is not None:
+            self._bind_flip(
+                proof=self.input.htf_flip_proof,
+                candidate=candidate_by_model["HTF_FLIP"],
+                evidence=evidence_by_candidate[candidate_by_model["HTF_FLIP"].candidate_id],
+            )
         return self
+
+    def _bind_opened_selection(
+        self,
+        *,
+        candidate_by_model: dict[EntryModel, RDEntryCandidateVectorV3],
+        evidence_by_candidate: dict[str, RDEntryEvidenceVectorV3],
+    ) -> None:
+        seed = self.input.opened_selection_seed
+        assert seed is not None
+        if set(candidate_by_model) != {"DIR_CLOSE"}:
+            raise ValueError("opened selection graph must retain only its frozen candidate")
+        candidate = candidate_by_model["DIR_CLOSE"]
+        evidence = evidence_by_candidate[candidate.candidate_id]
+        if (
+            self.expected.selection.policy_version != self.input.policy_version
+            or self.expected.selection.revision != seed.revision
+            or self.expected.selection.evaluated_at_epoch != seed.evaluated_at_epoch
+        ):
+            raise ValueError("opened selection evaluation conflicts with its seed")
+        if (
+            candidate.observed_at_epoch != seed.evaluated_at_epoch
+            or evidence.observed_at_epoch != seed.evaluated_at_epoch
+        ):
+            raise ValueError("opened selection observation conflicts with its seed")
+        self._bind_close_fields(
+            bar=seed.confirmed_bar,
+            trigger_sequence=seed.trigger_sequence,
+            candidate=candidate,
+            evidence=evidence,
+        )
+
+    def _bind_boc(
+        self,
+        *,
+        proof: RDEntryBocProofVectorV3,
+        candidate: RDEntryCandidateVectorV3,
+        evidence: RDEntryEvidenceVectorV3,
+    ) -> None:
+        strict = (
+            proof.htf_boundary_epoch == proof.trigger_candle_open_epoch
+            and bool(proof.htf_context_minutes)
+            and all(
+                proof.trigger_candle_open_epoch % (context * 60) == 0
+                for context in proof.htf_context_minutes
+            )
+        )
+        expected_tier = "HTF_TIMED" if strict else "DISCRETIONARY_5M"
+        reference = proof.reference_candle
+        if (
+            candidate.event_anchor_epoch != reference.open_epoch
+            or candidate.boc_tier != expected_tier
+            or candidate.reference_candle_open_epoch != reference.open_epoch
+            or evidence.observed_trigger_epoch != proof.trigger_epoch
+            or evidence.trigger_sequence != proof.trigger_sequence
+            or evidence.observed_trigger_ticks != proof.trigger_ticks
+            or evidence.htf_context_minutes != proof.htf_context_minutes
+            or evidence.proof_plane != proof.proof_plane
+            or evidence.replayability != proof.replayability
+            or evidence.coverage_start_epoch != proof.coverage_start_epoch
+            or evidence.coverage_end_epoch != proof.coverage_end_epoch
+            or evidence.boc_tier != expected_tier
+            or evidence.reference_candle_open_epoch != reference.open_epoch
+            or evidence.reference_candle_open_ticks != reference.open_ticks
+            or evidence.reference_candle_high_ticks != reference.high_ticks
+            or evidence.reference_candle_low_ticks != reference.low_ticks
+            or evidence.reference_candle_close_ticks != reference.close_ticks
+        ):
+            raise ValueError("expected BOC candidate or evidence conflicts with input proof")
+
+    def _bind_directional_close(
+        self,
+        *,
+        bar: RDEntryCandleVectorV3,
+        candidate: RDEntryCandidateVectorV3,
+        evidence: RDEntryEvidenceVectorV3,
+    ) -> None:
+        self._bind_close_fields(
+            bar=bar,
+            trigger_sequence=self.input.close_trigger_sequence,
+            candidate=candidate,
+            evidence=evidence,
+        )
+
+    @staticmethod
+    def _bind_close_fields(
+        *,
+        bar: RDEntryCandleVectorV3,
+        trigger_sequence: int,
+        candidate: RDEntryCandidateVectorV3,
+        evidence: RDEntryEvidenceVectorV3,
+    ) -> None:
+        if (
+            candidate.event_anchor_epoch != bar.open_epoch
+            or evidence.observed_trigger_epoch != bar.close_epoch
+            or evidence.trigger_sequence != trigger_sequence
+            or evidence.observed_trigger_ticks != bar.close_ticks
+            or evidence.htf_context_minutes
+            or evidence.proof_plane != "CONFIRMED_5M"
+            or evidence.replayability != "REPLAYABLE"
+            or evidence.coverage_start_epoch != bar.open_epoch
+            or evidence.coverage_end_epoch != bar.close_epoch
+        ):
+            raise ValueError(
+                "expected directional-close candidate or evidence conflicts with input bar"
+            )
+
+    def _bind_flip(
+        self,
+        *,
+        proof: RDEntryTriggerProofVectorV3,
+        candidate: RDEntryCandidateVectorV3,
+        evidence: RDEntryEvidenceVectorV3,
+    ) -> None:
+        if (
+            candidate.event_anchor_epoch != proof.event_anchor_epoch
+            or evidence.observed_trigger_epoch != proof.trigger_epoch
+            or evidence.trigger_sequence != proof.trigger_sequence
+            or evidence.observed_trigger_ticks != proof.trigger_ticks
+            or evidence.htf_context_minutes != proof.htf_context_minutes
+            or evidence.proof_plane != proof.proof_plane
+            or evidence.replayability != proof.replayability
+            or evidence.coverage_start_epoch != proof.coverage_start_epoch
+            or evidence.coverage_end_epoch != proof.coverage_end_epoch
+            or evidence.ambiguity_codes != proof.ambiguity_codes
+            or evidence.htf_open_ticks != proof.htf_open_ticks
+            or evidence.contact_candle != proof.contact_candle
+            or evidence.recross_candle != proof.recross_candle
+            or evidence.coverage_gap_detected != proof.coverage_gap_detected
+            or evidence.full_lifecycle_ordered != proof.full_lifecycle_ordered
+            or evidence.destination_seen_before_contact != proof.destination_seen_before_contact
+        ):
+            raise ValueError(
+                "expected flip threshold, anchor, event, context, or lifecycle conflicts "
+                "with input proof"
+            )
+        expected_failure = self._flip_failure(proof)
+        expected_passed: tuple[str, ...]
+        expected_failed: tuple[str, ...]
+        if expected_failure is None:
+            expected_state = "MATCHED"
+            expected_fidelity = "EXACT"
+            expected_passed = ("ENTRY_HTF_FLIP",)
+            expected_failed = ()
+        else:
+            expected_state = "BLOCKED"
+            expected_fidelity = "UNRESOLVED"
+            expected_passed = ()
+            expected_failed = (expected_failure,)
+        if (
+            candidate.state != expected_state
+            or evidence.fidelity != expected_fidelity
+            or evidence.passed_rule_ids != expected_passed
+            or evidence.failed_rule_ids != expected_failed
+        ):
+            raise ValueError(
+                "expected flip evaluation conflicts with input direction, "
+                "actual close, or lifecycle"
+            )
+
+    def _flip_failure(self, proof: RDEntryTriggerProofVectorV3) -> str | None:
+        if self.input.common_fidelity != "EXACT":
+            return "COMMON_SETUP_NOT_EXACT"
+        if self.input.setup_invalidated:
+            return "SETUP_INVALIDATED"
+        if (
+            self.input.zone_engaged_epoch is None
+            or proof.trigger_epoch < self.input.zone_engaged_epoch
+        ):
+            return "ENTRY_BEFORE_ZONE_ENGAGEMENT"
+        if proof.contact_candle is None or proof.recross_candle is None:
+            return "HTF_FLIP_INCOMPLETE_LIFECYCLE"
+        if proof.coverage_gap_detected:
+            return "HTF_FLIP_COVERAGE_GAP"
+        if not proof.full_lifecycle_ordered:
+            return "HTF_FLIP_ORDER_UNPROVEN"
+        if proof.destination_seen_before_contact:
+            return "HTF_FLIP_DESTINATION_BEFORE_CONTACT"
+        if proof.ambiguity_codes:
+            return "HTF_FLIP_AMBIGUOUS"
+        if proof.event_anchor_epoch > proof.contact_candle.open_epoch:
+            return "HTF_FLIP_ANCHOR_AFTER_CONTACT"
+        if any(
+            proof.trigger_epoch >= proof.event_anchor_epoch + context * 60
+            for context in proof.htf_context_minutes
+        ):
+            return "HTF_FLIP_TRIGGER_OUTSIDE_CONTEXT"
+        if not (
+            proof.contact_candle.low_ticks <= self.input.zone_top_ticks
+            and proof.contact_candle.high_ticks >= self.input.zone_bottom_ticks
+        ):
+            return "HTF_FLIP_CONTACT_OUTSIDE_ZONE"
+        contact_crossed = (
+            proof.contact_candle.high_ticks > proof.htf_open_ticks
+            if self.input.direction == "LONG"
+            else proof.contact_candle.low_ticks < proof.htf_open_ticks
+        )
+        if contact_crossed:
+            return "HTF_FLIP_CONTACT_ALREADY_RECROSSED"
+        actual_close_crossed = (
+            proof.recross_candle.close_ticks > proof.htf_open_ticks
+            if self.input.direction == "LONG"
+            else proof.recross_candle.close_ticks < proof.htf_open_ticks
+        )
+        if not actual_close_crossed:
+            return "HTF_FLIP_OPEN_NOT_RECROSSED"
+        if not proof.htf_context_minutes or any(
+            proof.event_anchor_epoch % (context * 60) != 0 for context in proof.htf_context_minutes
+        ):
+            return "HTF_FLIP_CONTEXT_MISALIGNED"
+        if proof.proof_plane == "REALTIME_TICK":
+            if not proof.is_realtime or proof.replayability != "LIVE_EXACT_NON_REPLAYABLE":
+                return "REALTIME_EVIDENCE_NOT_LIVE"
+        elif proof.replayability != "REPLAYABLE":
+            return "EVIDENCE_REPLAYABILITY_MISMATCH"
+        if proof.fidelity != "EXACT":
+            return "MODEL_EVIDENCE_NOT_EXACT"
+        return None
 
 
 class RDEntryArbitrationVectorsV3(ContractModel):

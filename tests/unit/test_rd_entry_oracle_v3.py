@@ -175,6 +175,53 @@ def _rehash_evidence(evidence: dict[str, object]) -> None:
     )
 
 
+def _rehash_candidate(candidate: dict[str, object]) -> None:
+    candidate["candidate_id"] = canonical_sha256(
+        {
+            "boc_tier": candidate["boc_tier"],
+            "direction": candidate["direction"],
+            "event_anchor_epoch": candidate["event_anchor_epoch"],
+            "model": candidate["model"],
+            "reference_candle_open_epoch": candidate["reference_candle_open_epoch"],
+            "setup_id": candidate["setup_id"],
+            "trigger_ordinal": candidate["trigger_ordinal"],
+        }
+    )
+
+
+def _rehash_expected_graph(case: dict[str, object]) -> None:
+    expected = case["expected"]
+    assert isinstance(expected, dict)
+    candidates = expected["candidates"]
+    evidence = expected["evidence"]
+    assert isinstance(candidates, list)
+    assert isinstance(evidence, list)
+    selection = _selection(case)
+
+    candidate_id_changes: dict[object, object] = {}
+    for candidate in candidates:
+        old_candidate_id = candidate["candidate_id"]
+        _rehash_candidate(candidate)
+        candidate_id_changes[old_candidate_id] = candidate["candidate_id"]
+
+    evidence_id_changes: dict[object, object] = {}
+    for item in evidence:
+        old_evidence_id = item["evidence_id"]
+        item["candidate_id"] = candidate_id_changes[item["candidate_id"]]
+        _rehash_evidence(item)
+        evidence_id_changes[old_evidence_id] = item["evidence_id"]
+
+    candidates.sort(key=lambda item: item["candidate_id"])
+    evidence.sort(key=lambda item: item["evidence_id"])
+    selection["candidate_ids_considered"] = [candidate["candidate_id"] for candidate in candidates]
+    if selection["canonical_candidate_id"] is not None:
+        selection["canonical_candidate_id"] = candidate_id_changes[
+            selection["canonical_candidate_id"]
+        ]
+        selection["canonical_evidence_id"] = evidence_id_changes[selection["canonical_evidence_id"]]
+    _rehash_selection(selection)
+
+
 def _validate_forged(document: dict[str, object]) -> None:
     RDEntryArbitrationVectorsV3.model_validate_json(json.dumps(document, allow_nan=False))
 
@@ -248,6 +295,220 @@ def test_vector_contract_rejects_flip_anchor_after_contact() -> None:
     case["input"]["htf_flip_proof"]["event_anchor_epoch"] = 2_700
 
     with pytest.raises(ValueError, match="anchor.*contact"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_flip_trigger_tick_different_from_recross_close() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["htf_flip_proof"]["trigger_ticks"] = 112
+
+    with pytest.raises(ValueError, match="trigger.*recross.*close"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_binds_coordinated_input_actual_tick_to_expected_evidence() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    flip_proof = case["input"]["htf_flip_proof"]
+    flip_proof["trigger_ticks"] = 112
+    flip_proof["recross_candle"]["close_ticks"] = 112
+
+    with pytest.raises(ValueError, match="event|lifecycle|actual"):
+        _validate_forged(forged)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("contact_candle", None, "recross.*contact"),
+        ("coverage_start_epoch", 1_801, "contact.*coverage"),
+        ("coverage_end_epoch", 1_801, "trigger.*coverage"),
+        (
+            "contact_candle",
+            {
+                "open_epoch": 1_800,
+                "close_epoch": 1_802,
+                "open_ticks": 105,
+                "high_ticks": 110,
+                "low_ticks": 100,
+                "close_ticks": 105,
+            },
+            "contact.*recross",
+        ),
+        ("trigger_epoch", 1_803, "trigger.*recross.*close"),
+    ],
+)
+def test_vector_contract_rejects_incomplete_flip_proof_chronology(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["htf_flip_proof"][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        _validate_forged(forged)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("htf_open_ticks", 109, "threshold|HTF open"),
+        ("event_anchor_epoch", 1_500, "anchor"),
+        ("trigger_sequence", 6, "sequence|event"),
+        ("htf_context_minutes", [15], "context"),
+    ],
+)
+def test_vector_contract_binds_flip_input_event_to_expected_evidence(
+    field: str,
+    value: object,
+    message: str,
+) -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["htf_flip_proof"][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        _validate_forged(forged)
+
+
+@pytest.mark.parametrize(
+    ("candle_name", "field", "value"),
+    [
+        ("contact_candle", "close_ticks", 106),
+        ("recross_candle", "open_ticks", 109),
+    ],
+)
+def test_vector_contract_binds_flip_input_candles_to_expected_evidence(
+    candle_name: str,
+    field: str,
+    value: int,
+) -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["htf_flip_proof"][candle_name][field] = value
+
+    with pytest.raises(ValueError, match="contact|recross|lifecycle"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_long_flip_with_wrong_side_input_threshold() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["htf_flip_proof"]["htf_open_ticks"] = 112
+
+    with pytest.raises(ValueError, match="LONG|threshold|HTF open|cross"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_fully_rehashed_short_wrong_side_actual_close() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item
+        for item in forged["cases"]
+        if item["case_id"] == "close_fallback_after_blocked_aggressive_models"
+    )
+    case["input"]["boc_proof"] = None
+    case["input"]["direction"] = "SHORT"
+    expected = case["expected"]
+    boc_candidate = next(
+        candidate for candidate in expected["candidates"] if candidate["model"] == "BOC"
+    )
+    expected["candidates"].remove(boc_candidate)
+    expected["evidence"] = [
+        item
+        for item in expected["evidence"]
+        if item["candidate_id"] != boc_candidate["candidate_id"]
+    ]
+    for candidate in expected["candidates"]:
+        candidate["direction"] = "SHORT"
+    _rehash_expected_graph(case)
+
+    with pytest.raises(ValueError, match="SHORT|actual close|HTF open|cross"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_binds_input_direction_to_expected_candidates() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["direction"] = "SHORT"
+
+    with pytest.raises(ValueError, match="direction"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_binds_expected_claims_to_candidate_model() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    expected = case["expected"]
+    flip_candidate = next(
+        candidate for candidate in expected["candidates"] if candidate["model"] == "HTF_FLIP"
+    )
+    flip_evidence = next(
+        item
+        for item in expected["evidence"]
+        if item["candidate_id"] == flip_candidate["candidate_id"]
+    )
+    forged_claims = ["htf-flip-2024-03"]
+    flip_candidate["source_claim_ids"] = forged_claims
+    flip_evidence["source_claim_ids"] = forged_claims
+    _rehash_evidence(flip_evidence)
+    expected["evidence"].sort(key=lambda item: item["evidence_id"])
+    selection = _selection(case)
+    selection["canonical_evidence_id"] = flip_evidence["evidence_id"]
+    _rehash_selection(selection)
+
+    with pytest.raises(ValueError, match="claim"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_binds_input_evaluation_to_expected_selection() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "flip_before_boc"
+    )
+    case["input"]["evaluated_at_epoch"] = 2_500
+
+    with pytest.raises(ValueError, match="evaluat"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_missing_blocked_flip_evidence() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item
+        for item in forged["cases"]
+        if item["case_id"] == "close_fallback_after_blocked_aggressive_models"
+    )
+    expected = case["expected"]
+    flip_candidate = next(
+        candidate for candidate in expected["candidates"] if candidate["model"] == "HTF_FLIP"
+    )
+    expected["evidence"] = [
+        item
+        for item in expected["evidence"]
+        if item["candidate_id"] != flip_candidate["candidate_id"]
+    ]
+
+    with pytest.raises(ValueError, match="evidence|graph"):
         _validate_forged(forged)
 
 
