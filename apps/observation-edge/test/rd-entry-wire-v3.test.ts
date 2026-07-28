@@ -206,6 +206,63 @@ function payloadFor(caseId: string): Record<string, unknown> {
   };
 }
 
+function unreviewedPayload(): Record<string, unknown> {
+  const value = payloadFor("boc_before_engagement");
+  value.detector_code_hash = "UNREVIEWED";
+  value.settings_hash = "UNREVIEWED";
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  setup.common_fidelity = "UNRESOLVED";
+  const commonRules = setup.common_rule_results as Array<
+    Record<string, unknown>
+  >;
+  commonRules[0]!.passed = false;
+  const evidence = (bundle.evidence as Array<Record<string, unknown>>)[0]!;
+  evidence.fidelity = "UNRESOLVED";
+  evidence.passed_rule_ids = [];
+  evidence.failed_rule_ids = ["COMMON_SETUP_NOT_EXACT"];
+  useEdgeDerivedReferences(value);
+  return value;
+}
+
+function historicalAmbiguousExitPayload(): Record<string, unknown> {
+  const value = payloadFor("discretionary_boc_shadow");
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  const evidence = (bundle.evidence as Array<Record<string, unknown>>)[0]!;
+  evidence.proof_plane = "LOWER_TIMEFRAME_REPLAY";
+  evidence.replayability = "REPLAYABLE";
+  value.is_realtime = false;
+  value.observed_at_epoch = 2700;
+  value.market_event = {
+    epoch: 2700,
+    sequence: 0,
+    tick_price_ticks: 111,
+    barstate_isconfirmed: true,
+    confirmed_bar: {
+      open_epoch: 2400,
+      close_epoch: 2700,
+      open_ticks: 111,
+      high_ticks: 140,
+      low_ticks: 90,
+      close_ticks: 111,
+    },
+  };
+  useEdgeDerivedReferences(value);
+  const marketEvent = value.market_event as Record<string, unknown>;
+  value.exit_events = [
+    {
+      event_id: `${setup.setup_id as string}:exit:AMBIGUOUS_SAME_BAR_EXIT:0`,
+      setup_id: setup.setup_id,
+      exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
+      epoch: marketEvent.epoch,
+      sequence: marketEvent.sequence,
+      price_ticks: marketEvent.tick_price_ticks,
+    },
+  ];
+  return value;
+}
+
 function useEdgeDerivedReferences(value: Record<string, unknown>): void {
   const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
   const candidates = bundle.candidates as Array<Record<string, unknown>>;
@@ -347,6 +404,20 @@ describe("RD entry v3 wire", () => {
     }
   });
 
+  it("routes an UNREVIEWED audit observation without configured hashes", async () => {
+    const result = await validateObservationEnvelope(
+      strict({ credential: "secret", payload: unreviewedPayload() }),
+    );
+
+    expect(result.version).toBe("entry-v3");
+    if (result.version === "entry-v3") {
+      expect(result.paperCommands).toEqual([]);
+      expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
+        "SHADOW_ONLY",
+      );
+    }
+  });
+
   it.each([
     ["unknown top-level key", (value: Record<string, unknown>) => {
       value.broker = "forbidden";
@@ -388,6 +459,223 @@ describe("RD entry v3 wire", () => {
         ...reviewedHashes,
         ...overrides,
       }),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("canonicalizes a blocked UNREVIEWED observation without paper promotion", async () => {
+    const result = await validateEntryV3Payload(strict(unreviewedPayload()));
+    const bundle = result.entryBundles[0]!;
+
+    expect(bundle.evaluation.selection).toMatchObject({
+      action: "SHADOW_ONLY",
+      canonical_candidate_id: null,
+      canonical_evidence_id: null,
+      canonical_model: null,
+    });
+    expect(bundle.candidates.every((candidate) => candidate.state === "BLOCKED"))
+      .toBe(true);
+    expect(bundle.evidence.every((evidence) => evidence.fidelity !== "EXACT"))
+      .toBe(true);
+    expect(JSON.stringify(result.canonicalPayload)).not.toContain(
+      "EDGE_DERIVED",
+    );
+    expect(
+      bundle.candidates.every((candidate) =>
+        /^[a-f0-9]{64}$/u.test(candidate.candidate_id),
+      ),
+    ).toBe(true);
+    expect(
+      bundle.evidence.every(
+        (evidence) =>
+          /^[a-f0-9]{64}$/u.test(evidence.evidence_id) &&
+          /^[a-f0-9]{64}$/u.test(evidence.payload_sha256),
+      ),
+    ).toBe(true);
+    expect(bundle.evaluation.selection.selection_id).toMatch(
+      /^[a-f0-9]{64}$/u,
+    );
+  });
+
+  it.each([
+    ["mixed detector sentinel", "UNREVIEWED", reviewedHashes.settings_hash],
+    ["mixed settings sentinel", reviewedHashes.detector_code_hash, "UNREVIEWED"],
+    ["similar lowercase pair", "unreviewed", "unreviewed"],
+    ["similar suffixed pair", "UNREVIEWED-1", "UNREVIEWED-1"],
+    ["missing detector hash", undefined, "UNREVIEWED"],
+    ["missing settings hash", "UNREVIEWED", undefined],
+  ])(
+    "rejects %s",
+    async (_name, detectorCodeHash, settingsHash) => {
+      const value = unreviewedPayload();
+      value.detector_code_hash = detectorCodeHash;
+      value.settings_hash = settingsHash;
+
+      await expect(
+        validateEntryV3Payload(strict(value), reviewedHashes),
+      ).rejects.toBeInstanceOf(EntryV3ValidationError);
+    },
+  );
+
+  it.each([
+    ["a missing common rule", (rules: Array<Record<string, unknown>>) => {
+      rules.pop();
+    }],
+    ["an unknown common rule", (rules: Array<Record<string, unknown>>) => {
+      rules[0]!.rule_id = "UNKNOWN_RULE";
+    }],
+    ["an unsorted common rule set", (rules: Array<Record<string, unknown>>) => {
+      [rules[0], rules[1]] = [rules[1]!, rules[0]!];
+    }],
+  ])("rejects UNREVIEWED with %s", async (_name, mutate) => {
+    const value = unreviewedPayload();
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    mutate(setup.common_rule_results as Array<Record<string, unknown>>);
+
+    await expect(
+      validateEntryV3Payload(strict(value)),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("still rejects false common rules in reviewed hash mode", async () => {
+    const value = payload();
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    const commonRules = setup.common_rule_results as Array<
+      Record<string, unknown>
+    >;
+    commonRules[0]!.passed = false;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it.each([
+    ["EXACT common fidelity", (value: Record<string, unknown>) => {
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      (bundle.setup as Record<string, unknown>).common_fidelity = "EXACT";
+    }],
+    ["a MATCHED candidate", (value: Record<string, unknown>) => {
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      (bundle.candidates as Array<Record<string, unknown>>)[0]!.state =
+        "MATCHED";
+    }],
+    ["EXACT evidence", (value: Record<string, unknown>) => {
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      const evidence = (bundle.evidence as Array<Record<string, unknown>>)[0]!;
+      evidence.fidelity = "EXACT";
+      evidence.passed_rule_ids = ["ENTRY_BOC_HTF_TIMED"];
+      evidence.failed_rule_ids = [];
+    }],
+    ["a passed model rule", (value: Record<string, unknown>) => {
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      const evidence = (bundle.evidence as Array<Record<string, unknown>>)[0]!;
+      evidence.passed_rule_ids = ["ENTRY_BOC_HTF_TIMED"];
+    }],
+    ["an exact selection reason", (value: Record<string, unknown>) => {
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      const selection = bundle.selection_proposal as Record<string, unknown>;
+      selection.reason = "ONLY_EXACT_TRIGGER";
+    }],
+    ["a canonical paper selection", (value: Record<string, unknown>) => {
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      const selection = bundle.selection_proposal as Record<string, unknown>;
+      selection.canonical_candidate_id = "EDGE_DERIVED:BOC";
+      selection.canonical_evidence_id = "EDGE_DERIVED:BOC";
+      selection.canonical_model = "BOC";
+      selection.reason = "ONLY_EXACT_TRIGGER";
+      selection.fidelity = "EXACT";
+      selection.action = "PAPER_ELIGIBLE";
+    }],
+  ])("rejects UNREVIEWED promotion via %s", async (_name, mutate) => {
+    const value = unreviewedPayload();
+    mutate(value);
+
+    await expect(
+      validateEntryV3Payload(strict(value)),
+    ).rejects.toBeInstanceOf(EntryV3ValidationError);
+  });
+
+  it("accepts historical same-bar ambiguity only as non-economic exit audit", async () => {
+    const value = historicalAmbiguousExitPayload();
+    const result = await validateEntryV3Payload(strict(value), reviewedHashes);
+
+    expect(result.exitEvents).toEqual([
+      expect.objectContaining({
+        exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
+        epoch: result.marketEvent.epoch,
+        sequence: result.marketEvent.sequence,
+        price_ticks: result.marketEvent.tick_price_ticks,
+      }),
+    ]);
+    expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
+      action: "SHADOW_ONLY",
+      canonical_candidate_id: null,
+      canonical_evidence_id: null,
+      canonical_model: null,
+    });
+  });
+
+  it.each(["STOP_LOSS", "TARGET"] as const)(
+    "preserves exact %s exit parsing",
+    async (exitReason) => {
+      const value = payload();
+      value.exit_events = [
+        {
+          event_id: `setup-strict-long:exit:${exitReason}:7`,
+          setup_id: "setup-strict-long",
+          exit_reason: exitReason,
+          epoch: 1801,
+          sequence: 7,
+          price_ticks: exitReason === "STOP_LOSS" ? 96 : 141,
+        },
+      ];
+
+      const result = await validateEntryV3Payload(
+        strict(value),
+        reviewedHashes,
+      );
+      expect(result.exitEvents[0]!.exit_reason).toBe(exitReason);
+    },
+  );
+
+  it.each([
+    ["a realtime payload", (value: Record<string, unknown>) => {
+      value.is_realtime = true;
+    }],
+    ["no confirmed historical bar", (value: Record<string, unknown>) => {
+      const marketEvent = value.market_event as Record<string, unknown>;
+      marketEvent.barstate_isconfirmed = false;
+      marketEvent.confirmed_bar = null;
+    }],
+    ["a bar missing the target", (value: Record<string, unknown>) => {
+      const marketEvent = value.market_event as Record<string, unknown>;
+      const confirmedBar = marketEvent.confirmed_bar as Record<string, unknown>;
+      confirmedBar.high_ticks = 120;
+    }],
+    ["a noncanonical epoch", (value: Record<string, unknown>) => {
+      const exitEvent = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+      exitEvent.epoch = (exitEvent.epoch as number) - 1;
+    }],
+    ["a noncanonical sequence", (value: Record<string, unknown>) => {
+      const exitEvent = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+      exitEvent.sequence = (exitEvent.sequence as number) + 1;
+    }],
+    ["a selected exit price", (value: Record<string, unknown>) => {
+      const exitEvent = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+      exitEvent.price_ticks = 101;
+    }],
+    ["an unknown setup", (value: Record<string, unknown>) => {
+      const exitEvent = (value.exit_events as Array<Record<string, unknown>>)[0]!;
+      exitEvent.setup_id = "unknown-setup";
+    }],
+  ])("rejects ambiguous exit audit with %s", async (_name, mutate) => {
+    const value = historicalAmbiguousExitPayload();
+    mutate(value);
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
     ).rejects.toBeInstanceOf(EntryV3ValidationError);
   });
 

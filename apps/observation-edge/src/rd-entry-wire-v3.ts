@@ -190,7 +190,7 @@ export class EntryV3ValidationError extends Error {
 
 export interface EntryV3CommonRuleResult {
   readonly rule_id: (typeof REQUIRED_COMMON_RULE_IDS_V3)[number];
-  readonly passed: true;
+  readonly passed: boolean;
 }
 
 export interface EntryV3ReviewedProducerHashes {
@@ -216,7 +216,10 @@ export interface EntryV3TradePlan {
 export interface EntryV3ExitEvent {
   readonly event_id: string;
   readonly setup_id: string;
-  readonly exit_reason: "STOP_LOSS" | "TARGET";
+  readonly exit_reason:
+    | "STOP_LOSS"
+    | "TARGET"
+    | "AMBIGUOUS_SAME_BAR_EXIT";
   readonly epoch: number;
   readonly sequence: number;
   readonly price_ticks: number;
@@ -754,7 +757,10 @@ async function verifyCanonicalDigests(
   }
 }
 
-function parseCommonRules(value: unknown): readonly EntryV3CommonRuleResult[] {
+function parseCommonRules(
+  value: unknown,
+  allowFailed: boolean,
+): readonly EntryV3CommonRuleResult[] {
   const result = values(
     value,
     REQUIRED_COMMON_RULE_IDS_V3.length,
@@ -770,14 +776,17 @@ function parseCommonRules(value: unknown): readonly EntryV3CommonRuleResult[] {
   if (
     result.map((item) => item.rule_id).join() !==
       REQUIRED_COMMON_RULE_IDS_V3.join() ||
-    result.some((item) => !item.passed)
+    (!allowFailed && result.some((item) => !item.passed))
   ) {
     fail();
   }
   return result as readonly EntryV3CommonRuleResult[];
 }
 
-function parseSetup(value: unknown): {
+function parseSetup(
+  value: unknown,
+  unreviewedProducer: boolean,
+): {
   readonly facts: SetupEntryFactsV3;
   readonly commonRules: readonly EntryV3CommonRuleResult[];
 } {
@@ -806,7 +815,10 @@ function parseSetup(value: unknown): {
   }
   return {
     facts,
-    commonRules: parseCommonRules(result.common_rule_results),
+    commonRules: parseCommonRules(
+      result.common_rule_results,
+      unreviewedProducer,
+    ),
   };
 }
 
@@ -838,10 +850,53 @@ function parseTradePlan(
   return plan;
 }
 
-async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
+function validateUnreviewedBundle(
+  setup: SetupEntryFactsV3,
+  candidates: readonly EntryCandidateV3[],
+  evidence: readonly EntryCandidateEvidenceV3[],
+  producerSelectionValue: unknown,
+  canonicalSelection: EntrySelectionV3,
+): void {
+  const producerSelection = object(producerSelectionValue);
+  const producerAction = producerSelection.action;
+  const producerReason = producerSelection.reason;
+  if (
+    setup.common_fidelity !== "UNRESOLVED" ||
+    candidates.some((candidate) => candidate.state === "MATCHED") ||
+    evidence.some(
+      (item) =>
+        item.fidelity === "EXACT" ||
+        item.passed_rule_ids.length !== 0 ||
+        item.failed_rule_ids.length !== 1 ||
+        item.failed_rule_ids[0] !== "COMMON_SETUP_NOT_EXACT",
+    ) ||
+    (producerAction !== "SHADOW_ONLY" && producerAction !== "NONE") ||
+    (producerAction === "SHADOW_ONLY"
+      ? producerReason !== "NO_EXACT_CANDIDATE"
+      : producerReason !== "SETUP_INVALIDATED" &&
+        producerReason !== "NO_CANDIDATE") ||
+    producerSelection.canonical_candidate_id !== null ||
+    producerSelection.canonical_evidence_id !== null ||
+    producerSelection.canonical_model !== null ||
+    producerSelection.fidelity !== null ||
+    values(producerSelection.co_triggered_models, 0, 3).length !== 0 ||
+    (canonicalSelection.action !== "SHADOW_ONLY" &&
+      canonicalSelection.action !== "NONE") ||
+    canonicalSelection.canonical_candidate_id !== null ||
+    canonicalSelection.canonical_evidence_id !== null ||
+    canonicalSelection.canonical_model !== null
+  ) {
+    fail("ENTRY_V3_UNREVIEWED_PROMOTION_ATTEMPT");
+  }
+}
+
+async function parseBundle(
+  value: unknown,
+  unreviewedProducer: boolean,
+): Promise<ValidatedEntryV3Bundle> {
   const result = object(value);
   exactKeys(result, SETUP_BUNDLE_KEYS);
-  const setup = parseSetup(result.setup);
+  const setup = parseSetup(result.setup, unreviewedProducer);
   const usesEdgeDerivedIdentity = bundleUsesEdgeDerivedIdentity(result);
   const candidateValues = values(result.candidates, 0, 3);
   const candidates = usesEdgeDerivedIdentity
@@ -894,6 +949,15 @@ async function parseBundle(value: unknown): Promise<ValidatedEntryV3Bundle> {
     canonicalJson(canonicalSelection) !== canonicalJson(selectionSeed)
   ) {
     fail();
+  }
+  if (unreviewedProducer) {
+    validateUnreviewedBundle(
+      setup.facts,
+      candidates,
+      evidence,
+      result.selection_proposal,
+      canonicalSelection,
+    );
   }
   const evaluation = {
     candidates: [...candidates].sort((a, b) =>
@@ -1096,7 +1160,13 @@ function parseExitEvent(value: unknown): EntryV3ExitEvent {
   const result = object(value);
   exactKeys(result, EXIT_EVENT_KEYS);
   const reason = result.exit_reason;
-  if (reason !== "STOP_LOSS" && reason !== "TARGET") fail();
+  if (
+    reason !== "STOP_LOSS" &&
+    reason !== "TARGET" &&
+    reason !== "AMBIGUOUS_SAME_BAR_EXIT"
+  ) {
+    fail();
+  }
   return {
     event_id: identifier(result.event_id),
     setup_id: identifier(result.setup_id),
@@ -1105,6 +1175,44 @@ function parseExitEvent(value: unknown): EntryV3ExitEvent {
     sequence: integer(result.sequence),
     price_ticks: signedInteger(result.price_ticks),
   };
+}
+
+function validateAmbiguousExitAudit(
+  exitEvents: readonly EntryV3ExitEvent[],
+  isRealtime: boolean,
+  marketEvent: EntryV3MarketEvent,
+  entryBundles: readonly ValidatedEntryV3Bundle[],
+): void {
+  const ambiguousEvents = exitEvents.filter(
+    (event) => event.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT",
+  );
+  if (ambiguousEvents.length === 0) return;
+  const confirmedBar = marketEvent.confirmed_bar;
+  if (
+    isRealtime ||
+    !marketEvent.barstate_isconfirmed ||
+    confirmedBar === null
+  ) {
+    fail("ENTRY_V3_AMBIGUOUS_EXIT_NOT_HISTORICAL");
+  }
+  const bundleBySetupId = new Map(
+    entryBundles.map((bundle) => [bundle.setup.setup_id, bundle] as const),
+  );
+  for (const event of ambiguousEvents) {
+    const bundle = bundleBySetupId.get(event.setup_id);
+    if (
+      bundle === undefined ||
+      event.epoch !== marketEvent.epoch ||
+      event.sequence !== marketEvent.sequence ||
+      event.price_ticks !== marketEvent.tick_price_ticks ||
+      confirmedBar.low_ticks >
+        Math.min(bundle.tradePlan.stop_ticks, bundle.tradePlan.target_ticks) ||
+      confirmedBar.high_ticks <
+        Math.max(bundle.tradePlan.stop_ticks, bundle.tradePlan.target_ticks)
+    ) {
+      fail("ENTRY_V3_AMBIGUOUS_EXIT_NOT_CAUSAL");
+    }
+  }
 }
 
 export async function validateEntryV3Payload(
@@ -1137,12 +1245,23 @@ export async function validateEntryV3Payload(
   const feed = identifier(payload.feed);
   const tickSize = text(payload.tick_size, 64);
   if (!POSITIVE_DECIMAL.test(tickSize)) fail();
-  const detectorCodeHash = digest(payload.detector_code_hash);
-  const settingsHash = digest(payload.settings_hash);
+  const detectorUnreviewed = payload.detector_code_hash === "UNREVIEWED";
+  const settingsUnreviewed = payload.settings_hash === "UNREVIEWED";
+  if (detectorUnreviewed !== settingsUnreviewed) {
+    fail("ENTRY_V3_PROMOTION_IDENTITY_MISMATCH");
+  }
+  const unreviewedProducer = detectorUnreviewed;
+  const detectorCodeHash = unreviewedProducer
+    ? "UNREVIEWED"
+    : digest(payload.detector_code_hash);
+  const settingsHash = unreviewedProducer
+    ? "UNREVIEWED"
+    : digest(payload.settings_hash);
   if (
-    reviewedHashes === undefined ||
-    digest(reviewedHashes.detector_code_hash) !== detectorCodeHash ||
-    digest(reviewedHashes.settings_hash) !== settingsHash
+    !unreviewedProducer &&
+    (reviewedHashes === undefined ||
+      digest(reviewedHashes.detector_code_hash) !== detectorCodeHash ||
+      digest(reviewedHashes.settings_hash) !== settingsHash)
   ) {
     fail("ENTRY_V3_PROMOTION_IDENTITY_MISMATCH");
   }
@@ -1152,13 +1271,21 @@ export async function validateEntryV3Payload(
   const exitEvents = values(payload.exit_events, 0, 32).map(parseExitEvent);
   const setupValues = values(payload.setups, 1, 32);
   const entryBundles: ValidatedEntryV3Bundle[] = [];
-  for (const value of setupValues) entryBundles.push(await parseBundle(value));
+  for (const value of setupValues) {
+    entryBundles.push(await parseBundle(value, unreviewedProducer));
+  }
   if (
     new Set(entryBundles.map((item) => item.setup.setup_id)).size !==
       entryBundles.length
   ) {
     fail();
   }
+  validateAmbiguousExitAudit(
+    exitEvents,
+    isRealtime,
+    marketEvent,
+    entryBundles,
+  );
   for (const bundle of entryBundles) {
     if (
       bundle.candidates.some(
