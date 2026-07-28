@@ -1192,6 +1192,12 @@ h1 {
   border-top-color: var(--red);
 }
 
+.entry-candidate-missing {
+  border: 1px dashed var(--line);
+  border-top: 2px solid var(--line-bright);
+  background: rgba(23, 29, 24, 0.46);
+}
+
 .entry-candidate header {
   display: flex;
   align-items: flex-start;

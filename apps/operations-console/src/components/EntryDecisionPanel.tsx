@@ -12,6 +12,7 @@ const MODEL_LABELS: Readonly<Record<EntryModel, string>> = {
   DIR_CLOSE: "Directional close",
   HTF_FLIP: "HTF flip",
 };
+const MODEL_ORDER: readonly EntryModel[] = ["BOC", "DIR_CLOSE", "HTF_FLIP"];
 
 const REASON_LABELS: Readonly<Record<string, string>> = {
   ONLY_EXACT_TRIGGER: "Only exact trigger",
@@ -173,6 +174,30 @@ function CandidateRow({
   );
 }
 
+function MissingCandidateRow({ model }: { model: EntryModel }) {
+  return (
+    <article className="entry-candidate entry-candidate-missing">
+      <header>
+        <div>
+          <p>{MODEL_LABELS[model]}</p>
+          <h4>{MODEL_LABELS[model]} not observed</h4>
+        </div>
+        <strong>NOT OBSERVED</strong>
+      </header>
+      <dl>
+        <div>
+          <dt>Trigger</dt>
+          <dd>Not triggered</dd>
+        </div>
+        <div>
+          <dt>Evidence</dt>
+          <dd>No candidate evidence retained</dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
 function coTriggerLabel(item: EntryDecisionItem): string | null {
   const models = new Set<EntryModel>(item.selection.coTriggeredModels);
   if (item.selection.canonicalModel !== null) {
@@ -209,6 +234,9 @@ function DecisionCard({ item }: { item: EntryDecisionItem }) {
       ? "No model selected"
       : `${MODEL_LABELS[item.selection.canonicalModel]} selected`;
   const coTrigger = coTriggerLabel(item);
+  const candidatesByModel = new Map(
+    item.candidates.map((candidate) => [candidate.model, candidate]),
+  );
   return (
     <article className="entry-decision-card">
       <header className="entry-decision-heading">
@@ -264,9 +292,14 @@ function DecisionCard({ item }: { item: EntryDecisionItem }) {
       {coTrigger === null ? null : <p className="entry-co-trigger">{coTrigger}</p>}
 
       <div className="entry-candidate-grid">
-        {item.candidates.map((candidate) => (
-          <CandidateRow candidate={candidate} item={item} key={candidate.candidateId} />
-        ))}
+        {MODEL_ORDER.map((model) => {
+          const candidate = candidatesByModel.get(model);
+          return candidate === undefined ? (
+            <MissingCandidateRow key={model} model={model} />
+          ) : (
+            <CandidateRow candidate={candidate} item={item} key={model} />
+          );
+        })}
       </div>
     </article>
   );
@@ -303,7 +336,7 @@ export function EntryDecisionPanel({
       ) : (
         <div className="entry-decision-list">
           {initialSnapshot.items.map((item) => (
-            <DecisionCard item={item} key={item.selection.selectionId} />
+            <DecisionCard item={item} key={item.decisionId} />
           ))}
         </div>
       )}

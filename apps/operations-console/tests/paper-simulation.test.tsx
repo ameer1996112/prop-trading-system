@@ -17,6 +17,18 @@ vi.mock("../src/lib/entry-decisions", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/components/EntryDecisionPanel", () => ({
+  EntryDecisionPanel: ({
+    initialSnapshot,
+  }: {
+    initialSnapshot: { state: string; message: string };
+  }) => (
+    <div data-testid="decision-snapshot">
+      {initialSnapshot.state}: {initialSnapshot.message}
+    </div>
+  ),
+}));
+
 vi.mock("../src/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/lib/api")>();
   return {
@@ -334,6 +346,40 @@ describe("PaperSimulationPanel", () => {
     expect(screen.getByText("EURUSD").closest("article")).toHaveAttribute(
       "id",
       "paper-intent-intent-a",
+    );
+  });
+
+  it("replaces stale READY decisions when sibling refreshes fail", async () => {
+    apiMocks.loadEntryDecisions
+      .mockResolvedValueOnce({
+        state: "READY",
+        items: [],
+        message: "Prior READY cards",
+      })
+      .mockResolvedValueOnce({
+        state: "ERROR",
+        items: [],
+        message: "Decision refresh failed closed",
+      });
+    apiMocks.loadPaperSimulationSummary
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(new Error("Paper simulator refresh failed."));
+    apiMocks.loadPaperReadiness.mockResolvedValue(readiness);
+    render(<PaperSimulationPanel />);
+    fireEvent.change(screen.getByLabelText("Paper operator credential"), {
+      target: { value: "operator-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "UNLOCK" }));
+    expect(await screen.findByText("READY: Prior READY cards")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "REFRESH" }));
+
+    expect(
+      await screen.findByText("ERROR: Decision refresh failed closed"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("READY: Prior READY cards")).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Paper simulator refresh failed.",
     );
   });
 });

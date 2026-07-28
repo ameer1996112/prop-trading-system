@@ -8,6 +8,7 @@ const payload = {
   count: 1,
   items: [
     {
+      decision_id: "stored-selection-a",
       setup_id: "setup-a",
       symbol: "EURUSD",
       direction: "LONG",
@@ -44,6 +45,7 @@ const payload = {
           source_claim_ids: ["htf-timed-boc-2026-06"],
           evidence: {
             evidence_id: "evidence-boc",
+            candidate_id: "candidate-boc",
             observed_trigger_epoch: 1_801,
             trigger_sequence: 5,
             observed_trigger_ticks: 111,
@@ -79,6 +81,7 @@ const payload = {
           source_claim_ids: ["directional-close-2025-08"],
           evidence: {
             evidence_id: "evidence-close",
+            candidate_id: "candidate-close",
             observed_trigger_epoch: 2_100,
             trigger_sequence: 0,
             observed_trigger_ticks: 109,
@@ -108,6 +111,7 @@ const payload = {
           source_claim_ids: ["htf-flip-2024-03"],
           evidence: {
             evidence_id: "evidence-flip",
+            candidate_id: "candidate-flip",
             observed_trigger_epoch: 1_802,
             trigger_sequence: 6,
             observed_trigger_ticks: 112,
@@ -192,6 +196,36 @@ describe("loadEntryDecisions", () => {
     );
   });
 
+  it("keeps duplicate logical selection IDs when opaque decision IDs differ", async () => {
+    const repeated = structuredClone(payload);
+    repeated.count = 2;
+    repeated.items.push({
+      ...structuredClone(payload.items[0]!),
+      decision_id: "stored-selection-b",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(repeated), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+
+    const snapshot = await loadEntryDecisions("operator-secret");
+
+    expect(snapshot.state).toBe("READY");
+    expect(snapshot.items.map((item) => item.selection.selectionId)).toEqual([
+      "selection-a",
+      "selection-a",
+    ]);
+    expect(snapshot.items.map((item) => item.decisionId)).toEqual([
+      "stored-selection-a",
+      "stored-selection-b",
+    ]);
+  });
+
   it("fails closed on unknown keys, enums, bounds, and nullable-field drift", async () => {
     for (const invalid of [
       { ...payload, credential: "leak" },
@@ -201,6 +235,44 @@ describe("loadEntryDecisions", () => {
           {
             ...payload.items[0],
             direction: "BOTH",
+          },
+        ],
+      },
+      {
+        ...payload,
+        items: [
+          {
+            ...payload.items[0]!,
+            candidates: payload.items[0]!.candidates.map((candidate) =>
+              candidate.model === "HTF_FLIP"
+                ? {
+                    ...candidate,
+                    evidence: {
+                      ...candidate.evidence,
+                      evidence_id: "evidence-close",
+                    },
+                  }
+                : candidate,
+            ),
+          },
+        ],
+      },
+      {
+        ...payload,
+        items: [
+          {
+            ...payload.items[0]!,
+            candidates: payload.items[0]!.candidates.map((candidate) =>
+              candidate.model === "HTF_FLIP"
+                ? {
+                    ...candidate,
+                    evidence: {
+                      ...candidate.evidence,
+                      observed_trigger_epoch: 800,
+                    },
+                  }
+                : candidate,
+            ),
           },
         ],
       },
@@ -238,6 +310,135 @@ describe("loadEntryDecisions", () => {
       );
       const snapshot = await loadEntryDecisions("operator-secret");
       expect(snapshot).toMatchObject({ state: "ERROR", items: [] });
+    }
+  });
+
+  it("rejects duplicate opaque IDs and coordinated cross-graph corruption", async () => {
+    const baseItem = payload.items[0]!;
+    const malformed = [
+      {
+        ...payload,
+        count: 2,
+        items: [baseItem, { ...baseItem }],
+      },
+      {
+        ...payload,
+        items: [
+          {
+            ...baseItem,
+            selection: {
+              ...baseItem.selection,
+              selected_trigger_epoch: 2_101,
+            },
+          },
+        ],
+      },
+      {
+        ...payload,
+        items: [
+          {
+            ...baseItem,
+            candidates: baseItem.candidates.map((candidate) =>
+              candidate.model === "BOC"
+                ? {
+                    ...candidate,
+                    evidence: {
+                      ...candidate.evidence,
+                      candidate_id: "candidate-close",
+                    },
+                  }
+                : candidate,
+            ),
+          },
+        ],
+      },
+      {
+        ...payload,
+        items: [
+          {
+            ...baseItem,
+            candidates: baseItem.candidates.map((candidate) =>
+              candidate.model === "BOC"
+                ? {
+                    ...candidate,
+                    reference_candle_open_epoch: 901,
+                  }
+                : candidate,
+            ),
+          },
+        ],
+      },
+      {
+        ...payload,
+        items: [
+          {
+            ...baseItem,
+            selection: {
+              ...baseItem.selection,
+              action: "PAPER_ELIGIBLE",
+            },
+            paper_intent_id: null,
+            trade: null,
+          },
+        ],
+      },
+      {
+        ...payload,
+        items: [
+          {
+            ...baseItem,
+            selection: {
+              ...baseItem.selection,
+              canonical_candidate_id: "candidate-flip",
+              canonical_evidence_id: "evidence-flip",
+              canonical_model: "HTF_FLIP",
+              reason: "CO_TRIGGER_SAME_EVENT",
+              co_triggered_models: ["BOC", "HTF_FLIP"],
+              selected_trigger_epoch: 1_802,
+              selected_trigger_sequence: 6,
+            },
+            candidates: baseItem.candidates.map((candidate) =>
+              candidate.model === "BOC"
+                ? {
+                    ...candidate,
+                    state: "MATCHED",
+                    evidence: {
+                      ...candidate.evidence,
+                      observed_trigger_epoch: 1_802,
+                      trigger_sequence: 6,
+                      fidelity: "EXACT",
+                      passed_rule_ids: ["ENTRY_BOC_HTF_TIMED"],
+                      failed_rule_ids: [],
+                    },
+                  }
+                : candidate.model === "HTF_FLIP"
+                  ? {
+                      ...candidate,
+                      state: "MATCHED",
+                      evidence: {
+                        ...candidate.evidence,
+                        fidelity: "EXACT",
+                        passed_rule_ids: ["ENTRY_HTF_FLIP"],
+                        failed_rule_ids: [],
+                      },
+                    }
+                  : candidate,
+            ),
+          },
+        ],
+      },
+    ];
+    for (const invalid of malformed) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(invalid), { status: 200 }),
+        ),
+      );
+      await expect(loadEntryDecisions("operator-secret")).resolves.toMatchObject({
+        state: "ERROR",
+        items: [],
+      });
     }
   });
 

@@ -117,6 +117,7 @@ import {
 import {
   LIST_ENTRY_V3_DECISION_CANDIDATES_SQL,
   LIST_ENTRY_V3_DECISION_EVIDENCE_SQL,
+  LIST_ENTRY_V3_DECISION_MEMBERS_SQL,
   LIST_ENTRY_V3_DECISION_PAPER_SQL,
   LIST_ENTRY_V3_DECISION_PARITY_SQL,
   LIST_ENTRY_V3_DECISION_SHADOW_SQL,
@@ -124,6 +125,7 @@ import {
 } from "./rd-entry-queries-v3";
 import {
   validateEntryCandidateV3,
+  validateEntryEvaluationV3,
   validateEntryEvidenceV3,
   validateSelectionShapeV3,
   type EntryCandidateEvidenceV3,
@@ -143,6 +145,9 @@ const MAX_MAX_BODY_BYTES = 1_048_576;
 const PAPER_MAX_BODY_BYTES = 16_384;
 const MAX_DECISION_RESPONSE_BYTES = 1_048_576;
 const MAX_STORED_DECISION_JSON_BYTES = 65_536;
+const MAX_DECISION_CANDIDATES = 3;
+const MAX_DECISION_EVIDENCE = 3;
+const MAX_DECISION_MEMBERS = 6;
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const SHA256 = /^[a-f0-9]{64}$/;
 
@@ -1382,6 +1387,7 @@ function parseExactDecisionLimit(url: URL): number | null {
 
 interface DecisionSelectionRow {
   readonly selection_id: string;
+  readonly logical_selection_id: string;
   readonly event_id: string;
   readonly setup_id: string;
   readonly attempt_kind: "INITIAL" | "RE_ENTRY";
@@ -1392,6 +1398,8 @@ interface DecisionSelectionRow {
     | "PAPER_CONFIGURATION_UNAVAILABLE"
     | "NOT_SELECTED_ALREADY_OPEN"
     | null;
+  readonly canonical_candidate_id: string | null;
+  readonly canonical_evidence_id: string | null;
   readonly co_triggered_models_json: string;
   readonly evaluated_at_epoch: number;
   readonly selected_trigger_epoch: number | null;
@@ -1406,19 +1414,33 @@ interface DecisionSelectionRow {
 
 interface DecisionCandidateRow {
   readonly selection_id: string;
+  readonly member_object_id: string;
   readonly candidate_id: string;
   readonly logical_candidate_id: string;
+  readonly event_id: string;
+  readonly setup_id: string;
   readonly candidate_json: string;
 }
 
 interface DecisionEvidenceRow {
   readonly selection_id: string;
+  readonly member_object_id: string;
   readonly evidence_id: string;
   readonly logical_evidence_id: string;
+  readonly event_id: string;
+  readonly candidate_id: string;
+  readonly logical_candidate_id: string;
   readonly evidence_json: string;
 }
 
+interface DecisionMemberRow {
+  readonly selection_id: string;
+  readonly object_kind: "CANDIDATE" | "EVIDENCE";
+  readonly object_id: string;
+}
+
 interface DecisionParityRow {
+  readonly event_id: string;
   readonly selection_id: string;
   readonly parity_status: "MATCH" | "MISMATCH" | "NOT_PROVIDED";
   readonly mismatch_reason:
@@ -1442,6 +1464,7 @@ interface DecisionPaperRow {
 
 interface DecisionShadowRow {
   readonly selection_id: string;
+  readonly candidate_id: string;
   readonly state: "OPEN" | "STOPPED" | "TARGET_HIT" | "AMBIGUOUS";
   readonly outcome_r_millis: number | null;
 }
@@ -1490,6 +1513,7 @@ function decisionCandidateView(
     source_claim_ids: [...candidate.source_claim_ids],
     evidence: {
       evidence_id: evidence.evidence_id,
+      candidate_id: evidence.candidate_id,
       observed_trigger_epoch: evidence.observed_trigger_epoch,
       trigger_sequence: evidence.trigger_sequence,
       observed_trigger_ticks: evidence.observed_trigger_ticks,
@@ -1577,14 +1601,42 @@ async function listRdEntryDecisions(
       throw new StorageUnavailableError();
     }
     const ids = JSON.stringify(storageIds);
-    const [candidateResult, evidenceResult, parityResult, paperResult, shadowResult] =
-      await env.DB.batch([
-        env.DB.prepare(LIST_ENTRY_V3_DECISION_CANDIDATES_SQL).bind(ids),
-        env.DB.prepare(LIST_ENTRY_V3_DECISION_EVIDENCE_SQL).bind(ids),
-        env.DB.prepare(LIST_ENTRY_V3_DECISION_PARITY_SQL).bind(ids),
-        env.DB.prepare(LIST_ENTRY_V3_DECISION_PAPER_SQL).bind(ids),
-        env.DB.prepare(LIST_ENTRY_V3_DECISION_SHADOW_SQL).bind(ids),
-      ]);
+    const candidateLimit =
+      selectionRows.length * MAX_DECISION_CANDIDATES + 1;
+    const evidenceLimit =
+      selectionRows.length * MAX_DECISION_EVIDENCE + 1;
+    const memberLimit = selectionRows.length * MAX_DECISION_MEMBERS + 1;
+    const relationLimit = selectionRows.length + 1;
+    const [
+      memberResult,
+      candidateResult,
+      evidenceResult,
+      parityResult,
+      paperResult,
+      shadowResult,
+    ] = await env.DB.batch([
+      env.DB
+        .prepare(LIST_ENTRY_V3_DECISION_MEMBERS_SQL)
+        .bind(ids, memberLimit),
+      env.DB
+        .prepare(LIST_ENTRY_V3_DECISION_CANDIDATES_SQL)
+        .bind(ids, candidateLimit),
+      env.DB
+        .prepare(LIST_ENTRY_V3_DECISION_EVIDENCE_SQL)
+        .bind(ids, evidenceLimit),
+      env.DB
+        .prepare(LIST_ENTRY_V3_DECISION_PARITY_SQL)
+        .bind(ids, relationLimit),
+      env.DB
+        .prepare(LIST_ENTRY_V3_DECISION_PAPER_SQL)
+        .bind(ids, relationLimit),
+      env.DB
+        .prepare(LIST_ENTRY_V3_DECISION_SHADOW_SQL)
+        .bind(ids, relationLimit),
+    ]);
+    const memberRows =
+      (memberResult?.results as unknown as DecisionMemberRow[] | undefined) ??
+      [];
     const candidateRows =
       (candidateResult?.results as unknown as DecisionCandidateRow[] | undefined) ??
       [];
@@ -1597,9 +1649,25 @@ async function listRdEntryDecisions(
       (paperResult?.results as unknown as DecisionPaperRow[] | undefined) ?? [];
     const shadowRows =
       (shadowResult?.results as unknown as DecisionShadowRow[] | undefined) ?? [];
+    if (
+      memberRows.length >= memberLimit ||
+      candidateRows.length >= candidateLimit ||
+      evidenceRows.length >= evidenceLimit ||
+      parityRows.length >= relationLimit ||
+      paperRows.length >= relationLimit ||
+      shadowRows.length >= relationLimit
+    ) {
+      throw new StorageUnavailableError();
+    }
 
+    const membersBySelection = new Map<string, DecisionMemberRow[]>();
     const candidatesBySelection = new Map<string, DecisionCandidateRow[]>();
     const evidenceBySelection = new Map<string, DecisionEvidenceRow[]>();
+    for (const row of memberRows) {
+      const current = membersBySelection.get(row.selection_id) ?? [];
+      current.push(row);
+      membersBySelection.set(row.selection_id, current);
+    }
     for (const row of candidateRows) {
       const current = candidatesBySelection.get(row.selection_id) ?? [];
       current.push(row);
@@ -1620,6 +1688,7 @@ async function listRdEntryDecisions(
       shadowRows.map((row) => [row.selection_id, row]),
     );
     if (
+      parityRows.length !== selectionRows.length ||
       parityBySelection.size !== selectionRows.length ||
       paperBySelection.size !== paperRows.length ||
       shadowBySelection.size !== shadowRows.length
@@ -1645,15 +1714,26 @@ async function listRdEntryDecisions(
         row.selection_json,
         validateSelectionShapeV3,
       );
+      if (
+        selection.selection_id !== row.logical_selection_id ||
+        selection.setup_id !== row.setup_id
+      ) {
+        throw new StorageUnavailableError();
+      }
+      const storedMembers = membersBySelection.get(row.selection_id) ?? [];
       const storedCandidates = candidatesBySelection.get(row.selection_id) ?? [];
       const storedEvidence = evidenceBySelection.get(row.selection_id) ?? [];
       if (
         storedCandidates.length < 1 ||
-        storedCandidates.length > 3 ||
-        storedEvidence.length !== storedCandidates.length
+        storedCandidates.length > MAX_DECISION_CANDIDATES ||
+        storedEvidence.length !== storedCandidates.length ||
+        storedEvidence.length > MAX_DECISION_EVIDENCE ||
+        storedMembers.length !== storedCandidates.length + storedEvidence.length
       ) {
         throw new StorageUnavailableError();
       }
+      const candidateRowsByStorageId = new Map<string, DecisionCandidateRow>();
+      const candidateStorageIdByLogicalId = new Map<string, string>();
       const candidates = storedCandidates.map((item) => {
         const candidate = parseStoredDecisionJson<EntryCandidateV3>(
           item.candidate_json,
@@ -1661,25 +1741,66 @@ async function listRdEntryDecisions(
         );
         if (
           candidate.candidate_id !== item.logical_candidate_id ||
-          item.candidate_id.length < 1
+          candidate.setup_id !== row.setup_id ||
+          item.candidate_id !== item.member_object_id ||
+          item.event_id !== row.event_id ||
+          item.setup_id !== row.setup_id ||
+          candidateRowsByStorageId.has(item.candidate_id) ||
+          candidateStorageIdByLogicalId.has(candidate.candidate_id)
         ) {
           throw new StorageUnavailableError();
         }
+        candidateRowsByStorageId.set(item.candidate_id, item);
+        candidateStorageIdByLogicalId.set(
+          candidate.candidate_id,
+          item.candidate_id,
+        );
         return candidate;
       });
       const evidenceByCandidate = new Map<string, EntryCandidateEvidenceV3>();
+      const evidenceRowsByStorageId = new Map<string, DecisionEvidenceRow>();
+      const evidenceStorageIdByLogicalId = new Map<string, string>();
       for (const item of storedEvidence) {
         const evidence = parseStoredDecisionJson<EntryCandidateEvidenceV3>(
           item.evidence_json,
           validateEntryEvidenceV3,
         );
+        const owningCandidate = candidateRowsByStorageId.get(item.candidate_id);
         if (
           evidence.evidence_id !== item.logical_evidence_id ||
-          evidenceByCandidate.has(evidence.candidate_id)
+          evidence.candidate_id !== item.logical_candidate_id ||
+          item.evidence_id !== item.member_object_id ||
+          item.event_id !== row.event_id ||
+          owningCandidate === undefined ||
+          owningCandidate.logical_candidate_id !== evidence.candidate_id ||
+          evidenceByCandidate.has(evidence.candidate_id) ||
+          evidenceRowsByStorageId.has(item.evidence_id) ||
+          evidenceStorageIdByLogicalId.has(evidence.evidence_id)
         ) {
           throw new StorageUnavailableError();
         }
         evidenceByCandidate.set(evidence.candidate_id, evidence);
+        evidenceRowsByStorageId.set(item.evidence_id, item);
+        evidenceStorageIdByLogicalId.set(
+          evidence.evidence_id,
+          item.evidence_id,
+        );
+      }
+      const expectedMembers = new Set([
+        ...candidateRowsByStorageId.keys(),
+        ...evidenceRowsByStorageId.keys(),
+      ]);
+      if (
+        new Set(storedMembers.map((member) => member.object_id)).size !==
+          storedMembers.length ||
+        storedMembers.some(
+          (member) =>
+            !expectedMembers.has(member.object_id) ||
+            (member.object_kind === "CANDIDATE") !==
+              candidateRowsByStorageId.has(member.object_id),
+        )
+      ) {
+        throw new StorageUnavailableError();
       }
       const considered = new Set(selection.candidate_ids_considered);
       if (
@@ -1688,14 +1809,91 @@ async function listRdEntryDecisions(
       ) {
         throw new StorageUnavailableError();
       }
+      if (
+        typeof row.co_triggered_models_json !== "string" ||
+        new TextEncoder().encode(row.co_triggered_models_json).byteLength > 128
+      ) {
+        throw new StorageUnavailableError();
+      }
+      const rawCoTriggeredModels = JSON.parse(row.co_triggered_models_json) as unknown;
+      if (
+        !Array.isArray(rawCoTriggeredModels) ||
+        rawCoTriggeredModels.length !== selection.co_triggered_models.length ||
+        rawCoTriggeredModels.some(
+          (model, index) => model !== selection.co_triggered_models[index],
+        )
+      ) {
+        throw new StorageUnavailableError();
+      }
+      if (
+        (selection.canonical_candidate_id === null) !==
+          (row.canonical_candidate_id === null) ||
+        (selection.canonical_evidence_id === null) !==
+          (row.canonical_evidence_id === null) ||
+        (selection.canonical_candidate_id !== null &&
+          candidateStorageIdByLogicalId.get(
+            selection.canonical_candidate_id,
+          ) !== row.canonical_candidate_id) ||
+        (selection.canonical_evidence_id !== null &&
+          evidenceStorageIdByLogicalId.get(
+            selection.canonical_evidence_id,
+          ) !== row.canonical_evidence_id)
+      ) {
+        throw new StorageUnavailableError();
+      }
+      const canonicalEvidence =
+        selection.canonical_evidence_id === null
+          ? null
+          : storedEvidence
+              .map((item) =>
+                parseStoredDecisionJson<EntryCandidateEvidenceV3>(
+                  item.evidence_json,
+                  validateEntryEvidenceV3,
+                ),
+              )
+              .find(
+                (evidence) =>
+                  evidence.evidence_id === selection.canonical_evidence_id,
+              ) ?? null;
+      if (
+        canonicalEvidence === null
+          ? row.selected_trigger_epoch !== null ||
+            row.selected_trigger_sequence !== null
+          : canonicalEvidence.observed_trigger_epoch !==
+              row.selected_trigger_epoch ||
+            canonicalEvidence.trigger_sequence !==
+              row.selected_trigger_sequence
+      ) {
+        throw new StorageUnavailableError();
+      }
+      validateEntryEvaluationV3({
+        candidates: [...candidates].sort((left, right) =>
+          left.candidate_id.localeCompare(right.candidate_id),
+        ),
+        evidence: [...evidenceByCandidate.values()].sort((left, right) =>
+          left.evidence_id.localeCompare(right.evidence_id),
+        ),
+        selection,
+      });
       const directions = new Set(candidates.map((candidate) => candidate.direction));
       const parity = parityBySelection.get(row.selection_id);
-      if (directions.size !== 1 || parity === undefined) {
+      if (
+        directions.size !== 1 ||
+        parity === undefined ||
+        parity.event_id !== row.event_id
+      ) {
         throw new StorageUnavailableError();
       }
       const paper = paperBySelection.get(row.selection_id) ?? null;
       const shadow = shadowBySelection.get(row.selection_id) ?? null;
+      if (
+        shadow !== null &&
+        !candidateRowsByStorageId.has(shadow.candidate_id)
+      ) {
+        throw new StorageUnavailableError();
+      }
       return {
+        decision_id: row.selection_id,
         setup_id: row.setup_id,
         symbol: row.symbol,
         direction: candidates[0]!.direction,

@@ -12,6 +12,14 @@ import {
   LIST_SETUP_EVIDENCE_SQL,
   SELECT_RECEIPT_SQL,
 } from "../src/queries";
+import {
+  LIST_ENTRY_V3_DECISION_CANDIDATES_SQL,
+  LIST_ENTRY_V3_DECISION_EVIDENCE_SQL,
+  LIST_ENTRY_V3_DECISION_MEMBERS_SQL,
+  LIST_ENTRY_V3_DECISION_PAPER_SQL,
+  LIST_ENTRY_V3_DECISION_PARITY_SQL,
+  LIST_ENTRY_V3_DECISION_SHADOW_SQL,
+} from "../src/rd-entry-queries-v3";
 import type {
   Env,
   StoredEntryCandidate,
@@ -37,6 +45,17 @@ type SqliteInput =
   | bigint
   | string
   | NodeJS.ArrayBufferView;
+
+function sqliteValue(
+  row: Readonly<Record<string, SqliteInput>>,
+  key: string,
+): SqliteInput {
+  const value = row[key];
+  if (value === undefined) {
+    throw new Error(`Missing SQLite column ${key}`);
+  }
+  return value;
+}
 const ENTRY_STORAGE_TABLES = [
   "observation_entry_batches",
   "observation_market_bar_heartbeats",
@@ -834,7 +853,7 @@ class FakeD1 {
   ) {
     const root = fileURLToPath(new URL("..", import.meta.url));
     this.sqlite.exec("PRAGMA foreign_keys = ON");
-    applyObservationMigrationsThrough(this.sqlite, root, 24);
+    applyObservationMigrationsThrough(this.sqlite, root, 25);
     this.syncEntryMaps();
   }
 
@@ -1605,6 +1624,10 @@ function seedEntryV3Decision(
       );
   }
   const selection = expected.selection;
+  const selectedEvidence = expected.evidence.find(
+    (evidence) =>
+      evidence.evidence_id === selection.canonical_evidence_id,
+  );
   const selectionRowId = `stored-selection:${String(selection.selection_id)}`;
   database.sqlite
     .prepare(
@@ -1634,8 +1657,8 @@ function seedEntryV3Decision(
       selection.action as string,
       JSON.stringify(selection.co_triggered_models),
       selection.evaluated_at_epoch as number,
-      2100,
-      0,
+      (selectedEvidence?.observed_trigger_epoch as number | null) ?? null,
+      (selectedEvidence?.trigger_sequence as number | undefined) ?? null,
       JSON.stringify(selection),
     );
   for (const rowId of candidateRows.values()) {
@@ -1664,6 +1687,261 @@ function seedEntryV3Decision(
       ) VALUES (?, ?, ?, 'MATCH', NULL, '2026-07-28T00:00:00Z')`,
     )
     .run(`parity:${caseId}`, eventId, selectionRowId);
+}
+
+function cloneEntryV3DecisionEvent(
+  database: FakeD1,
+  caseId: string,
+  suffix: string,
+): {
+  readonly originalSelectionId: string;
+  readonly clonedSelectionId: string;
+  readonly originalCandidateIds: Map<string, string>;
+  readonly clonedCandidateIds: Map<string, string>;
+  readonly originalEvidenceIds: Map<string, string>;
+  readonly clonedEvidenceIds: Map<string, string>;
+} {
+  const originalEventId = `decision-event:${caseId}`;
+  const clonedEventId = `zz-decision-event:${suffix}`;
+  const clonedReceiptId = `zz-decision-receipt:${suffix}`;
+  const event = database.sqlite
+    .prepare(
+      `SELECT *
+       FROM observation_entry_v3_events
+       WHERE event_id = ?`,
+    )
+    .get(originalEventId) as Record<string, SqliteInput>;
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_receipts (
+        receipt_id, received_at, idempotency_key, payload_sha256,
+        schema_version, strategy_id, strategy_version, producer_instance_id,
+        sequence, symbol, ticker_id, feed, timeframe, kind
+      ) VALUES (?, '2026-07-28T00:00:01Z', ?, ?, '3.0',
+        'rd_liquidity_sd_5m_v1', '3.0.0-contract3', ?, 1, ?, ?,
+        'OANDA', '5', 'incremental')`,
+    )
+    .run(
+      clonedReceiptId,
+      `decision-clone:${suffix}`,
+      sqliteValue(event, "payload_sha256"),
+      `decision-clone-producer:${suffix}`,
+      sqliteValue(event, "symbol"),
+      `OANDA:${String(sqliteValue(event, "symbol"))}`,
+    );
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_entry_v3_events (
+        event_id, receipt_id, producer_instance_id, producer_sequence,
+        strategy_version, rule_contract_version, event_role, is_realtime,
+        symbol, tick_size, detector_code_hash, settings_hash,
+        validated_payload_json, payload_sha256, observed_at_epoch, recorded_at
+      ) VALUES (?, ?, ?, 1, '3.0.0-contract3', '3.0.0', 'ENTRY_DECISION',
+        ?, ?, ?, ?, ?, ?, ?, ?, '2026-07-28T00:00:01Z')`,
+    )
+    .run(
+      clonedEventId,
+      clonedReceiptId,
+      `decision-clone-producer:${suffix}`,
+      sqliteValue(event, "is_realtime"),
+      sqliteValue(event, "symbol"),
+      sqliteValue(event, "tick_size"),
+      sqliteValue(event, "detector_code_hash"),
+      sqliteValue(event, "settings_hash"),
+      sqliteValue(event, "validated_payload_json"),
+      sqliteValue(event, "payload_sha256"),
+      sqliteValue(event, "observed_at_epoch"),
+    );
+  const originalCandidateIds = new Map<string, string>();
+  const clonedCandidateIds = new Map<string, string>();
+  const candidates = database.sqlite
+    .prepare(
+      `SELECT *
+       FROM observation_entry_v3_candidates
+       WHERE event_id = ?
+       ORDER BY candidate_id`,
+    )
+    .all(originalEventId) as Array<Record<string, SqliteInput>>;
+  for (const candidate of candidates) {
+    const logicalId = String(candidate.logical_candidate_id);
+    const clonedId = `zz:${suffix}:${String(candidate.candidate_id)}`;
+    originalCandidateIds.set(logicalId, String(candidate.candidate_id));
+    clonedCandidateIds.set(logicalId, clonedId);
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_candidates (
+          candidate_id, logical_candidate_id, event_id, setup_id, model,
+          state, direction, event_anchor_epoch, trigger_ordinal, boc_tier,
+          reference_candle_open_epoch, source_claim_ids_json, candidate_json,
+          observed_at_epoch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        clonedId,
+        logicalId,
+        clonedEventId,
+        sqliteValue(candidate, "setup_id"),
+        sqliteValue(candidate, "model"),
+        sqliteValue(candidate, "state"),
+        sqliteValue(candidate, "direction"),
+        sqliteValue(candidate, "event_anchor_epoch"),
+        sqliteValue(candidate, "trigger_ordinal"),
+        sqliteValue(candidate, "boc_tier"),
+        sqliteValue(candidate, "reference_candle_open_epoch"),
+        sqliteValue(candidate, "source_claim_ids_json"),
+        sqliteValue(candidate, "candidate_json"),
+        sqliteValue(candidate, "observed_at_epoch"),
+      );
+  }
+  const originalEvidenceIds = new Map<string, string>();
+  const clonedEvidenceIds = new Map<string, string>();
+  const evidenceRows = database.sqlite
+    .prepare(
+      `SELECT *
+       FROM observation_entry_v3_evidence
+       WHERE event_id = ?
+       ORDER BY evidence_id`,
+    )
+    .all(originalEventId) as Array<Record<string, SqliteInput>>;
+  for (const evidence of evidenceRows) {
+    const logicalId = String(evidence.logical_evidence_id);
+    const logicalCandidateId = String(evidence.logical_candidate_id);
+    const clonedId = `zz:${suffix}:${String(evidence.evidence_id)}`;
+    originalEvidenceIds.set(logicalId, String(evidence.evidence_id));
+    clonedEvidenceIds.set(logicalId, clonedId);
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_evidence (
+          evidence_id, logical_evidence_id, event_id, candidate_id,
+          logical_candidate_id, observed_trigger_epoch, trigger_sequence,
+          observed_trigger_ticks, fidelity, proof_plane, replayability,
+          evidence_json, observed_at_epoch
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        clonedId,
+        logicalId,
+        clonedEventId,
+        clonedCandidateIds.get(logicalCandidateId)!,
+        logicalCandidateId,
+        sqliteValue(evidence, "observed_trigger_epoch"),
+        sqliteValue(evidence, "trigger_sequence"),
+        sqliteValue(evidence, "observed_trigger_ticks"),
+        sqliteValue(evidence, "fidelity"),
+        sqliteValue(evidence, "proof_plane"),
+        sqliteValue(evidence, "replayability"),
+        sqliteValue(evidence, "evidence_json"),
+        sqliteValue(evidence, "observed_at_epoch"),
+      );
+  }
+  const selection = database.sqlite
+    .prepare(
+      `SELECT *
+       FROM observation_entry_v3_selections
+       WHERE event_id = ?`,
+    )
+    .get(originalEventId) as Record<string, SqliteInput>;
+  const originalSelectionId = String(selection.selection_id);
+  const clonedSelectionId = `zz:${suffix}:${originalSelectionId}`;
+  const canonicalCandidateLogical =
+    selection.canonical_candidate_id === null
+      ? null
+      : (database.sqlite
+          .prepare(
+            `SELECT logical_candidate_id
+             FROM observation_entry_v3_candidates
+             WHERE candidate_id = ?`,
+          )
+          .get(sqliteValue(selection, "canonical_candidate_id")) as {
+          logical_candidate_id: string;
+        }).logical_candidate_id;
+  const canonicalEvidenceLogical =
+    selection.canonical_evidence_id === null
+      ? null
+      : (database.sqlite
+          .prepare(
+            `SELECT logical_evidence_id
+             FROM observation_entry_v3_evidence
+             WHERE evidence_id = ?`,
+          )
+          .get(sqliteValue(selection, "canonical_evidence_id")) as {
+          logical_evidence_id: string;
+        }).logical_evidence_id;
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_entry_v3_selections (
+        selection_id, logical_selection_id, event_id, setup_id, attempt_kind,
+        policy_version, revision, canonical_candidate_id,
+        canonical_evidence_id, canonical_model, reason, fidelity,
+        policy_action, action, effective_action_reason,
+        co_triggered_models_json, evaluated_at_epoch, selected_trigger_epoch,
+        selected_trigger_sequence, entry_ticks, stop_ticks, target_ticks,
+        selection_json
+      ) VALUES (?, ?, ?, ?, ?, 'rd-entry-arbitration-v3', ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      clonedSelectionId,
+      sqliteValue(selection, "logical_selection_id"),
+      clonedEventId,
+      sqliteValue(selection, "setup_id"),
+      sqliteValue(selection, "attempt_kind"),
+      sqliteValue(selection, "revision"),
+      canonicalCandidateLogical === null
+        ? null
+        : (clonedCandidateIds.get(canonicalCandidateLogical) ?? null),
+      canonicalEvidenceLogical === null
+        ? null
+        : (clonedEvidenceIds.get(canonicalEvidenceLogical) ?? null),
+      sqliteValue(selection, "canonical_model"),
+      sqliteValue(selection, "reason"),
+      sqliteValue(selection, "fidelity"),
+      sqliteValue(selection, "policy_action"),
+      sqliteValue(selection, "action"),
+      sqliteValue(selection, "effective_action_reason"),
+      sqliteValue(selection, "co_triggered_models_json"),
+      sqliteValue(selection, "evaluated_at_epoch"),
+      sqliteValue(selection, "selected_trigger_epoch"),
+      sqliteValue(selection, "selected_trigger_sequence"),
+      sqliteValue(selection, "entry_ticks"),
+      sqliteValue(selection, "stop_ticks"),
+      sqliteValue(selection, "target_ticks"),
+      sqliteValue(selection, "selection_json"),
+    );
+  for (const candidateId of clonedCandidateIds.values()) {
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_selection_members (
+          selection_id, object_kind, object_id
+        ) VALUES (?, 'CANDIDATE', ?)`,
+      )
+      .run(clonedSelectionId, candidateId);
+  }
+  for (const evidenceId of clonedEvidenceIds.values()) {
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_selection_members (
+          selection_id, object_kind, object_id
+        ) VALUES (?, 'EVIDENCE', ?)`,
+      )
+      .run(clonedSelectionId, evidenceId);
+  }
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_entry_v3_parity (
+        parity_id, event_id, selection_id, parity_status, mismatch_reason,
+        compared_at
+      ) VALUES (?, ?, ?, 'MATCH', NULL, '2026-07-28T00:00:01Z')`,
+    )
+    .run(`zz-parity:${suffix}`, clonedEventId, clonedSelectionId);
+  return {
+    originalSelectionId,
+    clonedSelectionId,
+    originalCandidateIds,
+    clonedCandidateIds,
+    originalEvidenceIds,
+    clonedEvidenceIds,
+  };
 }
 
 function entryV3WorkerExitPayload(
@@ -1846,6 +2124,263 @@ describe("observation edge Worker", () => {
       count: 0,
       items: [],
     });
+  });
+
+  it("keeps opaque decision IDs distinct and does not inherit historical shadows", async () => {
+    const database = new FakeD1();
+    seedEntryV3Decision(database, "discretionary_boc_shadow");
+    const sourceCandidate = database.sqlite
+      .prepare(
+        `SELECT candidate_id, setup_id, direction
+         FROM observation_entry_v3_candidates
+         WHERE event_id = ? AND model = 'BOC'`,
+      )
+      .get("decision-event:discretionary_boc_shadow") as {
+      candidate_id: string;
+      setup_id: string;
+      direction: "LONG" | "SHORT";
+    };
+    const sourceEvidence = database.sqlite
+      .prepare(
+        `SELECT observed_trigger_epoch, trigger_sequence, observed_trigger_ticks
+         FROM observation_entry_v3_evidence
+         WHERE candidate_id = ?`,
+      )
+      .get(sourceCandidate.candidate_id) as {
+      observed_trigger_epoch: number;
+      trigger_sequence: number;
+      observed_trigger_ticks: number;
+    };
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_shadow_positions (
+          candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
+          trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
+          target_ticks, state, exit_event_id, outcome_r_millis, created_at,
+          terminal_at
+        ) VALUES (?, ?, 'INITIAL', ?, ?, ?, 2400, ?, 101, 151, 'OPEN',
+          NULL, NULL, '2026-07-28T00:00:00Z', NULL)`,
+      )
+      .run(
+        sourceCandidate.candidate_id,
+        sourceCandidate.setup_id,
+        sourceCandidate.direction,
+        sourceEvidence.observed_trigger_epoch,
+        sourceEvidence.trigger_sequence,
+        sourceEvidence.observed_trigger_ticks,
+      );
+    const clone = cloneEntryV3DecisionEvent(
+      database,
+      "discretionary_boc_shadow",
+      "later-same-setup",
+    );
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    const report = await body(response);
+    const items = report.items as Array<Record<string, unknown>>;
+    expect(response.status).toBe(200);
+    expect(items).toHaveLength(2);
+    expect(
+      items.map((item) => (item.selection as Record<string, unknown>).selection_id),
+    ).toEqual([
+      (
+        items[0]?.selection as Record<string, unknown>
+      ).selection_id,
+      (
+        items[0]?.selection as Record<string, unknown>
+      ).selection_id,
+    ]);
+    expect(new Set(items.map((item) => item.decision_id)).size).toBe(2);
+    expect(
+      items.find((item) => item.decision_id === clone.clonedSelectionId)
+        ?.shadow_outcome,
+    ).toBeNull();
+    expect(
+      items.find((item) => item.decision_id === clone.originalSelectionId)
+        ?.shadow_outcome,
+    ).toMatchObject({ state: "OPEN" });
+  });
+
+  it("fails closed when selection members are grafted across v3 events", async () => {
+    const database = new FakeD1();
+    seedEntryV3Decision(
+      database,
+      "close_fallback_after_blocked_aggressive_models",
+    );
+    const clone = cloneEntryV3DecisionEvent(
+      database,
+      "close_fallback_after_blocked_aggressive_models",
+      "foreign-graph",
+    );
+    const bocLogicalId = [...clone.originalCandidateIds.keys()].find(
+      (logicalId) => {
+        const row = database.sqlite
+          .prepare(
+            `SELECT model
+             FROM observation_entry_v3_candidates
+             WHERE candidate_id = ?`,
+          )
+          .get(clone.originalCandidateIds.get(logicalId)!) as { model: string };
+        return row.model === "BOC";
+      },
+    )!;
+    const bocEvidenceLogicalId = [...clone.originalEvidenceIds.keys()].find(
+      (logicalId) => {
+        const row = database.sqlite
+          .prepare(
+            `SELECT logical_candidate_id
+             FROM observation_entry_v3_evidence
+             WHERE evidence_id = ?`,
+          )
+          .get(clone.originalEvidenceIds.get(logicalId)!) as {
+          logical_candidate_id: string;
+        };
+        return row.logical_candidate_id === bocLogicalId;
+      },
+    )!;
+    database.sqlite.exec(
+      "DROP TRIGGER observation_entry_v3_selection_members_no_delete",
+    );
+    database.sqlite
+      .prepare(
+        `DELETE FROM observation_entry_v3_selection_members
+         WHERE selection_id = ? AND object_id IN (?, ?)`,
+      )
+      .run(
+        clone.originalSelectionId,
+        clone.originalCandidateIds.get(bocLogicalId)!,
+        clone.originalEvidenceIds.get(bocEvidenceLogicalId)!,
+      );
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_selection_members (
+          selection_id, object_kind, object_id
+        ) VALUES (?, 'CANDIDATE', ?), (?, 'EVIDENCE', ?)`,
+      )
+      .run(
+        clone.originalSelectionId,
+        clone.clonedCandidateIds.get(bocLogicalId)!,
+        clone.originalSelectionId,
+        clone.clonedEvidenceIds.get(bocEvidenceLogicalId)!,
+      );
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    expect(response.status).toBe(503);
+    expect(await body(response)).toMatchObject({
+      error: { code: "ENTRY_DECISIONS_UNAVAILABLE" },
+    });
+  });
+
+  it.each(["selected trigger tuple", "co-trigger JSON"] as const)(
+    "fails closed when normalized %s conflicts with the raw selection graph",
+    async (conflict) => {
+      const database = new FakeD1();
+      seedEntryV3Decision(
+        database,
+        "close_fallback_after_blocked_aggressive_models",
+      );
+      database.sqlite.exec(
+        "DROP TRIGGER observation_entry_v3_selections_no_update",
+      );
+      if (conflict === "selected trigger tuple") {
+        database.sqlite
+          .prepare(
+            `UPDATE observation_entry_v3_selections
+             SET selected_trigger_sequence = selected_trigger_sequence + 1`,
+          )
+          .run();
+      } else {
+        database.sqlite
+          .prepare(
+            `UPDATE observation_entry_v3_selections
+             SET co_triggered_models_json = '["BOC"]'`,
+          )
+          .run();
+      }
+      const env = await environment(database, {
+        PAPER_LEDGER_ENABLED: "true",
+        PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      });
+
+      const response = await handleRequest(
+        new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+          headers: { Authorization: `Bearer ${CREDENTIAL}` },
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(503);
+      expect(await body(response)).toMatchObject({
+        error: { code: "ENTRY_DECISIONS_UNAVAILABLE" },
+      });
+    },
+  );
+
+  it("caps every related decision graph query before assembly", () => {
+    for (const query of [
+      LIST_ENTRY_V3_DECISION_MEMBERS_SQL,
+      LIST_ENTRY_V3_DECISION_CANDIDATES_SQL,
+      LIST_ENTRY_V3_DECISION_EVIDENCE_SQL,
+      LIST_ENTRY_V3_DECISION_PARITY_SQL,
+      LIST_ENTRY_V3_DECISION_PAPER_SQL,
+      LIST_ENTRY_V3_DECISION_SHADOW_SQL,
+    ]) {
+      expect(query).toMatch(/LIMIT \?/u);
+    }
+  });
+
+  it("adds the v3 decision ordering index in an additive migration", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 24);
+    const migration = readFileSync(
+      `${root}/migrations/0025_observation_entry_v3_decision_order.sql`,
+      "utf8",
+    );
+    database.exec(migration);
+    expect(migration).toContain(
+      "observation_entry_v3_selections(evaluated_at_epoch DESC, selection_id DESC)",
+    );
+    expect(
+      database
+        .prepare("PRAGMA index_list('observation_entry_v3_selections')")
+        .all(),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "idx_observation_entry_v3_selections_decision_order",
+        }),
+      ]),
+    );
+    expect(
+      database
+        .prepare(
+          "PRAGMA index_xinfo('idx_observation_entry_v3_selections_decision_order')",
+        )
+        .all(),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "evaluated_at_epoch", desc: 1 }),
+        expect.objectContaining({ name: "selection_id", desc: 1 }),
+      ]),
+    );
   });
 
   it("routes bounded v3 audit responses and returns explicit conflicts", async () => {

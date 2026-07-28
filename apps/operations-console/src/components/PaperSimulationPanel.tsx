@@ -520,12 +520,29 @@ export function PaperSimulationPanel() {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const [simulation, readiness, decisions] = await Promise.all([
-        loadPaperSimulationSummary(presentedCredential, controller.signal),
-        loadPaperReadiness(presentedCredential, controller.signal),
+      const [coreResult, decisionResult] = await Promise.allSettled([
+        Promise.all([
+          loadPaperSimulationSummary(presentedCredential, controller.signal),
+          loadPaperReadiness(presentedCredential, controller.signal),
+        ]),
         loadEntryDecisions(presentedCredential, controller.signal),
       ]);
       if (controller.signal.aborted || version !== sessionVersion.current) return;
+      const decisions =
+        decisionResult.status === "fulfilled"
+          ? decisionResult.value
+          : {
+              state: "ERROR" as const,
+              items: [],
+              message: "Entry decisions are unavailable or malformed.",
+            };
+      if (coreResult.status === "rejected") {
+        setProtectedData((current) =>
+          current === null ? null : { ...current, decisions },
+        );
+        throw coreResult.reason;
+      }
+      const [simulation, readiness] = coreResult.value;
       sessionCredential.current = presentedCredential;
       setProtectedData({ decisions, readiness, simulation });
     } catch (cause) {

@@ -237,12 +237,15 @@ INSERT INTO observation_entry_v3_exit_applications (
 export const LIST_ENTRY_V3_DECISIONS_SQL = `
 SELECT
   selection.selection_id,
+  selection.logical_selection_id,
   selection.event_id,
   selection.setup_id,
   selection.attempt_kind,
   selection.policy_action,
   selection.action,
   selection.effective_action_reason,
+  selection.canonical_candidate_id,
+  selection.canonical_evidence_id,
   selection.co_triggered_models_json,
   selection.evaluated_at_epoch,
   selection.selected_trigger_epoch,
@@ -263,8 +266,11 @@ LIMIT ?
 export const LIST_ENTRY_V3_DECISION_CANDIDATES_SQL = `
 SELECT
   member.selection_id,
+  member.object_id AS member_object_id,
   candidate.candidate_id,
   candidate.logical_candidate_id,
+  candidate.event_id,
+  candidate.setup_id,
   candidate.candidate_json
 FROM observation_entry_v3_selection_members AS member
 JOIN observation_entry_v3_candidates AS candidate
@@ -280,13 +286,18 @@ ORDER BY
     ELSE 3
   END,
   candidate.candidate_id
+LIMIT ?
 `;
 
 export const LIST_ENTRY_V3_DECISION_EVIDENCE_SQL = `
 SELECT
   member.selection_id,
+  member.object_id AS member_object_id,
   evidence.evidence_id,
   evidence.logical_evidence_id,
+  evidence.event_id,
+  evidence.candidate_id,
+  evidence.logical_candidate_id,
   evidence.evidence_json
 FROM observation_entry_v3_selection_members AS member
 JOIN observation_entry_v3_evidence AS evidence
@@ -295,13 +306,23 @@ WHERE
   member.object_kind = 'EVIDENCE'
   AND member.selection_id IN (SELECT value FROM json_each(?))
 ORDER BY member.selection_id, evidence.evidence_id
+LIMIT ?
+`;
+
+export const LIST_ENTRY_V3_DECISION_MEMBERS_SQL = `
+SELECT selection_id, object_kind, object_id
+FROM observation_entry_v3_selection_members
+WHERE selection_id IN (SELECT value FROM json_each(?))
+ORDER BY selection_id, object_kind, object_id
+LIMIT ?
 `;
 
 export const LIST_ENTRY_V3_DECISION_PARITY_SQL = `
-SELECT selection_id, parity_status, mismatch_reason
+SELECT event_id, selection_id, parity_status, mismatch_reason
 FROM observation_entry_v3_parity
 WHERE selection_id IN (SELECT value FROM json_each(?))
 ORDER BY selection_id
+LIMIT ?
 `;
 
 export const LIST_ENTRY_V3_DECISION_PAPER_SQL = `
@@ -319,17 +340,21 @@ LEFT JOIN paper_trade_settlements AS settlement
   ON settlement.intent_id = intent.intent_id
 WHERE link.selection_id IN (SELECT value FROM json_each(?))
 ORDER BY link.selection_id
+LIMIT ?
 `;
 
 export const LIST_ENTRY_V3_DECISION_SHADOW_SQL = `
 SELECT
-  selection.selection_id,
+  member.selection_id,
+  shadow.candidate_id,
   shadow.state,
   shadow.outcome_r_millis
-FROM observation_entry_v3_selections AS selection
+FROM observation_entry_v3_selection_members AS member
 JOIN observation_entry_v3_shadow_positions AS shadow
-  ON shadow.setup_id = selection.setup_id
-  AND shadow.attempt_kind = selection.attempt_kind
-WHERE selection.selection_id IN (SELECT value FROM json_each(?))
-ORDER BY selection.selection_id
+  ON shadow.candidate_id = member.object_id
+WHERE
+  member.object_kind = 'CANDIDATE'
+  AND member.selection_id IN (SELECT value FROM json_each(?))
+ORDER BY member.selection_id, shadow.candidate_id
+LIMIT ?
 `;

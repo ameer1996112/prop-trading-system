@@ -9,6 +9,7 @@ const discretionarySnapshot: EntryDecisionSnapshot = {
   message: "One immutable decision.",
   items: [
     {
+      decisionId: "stored-selection-a",
       setupId: "setup-discretionary",
       symbol: "GBPUSD",
       direction: "LONG",
@@ -43,6 +44,7 @@ const discretionarySnapshot: EntryDecisionSnapshot = {
           sourceClaimIds: ["discretionary-break-2025-11"],
           evidence: {
             evidenceId: "evidence-boc",
+            candidateId: "candidate-boc",
             observedTriggerEpoch: 2_101,
             triggerSequence: 4,
             observedTriggerTicks: 111,
@@ -79,6 +81,7 @@ const discretionarySnapshot: EntryDecisionSnapshot = {
           sourceClaimIds: ["directional-close-2025-08"],
           evidence: {
             evidenceId: "evidence-close",
+            candidateId: "candidate-close",
             observedTriggerEpoch: 2_100,
             triggerSequence: 0,
             observedTriggerTicks: 109,
@@ -123,6 +126,8 @@ describe("EntryDecisionPanel", () => {
     expect(screen.getByText("Parity mismatch · ACTION")).toBeInTheDocument();
     expect(screen.getByText("No paper trade")).toBeInTheDocument();
     expect(screen.getByText("Shadow open")).toBeInTheDocument();
+    expect(screen.getByText("HTF flip not observed")).toBeInTheDocument();
+    expect(screen.getByText("Not triggered")).toBeInTheDocument();
   });
 
   it("shows co-trigger and paper linkage without color-only meaning", () => {
@@ -134,10 +139,74 @@ describe("EntryDecisionPanel", () => {
           selection: {
             ...discretionarySnapshot.items[0]!.selection,
             canonicalModel: "HTF_FLIP",
-            coTriggeredModels: ["BOC"],
+            canonicalCandidateId: "candidate-flip",
+            canonicalEvidenceId: "evidence-flip",
+            reason: "CO_TRIGGER_SAME_EVENT",
+            coTriggeredModels: ["BOC", "HTF_FLIP"],
             action: "PAPER_ELIGIBLE",
             effectiveActionReason: null,
+            selectedTriggerEpoch: 2_101,
+            selectedTriggerSequence: 4,
           },
+          candidates: [
+            {
+              ...discretionarySnapshot.items[0]!.candidates[0]!,
+              bocTier: "HTF_TIMED",
+              sourceClaimIds: ["htf-timed-boc-2026-06"],
+              evidence: {
+                ...discretionarySnapshot.items[0]!.candidates[0]!.evidence,
+                fidelity: "EXACT",
+                htfContextMinutes: [15],
+                failedRuleIds: [],
+                passedRuleIds: ["ENTRY_BOC_HTF_TIMED"],
+              },
+            },
+            discretionarySnapshot.items[0]!.candidates[1]!,
+            {
+              candidateId: "candidate-flip",
+              model: "HTF_FLIP",
+              state: "MATCHED",
+              direction: "LONG",
+              eventAnchorEpoch: 1_800,
+              triggerOrdinal: 1,
+              bocTier: null,
+              referenceCandleOpenEpoch: null,
+              sourceClaimIds: ["htf-flip-2024-03"],
+              evidence: {
+                evidenceId: "evidence-flip",
+                candidateId: "candidate-flip",
+                observedTriggerEpoch: 2_101,
+                triggerSequence: 4,
+                observedTriggerTicks: 111,
+                fidelity: "EXACT",
+                proofPlane: "REALTIME_TICK",
+                replayability: "LIVE_EXACT_NON_REPLAYABLE",
+                htfContextMinutes: [15],
+                coverageStartEpoch: 900,
+                coverageEndEpoch: 2_400,
+                ambiguityCodes: [],
+                passedRuleIds: ["ENTRY_HTF_FLIP"],
+                failedRuleIds: [],
+                referenceCandle: null,
+                contactCandle: {
+                  openEpoch: 1_800,
+                  closeEpoch: 1_900,
+                  openTicks: 105,
+                  highTicks: 111,
+                  lowTicks: 100,
+                  closeTicks: 105,
+                },
+                recrossCandle: {
+                  openEpoch: 1_900,
+                  closeEpoch: 2_101,
+                  openTicks: 105,
+                  highTicks: 112,
+                  lowTicks: 104,
+                  closeTicks: 111,
+                },
+              },
+            },
+          ],
           paperIntentId: "intent-a",
           trade: {
             entryPrice: "1.1",

@@ -23,6 +23,7 @@ export type DecisionCandle = {
 
 export type EntryDecisionEvidence = {
   evidenceId: string;
+  candidateId: string;
   observedTriggerEpoch: number | null;
   triggerSequence: number;
   observedTriggerTicks: number | null;
@@ -92,6 +93,7 @@ export type EntryDecisionSelection = {
 };
 
 export type EntryDecisionItem = {
+  decisionId: string;
   setupId: string;
   symbol: string;
   direction: "LONG" | "SHORT";
@@ -314,6 +316,7 @@ function parseEvidence(value: unknown): EntryDecisionEvidence {
   if (!isRecord(value)) fail();
   exactKeys(value, [
     "evidence_id",
+    "candidate_id",
     "observed_trigger_epoch",
     "trigger_sequence",
     "observed_trigger_ticks",
@@ -347,17 +350,40 @@ function parseEvidence(value: unknown): EntryDecisionEvidence {
   ) {
     fail();
   }
+  const coverageStartEpoch = integer(value.coverage_start_epoch, 0);
+  const coverageEndEpoch = integer(value.coverage_end_epoch, 1);
+  if (
+    coverageEndEpoch <= coverageStartEpoch ||
+    (observedTriggerEpoch !== null &&
+      (observedTriggerEpoch < coverageStartEpoch ||
+        observedTriggerEpoch > coverageEndEpoch))
+  ) {
+    fail();
+  }
+  const proofPlane = enumValue(value.proof_plane, proofPlanes);
+  const replayability = enumValue(value.replayability, replayabilities);
+  const fidelity = enumValue(value.fidelity, fidelities);
+  if (
+    fidelity === "EXACT" &&
+    replayability !==
+      (proofPlane === "REALTIME_TICK"
+        ? "LIVE_EXACT_NON_REPLAYABLE"
+        : "REPLAYABLE")
+  ) {
+    fail();
+  }
   return {
     evidenceId: stringValue(value.evidence_id),
+    candidateId: stringValue(value.candidate_id),
     observedTriggerEpoch,
     triggerSequence: integer(value.trigger_sequence, 0),
     observedTriggerTicks,
-    fidelity: enumValue(value.fidelity, fidelities),
-    proofPlane: enumValue(value.proof_plane, proofPlanes),
-    replayability: enumValue(value.replayability, replayabilities),
+    fidelity,
+    proofPlane,
+    replayability,
     htfContextMinutes: contexts,
-    coverageStartEpoch: integer(value.coverage_start_epoch, 0),
-    coverageEndEpoch: integer(value.coverage_end_epoch, 1),
+    coverageStartEpoch,
+    coverageEndEpoch,
     ambiguityCodes: uniqueStrings(value.ambiguity_codes, 3, ambiguityCodes) as EntryDecisionEvidence["ambiguityCodes"],
     passedRuleIds: uniqueStrings(value.passed_rule_ids, 4, evidenceRuleIds),
     failedRuleIds: uniqueStrings(value.failed_rule_ids, 8, evidenceRuleIds),
@@ -395,9 +421,27 @@ function parseCandidate(value: unknown): EntryDecisionCandidate {
     fail();
   }
   const evidence = parseEvidence(value.evidence);
-  if ((model === "BOC") !== (evidence.referenceCandle !== null)) fail();
+  const candidateId = stringValue(value.candidate_id);
+  if (
+    evidence.candidateId !== candidateId ||
+    (model === "BOC") !== (evidence.referenceCandle !== null) ||
+    (model === "BOC" &&
+      (evidence.referenceCandle?.openEpoch !== referenceCandleOpenEpoch ||
+        evidence.contactCandle !== null ||
+        evidence.recrossCandle !== null)) ||
+    (model === "DIR_CLOSE" &&
+      (evidence.htfContextMinutes.length !== 0 ||
+        evidence.contactCandle !== null ||
+        evidence.recrossCandle !== null)) ||
+    (model === "HTF_FLIP" &&
+      (evidence.htfContextMinutes.length === 0 ||
+        evidence.contactCandle === null ||
+        evidence.recrossCandle === null))
+  ) {
+    fail();
+  }
   return {
-    candidateId: stringValue(value.candidate_id),
+    candidateId,
     model,
     state: enumValue(value.state, candidateStates),
     direction:
@@ -537,6 +581,7 @@ function parseSelection(value: unknown): EntryDecisionSelection {
 function parseItem(value: unknown): EntryDecisionItem {
   if (!isRecord(value)) fail();
   exactKeys(value, [
+    "decision_id",
     "setup_id",
     "symbol",
     "direction",
@@ -549,6 +594,7 @@ function parseItem(value: unknown): EntryDecisionItem {
     "shadow_outcome",
   ]);
   const setupId = stringValue(value.setup_id);
+  const decisionId = stringValue(value.decision_id);
   const direction =
     value.direction === "LONG" || value.direction === "SHORT"
       ? value.direction
@@ -580,6 +626,10 @@ function parseItem(value: unknown): EntryDecisionItem {
   ) {
     fail();
   }
+  const evidenceIds = candidates.map(
+    (candidate) => candidate.evidence.evidenceId,
+  );
+  if (new Set(evidenceIds).size !== evidenceIds.length) fail();
   const considered = new Set(
     isRecord(value.selection)
       ? uniqueStrings(value.selection.candidate_ids_considered, 3)
@@ -642,7 +692,50 @@ function parseItem(value: unknown): EntryDecisionItem {
     }
     shadowOutcome = { state, outcomeRMillis };
   }
+  const canonicalCandidate =
+    selection.canonicalCandidateId === null
+      ? null
+      : candidateById.get(selection.canonicalCandidateId) ?? null;
+  if (
+    canonicalCandidate === null
+      ? selection.selectedTriggerEpoch !== null ||
+        selection.selectedTriggerSequence !== null
+      : canonicalCandidate.evidence.evidenceId !==
+          selection.canonicalEvidenceId ||
+        canonicalCandidate.evidence.observedTriggerEpoch !==
+          selection.selectedTriggerEpoch ||
+        canonicalCandidate.evidence.triggerSequence !==
+          selection.selectedTriggerSequence
+  ) {
+    fail();
+  }
+  if ((selection.action === "PAPER_ELIGIBLE") !== (paperIntentId !== null)) {
+    fail();
+  }
+  if (selection.reason === "CO_TRIGGER_SAME_EVENT") {
+    const coTriggered = selection.coTriggeredModels.map(
+      (model) => candidates.find((candidate) => candidate.model === model) ?? null,
+    );
+    if (
+      canonicalCandidate === null ||
+      coTriggered.some(
+        (candidate) =>
+          candidate === null ||
+          candidate.state !== "MATCHED" ||
+          candidate.evidence.fidelity !== "EXACT" ||
+          candidate.evidence.observedTriggerEpoch !==
+            canonicalCandidate.evidence.observedTriggerEpoch ||
+          candidate.evidence.triggerSequence !==
+            canonicalCandidate.evidence.triggerSequence ||
+          candidate.evidence.observedTriggerTicks !==
+            canonicalCandidate.evidence.observedTriggerTicks,
+      )
+    ) {
+      fail();
+    }
+  }
   return {
+    decisionId,
     setupId,
     symbol: stringValue(value.symbol, 64),
     direction,
@@ -674,6 +767,9 @@ function parseReport(value: unknown): EntryDecisionSnapshot {
     fail();
   }
   const items = value.items.map(parseItem);
+  if (new Set(items.map((item) => item.decisionId)).size !== items.length) {
+    fail();
+  }
   return items.length === 0
     ? {
         state: "EMPTY",
