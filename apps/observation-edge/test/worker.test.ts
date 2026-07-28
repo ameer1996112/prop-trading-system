@@ -825,7 +825,7 @@ class FakeD1 {
   ) {
     const root = fileURLToPath(new URL("..", import.meta.url));
     this.sqlite.exec("PRAGMA foreign_keys = ON");
-    applyObservationMigrationsThrough(this.sqlite, root, 23);
+    applyObservationMigrationsThrough(this.sqlite, root, 24);
     this.syncEntryMaps();
   }
 
@@ -1378,11 +1378,151 @@ function postBody(payload: Record<string, unknown>, credential = CREDENTIAL): Re
   });
 }
 
+function entryV3WorkerPayload(): Record<string, unknown> {
+  const vectors = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../contracts/vectors/rd-entry-arbitration-v3.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as {
+    cases: Array<{
+      case_id: string;
+      input: Record<string, unknown>;
+      expected: {
+        candidates: Array<Record<string, unknown>>;
+        evidence: Array<Record<string, unknown>>;
+        selection: Record<string, unknown>;
+      };
+    }>;
+  };
+  const vector = structuredClone(
+    vectors.cases.find((item) => item.case_id === "strict_long_boc_only")!,
+  );
+  const evidence = vector.expected.evidence[0]!;
+  const input = vector.input;
+  const commonRuleIds = [
+    "LIQ_ACTUAL_EXTREME_SWEPT",
+    "LIQ_DISTANCE_INFLUENCES_ZONE",
+    "LIQ_EVENT_ORDER",
+    "LIQ_INTERNAL_REBREAK",
+    "LIQ_NORMAL_TWO_OPPOSITE_CANDLES",
+    "LIQ_ONE_CANDLE_EXCEPTION",
+    "LIQ_OWN_EXTREME_SAME_LEG",
+    "LIQ_REPLACEMENT_AFTER_STALE_MOVE",
+    "LIQ_STRICT_OWN_EXTREME_BREAK",
+    "TIMEFRAME_FIVE_MINUTE_ONLY",
+    "ZONE_ACCURACY_BOUNDS",
+    "ZONE_FRESH_UNTAPPED",
+    "ZONE_ORIGIN_OPPOSITE_CANDLE",
+    "ZONE_PRE_ENTRY_CLOSE_OUTSIDE",
+  ];
+  return {
+    schema_version: "3.0",
+    strategy_id: "rd_liquidity_sd_5m_v1",
+    strategy_version: "3.0.0-contract3",
+    rule_contract_version: "3.0.0",
+    execution_mode: "PAPER_ONLY",
+    producer_instance_id: "worker-v3",
+    producer_sequence: 1,
+    event_id: "worker-v3:1",
+    is_realtime: true,
+    symbol: "EURUSD",
+    ticker_id: "OANDA:EURUSD",
+    feed: "OANDA",
+    timeframe: "5",
+    tick_size: "0.00001",
+    detector_code_hash: "a".repeat(64),
+    settings_hash: "b".repeat(64),
+    observed_at_epoch: 2400,
+    market_event: {
+      epoch: evidence.observed_trigger_epoch,
+      sequence: evidence.trigger_sequence,
+      tick_price_ticks: evidence.observed_trigger_ticks,
+      barstate_isconfirmed: false,
+      confirmed_bar: null,
+    },
+    exit_events: [],
+    setups: [
+      {
+        setup: {
+          setup_id: input.setup_id,
+          direction: input.direction,
+          zone_top_ticks: input.zone_top_ticks,
+          zone_bottom_ticks: input.zone_bottom_ticks,
+          zone_engaged_epoch: input.zone_engaged_epoch,
+          invalidated_before_entry: input.setup_invalidated,
+          common_fidelity: input.common_fidelity,
+          common_rule_results: commonRuleIds.map((rule_id) => ({
+            rule_id,
+            passed: true,
+          })),
+        },
+        candidates: vector.expected.candidates,
+        evidence: vector.expected.evidence,
+        selection_proposal: vector.expected.selection,
+        trade_plan: {
+          direction: "LONG",
+          entry_ticks: evidence.observed_trigger_ticks,
+          stop_ticks: 101,
+          target_ticks: 151,
+        },
+      },
+    ],
+  };
+}
+
 async function body(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
 describe("observation edge Worker", () => {
+  it("routes bounded v3 audit responses and returns explicit conflicts", async () => {
+    const database = new FakeD1();
+    const env = await environment(database, {
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "d".repeat(64),
+    });
+    const payload = entryV3WorkerPayload();
+    const accepted = await handleRequest(postBody(payload), env);
+    const acceptedBody = await body(accepted);
+    expect(accepted.status).toBe(202);
+    expect(Object.keys(acceptedBody).sort()).toEqual([
+      "evaluations",
+      "event_id",
+      "execution",
+      "paper_intent_ids",
+      "status",
+    ]);
+    expect(JSON.stringify(acceptedBody)).not.toContain(CREDENTIAL);
+    expect(JSON.stringify(acceptedBody)).not.toContain("setups");
+
+    const duplicate = await handleRequest(postBody(payload), env);
+    expect(duplicate.status).toBe(200);
+    expect(await body(duplicate)).toMatchObject({ status: "DUPLICATE" });
+
+    const conflicting = structuredClone(payload);
+    conflicting.detector_code_hash = "e".repeat(64);
+    const conflict = await handleRequest(postBody(conflicting), env);
+    expect(conflict.status).toBe(409);
+    expect(await body(conflict)).toMatchObject({
+      error: { code: "IDEMPOTENCY_CONFLICT" },
+    });
+
+    const sequenceConflictPayload = structuredClone(payload);
+    sequenceConflictPayload.event_id = "worker-v3:sequence-collision";
+    const sequenceConflict = await handleRequest(
+      postBody(sequenceConflictPayload),
+      env,
+    );
+    expect(sequenceConflict.status).toBe(409);
+    expect(await body(sequenceConflict)).toMatchObject({
+      error: { code: "PRODUCER_SEQUENCE_CONFLICT" },
+    });
+  });
+
   it("keeps liveness public while ingress defaults fail-closed", async () => {
     const disabled = {
       DB: new FakeD1() as unknown as D1Database,
@@ -6127,6 +6267,23 @@ describe("deployment contract", () => {
       producerInstanceId: "before-v3",
       sequence: 1,
     });
+    database
+      .prepare(
+        `INSERT INTO observation_entry_batches (
+          batch_id, producer_instance_id, producer_sequence, kind,
+          bar_close_epoch, strategy_id, strategy_version, rule_contract_version,
+          execution_mode, symbol, ticker_id, feed, timeframe, tick_size,
+          bar_open_epoch, detector_code_hash, settings_hash, chunk_count,
+          first_receipt_id, first_seen_at
+        ) VALUES (
+          ?, 'before-v3', 1, 'snapshot', 1721808300,
+          'rd_liquidity_sd_5m_v1', '2.0.0-contract2', '2.0.0',
+          'OBSERVATION_ONLY', 'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5',
+          '0.00001', 1721808000, ?, ?, 1, 'receipt-before-v3',
+          '2026-07-28T00:00:00Z'
+        )`,
+      )
+      .run("1".repeat(64), "2".repeat(64), "3".repeat(64));
     database.exec("BEGIN");
     database.exec(
       readFileSync(
@@ -6156,6 +6313,23 @@ describe("deployment contract", () => {
       producerInstanceId: "after-v3-v2",
       sequence: 2,
     });
+    database
+      .prepare(
+        `INSERT INTO observation_entry_batches (
+          batch_id, producer_instance_id, producer_sequence, kind,
+          bar_close_epoch, strategy_id, strategy_version, rule_contract_version,
+          execution_mode, symbol, ticker_id, feed, timeframe, tick_size,
+          bar_open_epoch, detector_code_hash, settings_hash, chunk_count,
+          first_receipt_id, first_seen_at
+        ) VALUES (
+          ?, 'after-v3-v2', 2, 'snapshot', 1721808600,
+          'rd_liquidity_sd_5m_v1', '2.0.0-contract2', '2.0.0',
+          'OBSERVATION_ONLY', 'EURUSD', 'VANTAGE:EURUSD', 'VANTAGE', '5',
+          '0.00001', 1721808300, ?, ?, 1, 'receipt-after-v3-v2',
+          '2026-07-28T00:05:00Z'
+        )`,
+      )
+      .run("4".repeat(64), "5".repeat(64), "6".repeat(64));
 
     expect(
       database
@@ -6179,6 +6353,24 @@ describe("deployment contract", () => {
     ).toEqual([
       { receipt_id: "receipt-after-v3-v2" },
       { receipt_id: "receipt-before-v3" },
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT batch_id, first_receipt_id
+           FROM observation_entry_batches
+           ORDER BY batch_id`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        batch_id: "1".repeat(64),
+        first_receipt_id: "receipt-before-v3",
+      },
+      {
+        batch_id: "4".repeat(64),
+        first_receipt_id: "receipt-after-v3-v2",
+      },
     ]);
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   });

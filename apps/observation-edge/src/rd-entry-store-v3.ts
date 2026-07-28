@@ -1,5 +1,9 @@
 import { validatePaperAccountId } from "./paper-ledger-contract";
 import {
+  PaperSimulatorContractError,
+  validatePaperTradeIntent,
+} from "./paper-simulator-contract";
+import {
   SELECT_LATEST_PAPER_KILL_SWITCH_SQL,
   SELECT_PAPER_ACCOUNT_READINESS_METRIC_SQL,
 } from "./paper-readiness-queries";
@@ -14,6 +18,7 @@ import {
   INSERT_ENTRY_V3_CANDIDATES_SQL,
   INSERT_ENTRY_V3_EVENT_SQL,
   INSERT_ENTRY_V3_EVIDENCE_SQL,
+  INSERT_ENTRY_V3_EXIT_APPLICATION_SQL,
   INSERT_ENTRY_V3_PAPER_LINK_SQL,
   INSERT_ENTRY_V3_PARITY_SQL,
   INSERT_ENTRY_V3_SELECTION_MEMBERS_SQL,
@@ -22,11 +27,14 @@ import {
   LIST_ENTRY_V3_PAPER_INTENT_IDS_SQL,
   LIST_ENTRY_V3_STORED_DECISIONS_SQL,
   SELECT_ENTRY_V3_EVENT_BY_ID_SQL,
+  SELECT_ENTRY_V3_EVENT_BY_PRODUCER_SEQUENCE_SQL,
+  SELECT_ENTRY_V3_EXIT_APPLICATION_SQL,
   SELECT_ENTRY_V3_PAPER_LINK_SQL,
   SELECT_ENTRY_V3_SHADOW_POSITION_SQL,
   TERMINATE_ENTRY_V3_SHADOW_POSITION_SQL,
 } from "./rd-entry-queries-v3";
 import { canonicalSha256 } from "./rd-entry-policy";
+import { parseStrictJson } from "./strict-json";
 import type {
   EntryCandidateEvidenceV3,
   EntryEvaluationV3,
@@ -104,6 +112,27 @@ interface StoredShadowPositionV3 {
   readonly stop_ticks: number;
   readonly target_ticks: number;
   readonly state: "OPEN" | "STOPPED" | "TARGET_HIT" | "AMBIGUOUS";
+  readonly exit_event_id: string | null;
+  readonly outcome_r_millis: number | null;
+}
+
+interface StoredExitApplicationV3 {
+  readonly application_id: string;
+  readonly event_id: string;
+  readonly exit_event_id: string;
+  readonly setup_id: string;
+  readonly attempt_kind: "INITIAL" | "RE_ENTRY";
+  readonly target_kind: "PAPER" | "SHADOW";
+  readonly intent_id: string | null;
+  readonly candidate_id: string | null;
+  readonly terminal_code:
+    | "STOP"
+    | "TARGET"
+    | "STOPPED"
+    | "TARGET_HIT"
+    | "AMBIGUOUS";
+  readonly outcome_r_millis: number | null;
+  readonly applied_at: string;
 }
 
 interface PaperConfiguration {
@@ -128,7 +157,13 @@ export interface AppendEntryV3Result {
 }
 
 export class EntryV3StoreConflict extends Error {
-  constructor(readonly code: "IDEMPOTENCY_CONFLICT" | "EVENT_ID_CONFLICT") {
+  constructor(
+    readonly code:
+      | "IDEMPOTENCY_CONFLICT"
+      | "EVENT_ID_CONFLICT"
+      | "PRODUCER_SEQUENCE_CONFLICT"
+      | "EXIT_CONFLICT",
+  ) {
     super(code);
     this.name = "EntryV3StoreConflict";
   }
@@ -222,6 +257,49 @@ function ticksToDecimal(ticks: number, tickSize: string): string {
   const integer = digits.slice(0, -scale);
   const fraction = digits.slice(-scale).replace(/0+$/u, "");
   return fraction.length === 0 ? integer : `${integer}.${fraction}`;
+}
+
+function validatedPaperIntent(
+  observation: EntryV3Observation,
+  bundle: ValidatedEntryV3Bundle,
+  evidence: EntryCandidateEvidenceV3,
+  configuration: PaperConfiguration,
+): PaperTradeIntentCommand | null {
+  try {
+    const command = {
+      schema_version: "1.0",
+      intent_id: `rd-entry-v3:${bundle.evaluation.selection.selection_id}`,
+      symbol: observation.metadata.symbol,
+      side: bundle.setup.direction === "LONG" ? "BUY" : "SELL",
+      entry_price: ticksToDecimal(
+        evidence.observed_trigger_ticks!,
+        observation.tickSize,
+      ),
+      stop_loss: ticksToDecimal(
+        bundle.tradePlan.stop_ticks,
+        observation.tickSize,
+      ),
+      take_profit: ticksToDecimal(
+        bundle.tradePlan.target_ticks,
+        observation.tickSize,
+      ),
+      risk_bps: configuration.riskBps,
+      account_ids: [...configuration.accountIds],
+    };
+    return validatePaperTradeIntent(
+      parseStrictJson(
+        new TextEncoder().encode(JSON.stringify(command)),
+      ),
+    );
+  } catch (error) {
+    if (
+      error instanceof PaperSimulatorContractError ||
+      error instanceof TypeError
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 function selectedEvidence(
@@ -330,6 +408,7 @@ function exitIsCausallyEconomic(
 }
 
 function exitHitsStoredPlan(
+  observation: EntryV3Observation,
   exit: EntryV3ExitEvent,
   position: {
     readonly direction: "LONG" | "SHORT";
@@ -337,7 +416,23 @@ function exitHitsStoredPlan(
     readonly target_ticks: number;
   },
 ): boolean {
-  if (exit.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT") return true;
+  const bar = observation.marketEvent.confirmed_bar;
+  if (!observation.isRealtime && bar !== null) {
+    const stopHit =
+      position.direction === "LONG"
+        ? bar.low_ticks <= position.stop_ticks
+        : bar.high_ticks >= position.stop_ticks;
+    const targetHit =
+      position.direction === "LONG"
+        ? bar.high_ticks >= position.target_ticks
+        : bar.low_ticks <= position.target_ticks;
+    return exit.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT"
+      ? stopHit && targetHit
+      : exit.exit_reason === "STOP_LOSS"
+        ? stopHit && !targetHit
+        : targetHit && !stopHit;
+  }
+  if (exit.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT") return false;
   return position.direction === "LONG"
     ? exit.exit_reason === "STOP_LOSS"
       ? exit.price_ticks <= position.stop_ticks
@@ -447,11 +542,38 @@ function paperSettlementIdempotencyKey(intentId: string): string {
   return `paper-settlement:${intentId}`;
 }
 
+function databaseErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isReadinessConstraint(error: unknown): boolean {
+  const message = databaseErrorMessage(error);
+  return (
+    message.includes("paper safety gate blocked allocation") ||
+    /NOT NULL constraint failed: paper_trade_allocations\.(?:intent_id|risk_amount_minor|balance_before_minor)/u.test(
+      message,
+    )
+  );
+}
+
+function isExitApplicationRace(error: unknown): boolean {
+  const message = databaseErrorMessage(error);
+  return (
+    message.includes(
+      "UNIQUE constraint failed: observation_entry_v3_exit_applications",
+    ) ||
+    message.includes(
+      "UNIQUE constraint failed: paper_trade_settlements.intent_id",
+    )
+  );
+}
+
 async function appendEntryV3ObservationAttempt(
   env: Env,
   observation: EntryV3Observation,
   payloadSha256: string,
   allowDecisionRaceRetry: boolean,
+  forceConfigurationUnavailable = false,
 ): Promise<AppendEntryV3Result> {
   if (!SHA256.test(payloadSha256)) throw new TypeError("payload digest");
   const existingReceipt = await storedReceipt(
@@ -461,6 +583,21 @@ async function appendEntryV3ObservationAttempt(
   if (existingReceipt !== null) {
     if (existingReceipt.payload_sha256 !== payloadSha256) {
       throw new EntryV3StoreConflict("IDEMPOTENCY_CONFLICT");
+    }
+    const storedEvent = await env.DB
+      .prepare(SELECT_ENTRY_V3_EVENT_BY_ID_SQL)
+      .bind(observation.eventId)
+      .first<{
+        event_id: string;
+        receipt_id: string;
+        payload_sha256: string;
+      }>();
+    if (
+      storedEvent === null ||
+      storedEvent.receipt_id !== existingReceipt.receipt_id ||
+      storedEvent.payload_sha256 !== payloadSha256
+    ) {
+      throw new EntryV3StoreConflict("EVENT_ID_CONFLICT");
     }
     return {
       record: existingReceipt,
@@ -479,13 +616,67 @@ async function appendEntryV3ObservationAttempt(
     .bind(observation.eventId)
     .first<{ event_id: string; payload_sha256: string }>();
   if (eventCollision !== null) throw new EntryV3StoreConflict("EVENT_ID_CONFLICT");
+  const producerSequenceCollision = await env.DB
+    .prepare(SELECT_ENTRY_V3_EVENT_BY_PRODUCER_SEQUENCE_SQL)
+    .bind(
+      observation.metadata.producerInstanceId,
+      observation.producerSequence,
+    )
+    .first<{ event_id: string; payload_sha256: string }>();
+  if (producerSequenceCollision !== null) {
+    throw new EntryV3StoreConflict("PRODUCER_SEQUENCE_CONFLICT");
+  }
 
   const identityMatches = reviewedIdentityMatches(env, observation);
   const paperConfiguration = parsePaperConfiguration(env);
-  const potentialPaperPositions = observation.entryBundles.filter(
-    (bundle) => bundle.evaluation.selection.action === "PAPER_ELIGIBLE",
-  ).length;
+  const links = await Promise.all(
+    observation.entryBundles.map(async (bundle) => {
+      const link = await env.DB
+        .prepare(SELECT_ENTRY_V3_PAPER_LINK_SQL)
+        .bind(bundle.setup.setup_id, ATTEMPT_KIND)
+        .first<StoredPaperLinkV3>();
+      return [bundle.setup.setup_id, link] as const;
+    }),
+  );
+  const existingLinks = new Map(links);
+  const preparedPaperIntents = new Map<
+    string,
+    {
+      readonly intent: PaperTradeIntentCommand;
+      readonly evidence: EntryCandidateEvidenceV3;
+    }
+  >();
+  if (
+    identityMatches &&
+    observation.eventRole === "ENTRY_DECISION" &&
+    paperConfiguration !== null &&
+    !forceConfigurationUnavailable
+  ) {
+    for (const bundle of observation.entryBundles) {
+      const evidence = selectedEvidence(bundle);
+      if (
+        bundle.evaluation.selection.action !== "PAPER_ELIGIBLE" ||
+        existingLinks.get(bundle.setup.setup_id) !== null ||
+        evidence === null ||
+        evidence.observed_trigger_epoch === null ||
+        evidence.observed_trigger_ticks === null
+      ) {
+        continue;
+      }
+      const intent = validatedPaperIntent(
+        observation,
+        bundle,
+        evidence,
+        paperConfiguration,
+      );
+      if (intent !== null) {
+        preparedPaperIntents.set(bundle.setup.setup_id, { intent, evidence });
+      }
+    }
+  }
+  const potentialPaperPositions = preparedPaperIntents.size;
   const configurationUsable =
+    !forceConfigurationUnavailable &&
     paperConfiguration !== null &&
     potentialPaperPositions > 0 &&
     (await paperConfigurationIsUsable(
@@ -500,8 +691,10 @@ async function appendEntryV3ObservationAttempt(
   const selectionRows: Array<Record<string, unknown>> = [];
   const memberRows: Array<Record<string, unknown>> = [];
   const parityRows: Array<Record<string, unknown>> = [];
-  const decisionStatements: D1PreparedStatement[] = [];
+  const entryAuthorizationStatements: D1PreparedStatement[] = [];
+  const exitMutationStatements: D1PreparedStatement[] = [];
   const evaluations: EntryV3StoredEvaluation[] = [];
+  let exitConflict = false;
 
   for (const bundle of observation.entryBundles) {
     const selection = bundle.evaluation.selection;
@@ -572,10 +765,7 @@ async function appendEntryV3ObservationAttempt(
       });
     }
 
-    const existingLink = await env.DB
-      .prepare(SELECT_ENTRY_V3_PAPER_LINK_SQL)
-      .bind(bundle.setup.setup_id, ATTEMPT_KIND)
-      .first<StoredPaperLinkV3>();
+    const existingLink = existingLinks.get(bundle.setup.setup_id) ?? null;
     let effectiveAction = selection.action;
     let effectiveActionReason: EffectiveActionReason = null;
     const evidence = selectedEvidence(bundle);
@@ -583,15 +773,19 @@ async function appendEntryV3ObservationAttempt(
       if (!identityMatches) {
         effectiveAction = "SHADOW_ONLY";
         effectiveActionReason = "PROMOTION_IDENTITY_MISMATCH";
-      } else if (!configurationUsable || paperConfiguration === null) {
-        effectiveAction = "SHADOW_ONLY";
-        effectiveActionReason = "PAPER_CONFIGURATION_UNAVAILABLE";
       } else if (
         observation.eventRole !== "ENTRY_DECISION" ||
         existingLink !== null
       ) {
         effectiveAction = "SHADOW_ONLY";
         effectiveActionReason = "NOT_SELECTED_ALREADY_OPEN";
+      } else if (
+        !configurationUsable ||
+        paperConfiguration === null ||
+        !preparedPaperIntents.has(bundle.setup.setup_id)
+      ) {
+        effectiveAction = "SHADOW_ONLY";
+        effectiveActionReason = "PAPER_CONFIGURATION_UNAVAILABLE";
       }
     }
 
@@ -644,38 +838,18 @@ async function appendEntryV3ObservationAttempt(
       parityMismatchReason: parity.reason,
     });
 
+    const preparedPaper = preparedPaperIntents.get(bundle.setup.setup_id);
     if (
       effectiveAction === "PAPER_ELIGIBLE" &&
-      paperConfiguration !== null &&
-      evidence?.observed_trigger_epoch !== null &&
-      evidence !== null
+      preparedPaper !== undefined &&
+      preparedPaper.evidence.observed_trigger_epoch !== null
     ) {
-      const intentId = `rd-entry-v3:${selection.selection_id}`;
-      const intent: PaperTradeIntentCommand = {
-        schema_version: "1.0",
-        intent_id: intentId,
-        symbol: observation.metadata.symbol,
-        side: bundle.setup.direction === "LONG" ? "BUY" : "SELL",
-        entry_price: ticksToDecimal(
-          evidence.observed_trigger_ticks!,
-          observation.tickSize,
-        ),
-        stop_loss: ticksToDecimal(
-          bundle.tradePlan.stop_ticks,
-          observation.tickSize,
-        ),
-        take_profit: ticksToDecimal(
-          bundle.tradePlan.target_ticks,
-          observation.tickSize,
-        ),
-        risk_bps: paperConfiguration.riskBps,
-        account_ids: paperConfiguration.accountIds,
-      };
+      const { intent, evidence: intentEvidence } = preparedPaper;
       const intentPayloadSha256 = await canonicalSha256({
         ...intent,
         account_ids: [...intent.account_ids],
       });
-      decisionStatements.push(
+      entryAuthorizationStatements.push(
         env.DB
           .prepare(INSERT_ENTRY_V3_PAPER_TRADE_INTENT_SQL)
           .bind(
@@ -709,8 +883,8 @@ async function appendEntryV3ObservationAttempt(
           selectionRowId,
           intent.intent_id,
           bundle.setup.direction,
-          evidence.observed_trigger_epoch,
-          evidence.trigger_sequence,
+          intentEvidence.observed_trigger_epoch,
+          intentEvidence.trigger_sequence,
           selection.evaluated_at_epoch,
           bundle.tradePlan.entry_ticks,
           bundle.tradePlan.stop_ticks,
@@ -730,7 +904,7 @@ async function appendEntryV3ObservationAttempt(
         .first<StoredShadowPositionV3>()) === null
     ) {
       const candidate = bundle.evaluation.candidates[shadowPair.candidateIndex]!;
-      decisionStatements.push(
+      entryAuthorizationStatements.push(
         env.DB.prepare(INSERT_ENTRY_V3_SHADOW_POSITION_SQL).bind(
           candidateRowIds.get(candidate.candidate_id),
           bundle.setup.setup_id,
@@ -747,7 +921,7 @@ async function appendEntryV3ObservationAttempt(
       );
     }
 
-    if (observation.eventRole === "EXIT_FOLLOWUP") {
+    if (observation.eventRole === "EXIT_FOLLOWUP" && identityMatches) {
       const exits = observation.exitEvents.filter(
         (item) => item.setup_id === bundle.setup.setup_id,
       );
@@ -761,60 +935,133 @@ async function appendEntryV3ObservationAttempt(
           link !== null &&
           exit.exit_reason !== "AMBIGUOUS_SAME_BAR_EXIT" &&
           exitIsCausallyEconomic(observation, exit, link) &&
-          exitHitsStoredPlan(exit, link)
+          exitHitsStoredPlan(observation, exit, link)
         ) {
           const settled = await env.DB
             .prepare(SELECT_PAPER_TRADE_SETTLEMENT_SQL)
             .bind(link.intent_id)
             .first<StoredPaperTradeSettlement>();
+          const application = await env.DB
+            .prepare(SELECT_ENTRY_V3_EXIT_APPLICATION_SQL)
+            .bind("PAPER", bundle.setup.setup_id, ATTEMPT_KIND)
+            .first<StoredExitApplicationV3>();
           const outcome =
             exit.exit_reason === "STOP_LOSS" ? -1_000 : targetRMillis(link);
-          if (settled === null && outcome !== null) {
+          const terminal =
+            exit.exit_reason === "STOP_LOSS" ? "STOP" : "TARGET";
+          if (outcome !== null && settled !== null) {
+            if (
+              settled.exit_reason !== terminal ||
+              settled.outcome_r_millis !== outcome ||
+              application === null ||
+              application.exit_event_id !== exit.event_id ||
+              application.terminal_code !== terminal ||
+              application.outcome_r_millis !== outcome ||
+              application.intent_id !== link.intent_id
+            ) {
+              exitConflict = true;
+            }
+          } else if (outcome !== null && application !== null) {
+            exitConflict = true;
+          } else if (settled === null && outcome !== null) {
             const settlementPayloadSha256 = await canonicalSha256({
               intent_id: link.intent_id,
               schema_version: "1.0",
               outcome_r_millis: outcome,
-              exit_reason:
-                exit.exit_reason === "STOP_LOSS" ? "STOP" : "TARGET",
+              exit_reason: terminal,
             });
-            decisionStatements.push(
+            exitMutationStatements.push(
               env.DB.prepare(INSERT_PAPER_TRADE_SETTLEMENT_SQL).bind(
                 await qualifiedId(exit.event_id, "settlement", link.intent_id),
                 link.intent_id,
                 paperSettlementIdempotencyKey(link.intent_id),
                 settlementPayloadSha256,
                 outcome,
-                exit.exit_reason === "STOP_LOSS" ? "STOP" : "TARGET",
+                terminal,
+                recordedAt,
+              ),
+              env.DB.prepare(INSERT_ENTRY_V3_EXIT_APPLICATION_SQL).bind(
+                await qualifiedId(
+                  exit.event_id,
+                  "exit-application",
+                  `PAPER:${bundle.setup.setup_id}:${ATTEMPT_KIND}`,
+                ),
+                observation.eventId,
+                exit.event_id,
+                bundle.setup.setup_id,
+                ATTEMPT_KIND,
+                "PAPER",
+                link.intent_id,
+                null,
+                terminal,
+                outcome,
                 recordedAt,
               ),
             );
           }
         }
-        if (
-          shadow !== null &&
-          shadow.state === "OPEN" &&
-          exitHitsStoredPlan(exit, shadow) &&
-          (exit.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT" ||
-            exitIsCausallyEconomic(observation, exit, shadow))
-        ) {
+        if (shadow !== null) {
           const outcome =
             exit.exit_reason === "STOP_LOSS"
               ? -1_000
               : exit.exit_reason === "TARGET"
                 ? targetRMillis(shadow)
                 : null;
-          if (exit.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT" || outcome !== null) {
-            decisionStatements.push(
+          const state =
+            exit.exit_reason === "STOP_LOSS"
+              ? "STOPPED"
+              : exit.exit_reason === "TARGET"
+                ? "TARGET_HIT"
+                : "AMBIGUOUS";
+          const canApply =
+            exitHitsStoredPlan(observation, exit, shadow) &&
+            exitIsCausallyEconomic(observation, exit, shadow) &&
+            (exit.exit_reason === "AMBIGUOUS_SAME_BAR_EXIT" ||
+              outcome !== null);
+          const application = await env.DB
+            .prepare(SELECT_ENTRY_V3_EXIT_APPLICATION_SQL)
+            .bind("SHADOW", bundle.setup.setup_id, ATTEMPT_KIND)
+            .first<StoredExitApplicationV3>();
+          if (shadow.state !== "OPEN") {
+            if (
+              application === null ||
+              shadow.state !== state ||
+              shadow.exit_event_id !== exit.event_id ||
+              shadow.outcome_r_millis !== outcome ||
+              application.exit_event_id !== exit.event_id ||
+              application.terminal_code !== state ||
+              application.outcome_r_millis !== outcome ||
+              application.candidate_id !== shadow.candidate_id
+            ) {
+              exitConflict = true;
+            }
+          } else if (canApply && application !== null) {
+            exitConflict = true;
+          } else if (canApply) {
+            exitMutationStatements.push(
               env.DB.prepare(TERMINATE_ENTRY_V3_SHADOW_POSITION_SQL).bind(
-                exit.exit_reason === "STOP_LOSS"
-                  ? "STOPPED"
-                  : exit.exit_reason === "TARGET"
-                    ? "TARGET_HIT"
-                    : "AMBIGUOUS",
+                state,
                 exit.event_id,
                 outcome,
                 recordedAt,
                 shadow.candidate_id,
+              ),
+              env.DB.prepare(INSERT_ENTRY_V3_EXIT_APPLICATION_SQL).bind(
+                await qualifiedId(
+                  exit.event_id,
+                  "exit-application",
+                  `SHADOW:${bundle.setup.setup_id}:${ATTEMPT_KIND}`,
+                ),
+                observation.eventId,
+                exit.event_id,
+                bundle.setup.setup_id,
+                ATTEMPT_KIND,
+                "SHADOW",
+                null,
+                shadow.candidate_id,
+                state,
+                outcome,
+                recordedAt,
               ),
             );
           }
@@ -854,13 +1101,28 @@ async function appendEntryV3ObservationAttempt(
       .prepare(INSERT_ENTRY_V3_SELECTION_MEMBERS_SQL)
       .bind(JSON.stringify(memberRows)),
     env.DB.prepare(INSERT_ENTRY_V3_PARITY_SQL).bind(JSON.stringify(parityRows)),
-    ...decisionStatements,
+    ...entryAuthorizationStatements,
+    ...(exitConflict ? [] : exitMutationStatements),
   ];
   try {
     await env.DB.batch(statements);
   } catch (error) {
     const raced = await storedReceipt(env, observation.metadata.idempotencyKey);
-    if (raced !== null && raced.payload_sha256 === payloadSha256) {
+    if (raced !== null) {
+      if (raced.payload_sha256 !== payloadSha256) {
+        throw new EntryV3StoreConflict("IDEMPOTENCY_CONFLICT");
+      }
+      const racedEvent = await env.DB
+        .prepare(SELECT_ENTRY_V3_EVENT_BY_ID_SQL)
+        .bind(observation.eventId)
+        .first<{ receipt_id: string; payload_sha256: string }>();
+      if (
+        racedEvent === null ||
+        racedEvent.receipt_id !== raced.receipt_id ||
+        racedEvent.payload_sha256 !== payloadSha256
+      ) {
+        throw new EntryV3StoreConflict("EVENT_ID_CONFLICT");
+      }
       return {
         record: raced,
         inserted: false,
@@ -872,6 +1134,32 @@ async function appendEntryV3ObservationAttempt(
         ),
         paperIntentIds: await paperIntentIdsForEvent(env, observation.eventId),
       };
+    }
+    if (
+      allowDecisionRaceRetry &&
+      !forceConfigurationUnavailable &&
+      isReadinessConstraint(error)
+    ) {
+      return appendEntryV3ObservationAttempt(
+        env,
+        observation,
+        payloadSha256,
+        false,
+        true,
+      );
+    }
+    if (
+      allowDecisionRaceRetry &&
+      observation.eventRole === "EXIT_FOLLOWUP" &&
+      isExitApplicationRace(error)
+    ) {
+      return appendEntryV3ObservationAttempt(
+        env,
+        observation,
+        payloadSha256,
+        false,
+        forceConfigurationUnavailable,
+      );
     }
     if (
       allowDecisionRaceRetry &&
@@ -893,14 +1181,35 @@ async function appendEntryV3ObservationAttempt(
           observation,
           payloadSha256,
           false,
+          forceConfigurationUnavailable,
         );
       }
+    }
+    const racedEvent = await env.DB
+      .prepare(SELECT_ENTRY_V3_EVENT_BY_ID_SQL)
+      .bind(observation.eventId)
+      .first<{ payload_sha256: string }>();
+    if (racedEvent !== null) {
+      throw new EntryV3StoreConflict("EVENT_ID_CONFLICT");
+    }
+    const racedSequence = await env.DB
+      .prepare(SELECT_ENTRY_V3_EVENT_BY_PRODUCER_SEQUENCE_SQL)
+      .bind(
+        observation.metadata.producerInstanceId,
+        observation.producerSequence,
+      )
+      .first<{ event_id: string; payload_sha256: string }>();
+    if (racedSequence !== null) {
+      throw new EntryV3StoreConflict("PRODUCER_SEQUENCE_CONFLICT");
     }
     throw error;
   }
   const record = await storedReceipt(env, observation.metadata.idempotencyKey);
   if (record === null || record.payload_sha256 !== payloadSha256) {
     throw new TypeError("v3 receipt unavailable");
+  }
+  if (exitConflict) {
+    throw new EntryV3StoreConflict("EXIT_CONFLICT");
   }
   return {
     record,

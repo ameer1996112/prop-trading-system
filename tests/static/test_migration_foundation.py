@@ -47,6 +47,7 @@ def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None
         "observation_entry_v3_parity",
         "observation_entry_v3_paper_links",
         "observation_entry_v3_shadow_positions",
+        "observation_entry_v3_exit_applications",
     ):
         assert f"CREATE TABLE {table}" in migration
     assert "PRIMARY KEY (setup_id, attempt_kind)" in migration
@@ -55,3 +56,5 @@ def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None
     assert "observation_entry_v3_shadow_positions_state_guard" in migration
     assert "observation_entry_v3_paper_links_no_update" in migration
     assert "observation_entry_v3_paper_links_no_delete" in migration
+    assert "observation_entry_v3_exit_applications_no_update" in migration
+    assert "observation_entry_v3_exit_applications_no_delete" in migration

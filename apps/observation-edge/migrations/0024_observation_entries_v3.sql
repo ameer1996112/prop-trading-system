@@ -367,6 +367,34 @@ CREATE TABLE observation_entry_v3_shadow_positions (
     )
 ) STRICT;
 
+CREATE TABLE observation_entry_v3_exit_applications (
+    application_id TEXT PRIMARY KEY NOT NULL,
+    event_id TEXT NOT NULL
+        REFERENCES observation_entry_v3_events(event_id) ON DELETE RESTRICT,
+    exit_event_id TEXT NOT NULL,
+    setup_id TEXT NOT NULL,
+    attempt_kind TEXT NOT NULL CHECK (attempt_kind IN ('INITIAL', 'RE_ENTRY')),
+    target_kind TEXT NOT NULL CHECK (target_kind IN ('PAPER', 'SHADOW')),
+    intent_id TEXT REFERENCES paper_trade_intents(intent_id) ON DELETE RESTRICT,
+    candidate_id TEXT REFERENCES observation_entry_v3_candidates(candidate_id)
+        ON DELETE RESTRICT,
+    terminal_code TEXT NOT NULL CHECK (
+        terminal_code IN ('STOP', 'TARGET', 'STOPPED', 'TARGET_HIT', 'AMBIGUOUS')
+    ),
+    outcome_r_millis INTEGER CHECK (
+        outcome_r_millis IS NULL
+        OR outcome_r_millis BETWEEN -1000 AND 10000
+    ),
+    applied_at TEXT NOT NULL,
+    UNIQUE (exit_event_id, target_kind),
+    UNIQUE (target_kind, setup_id, attempt_kind),
+    CHECK (
+        (target_kind = 'PAPER' AND intent_id IS NOT NULL AND candidate_id IS NULL)
+        OR
+        (target_kind = 'SHADOW' AND candidate_id IS NOT NULL AND intent_id IS NULL)
+    )
+) STRICT;
+
 CREATE TRIGGER observation_entry_v3_paper_links_authorization_guard
 BEFORE INSERT ON observation_entry_v3_paper_links
 WHEN NOT EXISTS (
@@ -467,4 +495,10 @@ BEFORE UPDATE ON observation_entry_v3_paper_links
 BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
 CREATE TRIGGER observation_entry_v3_paper_links_no_delete
 BEFORE DELETE ON observation_entry_v3_paper_links
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_exit_applications_no_update
+BEFORE UPDATE ON observation_entry_v3_exit_applications
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_exit_applications_no_delete
+BEFORE DELETE ON observation_entry_v3_exit_applications
 BEGIN SELECT RAISE(ABORT, 'append-only table'); END;

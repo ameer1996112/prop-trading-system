@@ -12,6 +12,13 @@ WHERE event_id = ?
 LIMIT 1
 `;
 
+export const SELECT_ENTRY_V3_EVENT_BY_PRODUCER_SEQUENCE_SQL = `
+SELECT event_id, receipt_id, payload_sha256
+FROM observation_entry_v3_events
+WHERE producer_instance_id = ? AND producer_sequence = ?
+LIMIT 1
+`;
+
 export const INSERT_ENTRY_V3_EVENT_SQL = `
 INSERT INTO observation_entry_v3_events (
   event_id, receipt_id, producer_instance_id, producer_sequence,
@@ -194,4 +201,22 @@ export const TERMINATE_ENTRY_V3_SHADOW_POSITION_SQL = `
 UPDATE observation_entry_v3_shadow_positions
 SET state = ?, exit_event_id = ?, outcome_r_millis = ?, terminal_at = ?
 WHERE candidate_id = ? AND state = 'OPEN'
+`;
+
+export const SELECT_ENTRY_V3_EXIT_APPLICATION_SQL = `
+SELECT
+  application_id, event_id, exit_event_id, setup_id, attempt_kind,
+  target_kind, intent_id, candidate_id, terminal_code, outcome_r_millis,
+  applied_at
+FROM observation_entry_v3_exit_applications
+WHERE target_kind = ? AND setup_id = ? AND attempt_kind = ?
+LIMIT 1
+`;
+
+export const INSERT_ENTRY_V3_EXIT_APPLICATION_SQL = `
+INSERT INTO observation_entry_v3_exit_applications (
+  application_id, event_id, exit_event_id, setup_id, attempt_kind,
+  target_kind, intent_id, candidate_id, terminal_code, outcome_r_millis,
+  applied_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;

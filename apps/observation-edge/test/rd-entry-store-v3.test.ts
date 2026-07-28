@@ -3,7 +3,10 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { appendEntryV3Observation } from "../src/rd-entry-store-v3";
+import {
+  appendEntryV3Observation,
+  EntryV3StoreConflict,
+} from "../src/rd-entry-store-v3";
 import { validateEntryV3Payload } from "../src/rd-entry-wire-v3";
 import { parseStrictJson } from "../src/strict-json";
 import type { Env, ValidatedObservation } from "../src/types";
@@ -17,6 +20,7 @@ type SqliteInput =
 
 function migratedDatabase(): DatabaseSync {
   const database = new DatabaseSync(":memory:");
+  database.exec("PRAGMA foreign_keys = ON");
   const root = fileURLToPath(new URL("../", import.meta.url));
   for (const migration of readdirSync(`${root}/migrations`)
     .filter((name) => /^\d{4}_.*\.sql$/u.test(name))
@@ -78,6 +82,7 @@ class SqliteStatement {
 
 class SqliteD1 {
   readonly database = migratedDatabase();
+  failNextAllocationReadiness = false;
 
   prepare(sql: string): D1PreparedStatement {
     return new SqliteStatement(
@@ -92,7 +97,17 @@ class SqliteD1 {
     this.database.exec("BEGIN");
     try {
       const results = statements.map((statement) =>
-        (statement as unknown as SqliteStatement).execute(),
+        (() => {
+          const item = statement as unknown as SqliteStatement;
+          if (
+            this.failNextAllocationReadiness &&
+            item.sql.includes("INSERT INTO paper_trade_allocations")
+          ) {
+            this.failNextAllocationReadiness = false;
+            throw new Error("paper safety gate blocked allocation");
+          }
+          return item.execute();
+        })(),
       ) as D1Result<T>[];
       this.database.exec("COMMIT");
       return results;
@@ -230,6 +245,90 @@ async function observation(
   };
 }
 
+function retagBundle(
+  source: Extract<
+    ValidatedObservation,
+    { version: "entry-v3" }
+  >["entryBundles"][number],
+  tag: number,
+) {
+  const bundle = structuredClone(source) as unknown as {
+    setup: { setup_id: string };
+    candidates: Array<{ candidate_id: string; setup_id: string }>;
+    evidence: Array<{
+      evidence_id: string;
+      candidate_id: string;
+    }>;
+    selectionProposal: {
+      selection_id: string;
+      setup_id: string;
+      candidate_ids_considered: string[];
+      canonical_candidate_id: string | null;
+      canonical_evidence_id: string | null;
+    };
+    evaluation: {
+      candidates: Array<{ candidate_id: string; setup_id: string }>;
+      evidence: Array<{ evidence_id: string; candidate_id: string }>;
+      selection: {
+        selection_id: string;
+        setup_id: string;
+        candidate_ids_considered: string[];
+        canonical_candidate_id: string | null;
+        canonical_evidence_id: string | null;
+      };
+    };
+  };
+  const setupId = `setup-readiness-${tag}`;
+  const candidateId = tag.toString(16).padStart(1, "0").repeat(64);
+  const evidenceId = ((tag + 5) % 16).toString(16).repeat(64);
+  const selectionId = ((tag + 10) % 16).toString(16).repeat(64);
+  bundle.setup.setup_id = setupId;
+  for (const candidate of [...bundle.candidates, ...bundle.evaluation.candidates]) {
+    candidate.setup_id = setupId;
+    candidate.candidate_id = candidateId;
+  }
+  for (const evidence of [...bundle.evidence, ...bundle.evaluation.evidence]) {
+    evidence.candidate_id = candidateId;
+    evidence.evidence_id = evidenceId;
+  }
+  for (const selection of [
+    bundle.selectionProposal,
+    bundle.evaluation.selection,
+  ]) {
+    selection.setup_id = setupId;
+    selection.selection_id = selectionId;
+    selection.candidate_ids_considered = [candidateId];
+    selection.canonical_candidate_id = candidateId;
+    selection.canonical_evidence_id = evidenceId;
+  }
+  return bundle as unknown as Extract<
+    ValidatedObservation,
+    { version: "entry-v3" }
+  >["entryBundles"][number];
+}
+
+function observationWithBundles(
+  source: Extract<ValidatedObservation, { version: "entry-v3" }>,
+  eventId: string,
+  sequence: number,
+  bundles: Extract<
+    ValidatedObservation,
+    { version: "entry-v3" }
+  >["entryBundles"],
+): Extract<ValidatedObservation, { version: "entry-v3" }> {
+  return {
+    ...source,
+    eventId,
+    producerSequence: sequence,
+    metadata: {
+      ...source.metadata,
+      idempotencyKey: eventId,
+      sequence,
+    },
+    entryBundles: bundles,
+  };
+}
+
 function env(database: SqliteD1, overrides: Partial<Env> = {}): Env {
   return {
     DB: database as unknown as D1Database,
@@ -344,6 +443,7 @@ describe("RD entry v3 persistence", () => {
         "observation_entry_v3_parity",
         "observation_entry_v3_paper_links",
         "observation_entry_v3_shadow_positions",
+        "observation_entry_v3_exit_applications",
       ]),
     );
     expect(triggerNames).toEqual(
@@ -357,6 +457,8 @@ describe("RD entry v3 persistence", () => {
         "observation_entry_v3_paper_links_no_update",
         "observation_entry_v3_paper_links_no_delete",
         "observation_entry_v3_shadow_positions_no_delete",
+        "observation_entry_v3_exit_applications_no_update",
+        "observation_entry_v3_exit_applications_no_delete",
       ]),
     );
     database.close();
@@ -681,5 +783,390 @@ describe("RD entry v3 persistence", () => {
         .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
         .get(),
     ).toEqual({ count: 2 });
+  });
+
+  it("persists a mismatched-hash exit without settling or terminalizing", async () => {
+    const paper = new SqliteD1();
+    installPaperAccount(paper);
+    const strictEntry = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(paper),
+      await observation(strictEntry),
+      await payloadDigest(strictEntry),
+    );
+    const strictExit = realtimeExitPayload(
+      strictEntry,
+      "pine-v3-store:mismatched-paper-exit",
+      "TARGET",
+    );
+    strictExit.detector_code_hash = "c".repeat(64);
+    await appendEntryV3Observation(
+      env(paper),
+      await observation(strictExit),
+      await payloadDigest(strictExit),
+    );
+    expect(
+      paper.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_settlements")
+        .get(),
+    ).toEqual({ count: 0 });
+
+    const shadow = new SqliteD1();
+    installPaperAccount(shadow);
+    const discretionaryEntry = payloadFor("discretionary_boc_shadow");
+    await appendEntryV3Observation(
+      env(shadow),
+      await observation(discretionaryEntry),
+      await payloadDigest(discretionaryEntry),
+    );
+    const shadowExit = realtimeExitPayload(
+      discretionaryEntry,
+      "pine-v3-store:mismatched-shadow-exit",
+      "TARGET",
+    );
+    shadowExit.settings_hash = "c".repeat(64);
+    await appendEntryV3Observation(
+      env(shadow),
+      await observation(shadowExit),
+      await payloadDigest(shadowExit),
+    );
+    expect(
+      shadow.database
+        .prepare("SELECT state FROM observation_entry_v3_shadow_positions")
+        .get(),
+    ).toEqual({ state: "OPEN" });
+    expect(
+      shadow.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 2 });
+  });
+
+  it("retries a readiness-trigger race as audit-only configuration failure", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    database.failNextAllocationReadiness = true;
+    const payload = payloadFor("strict_long_boc_only");
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PAPER_CONFIGURATION_UNAVAILABLE",
+    });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("rejects conflicting paper and shadow terminals after storing audit", async () => {
+    const paper = new SqliteD1();
+    installPaperAccount(paper);
+    const strictEntry = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(paper),
+      await observation(strictEntry),
+      await payloadDigest(strictEntry),
+    );
+    const stop = realtimeExitPayload(
+      strictEntry,
+      "pine-v3-store:paper-stop-first",
+      "STOP_LOSS",
+    );
+    await appendEntryV3Observation(
+      env(paper),
+      await observation(stop),
+      await payloadDigest(stop),
+    );
+    const target = realtimeExitPayload(
+      strictEntry,
+      "pine-v3-store:paper-target-conflict",
+      "TARGET",
+    );
+    target.producer_sequence = 1001;
+    (target.market_event as Record<string, unknown>).sequence = 1001;
+    (
+      target.exit_events as Array<Record<string, unknown>>
+    )[0]!.sequence = 1001;
+    await expect(
+      appendEntryV3Observation(
+        env(paper),
+        await observation(target),
+        await payloadDigest(target),
+      ),
+    ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
+    expect(
+      paper.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 3 });
+
+    const shadow = new SqliteD1();
+    installPaperAccount(shadow);
+    const discretionaryEntry = payloadFor("discretionary_boc_shadow");
+    await appendEntryV3Observation(
+      env(shadow),
+      await observation(discretionaryEntry),
+      await payloadDigest(discretionaryEntry),
+    );
+    const firstTarget = realtimeExitPayload(
+      discretionaryEntry,
+      "pine-v3-store:shadow-target-first",
+      "TARGET",
+    );
+    await appendEntryV3Observation(
+      env(shadow),
+      await observation(firstTarget),
+      await payloadDigest(firstTarget),
+    );
+    const laterStop = realtimeExitPayload(
+      discretionaryEntry,
+      "pine-v3-store:shadow-stop-conflict",
+      "STOP_LOSS",
+    );
+    laterStop.producer_sequence = 1002;
+    (laterStop.market_event as Record<string, unknown>).sequence = 1002;
+    (
+      laterStop.exit_events as Array<Record<string, unknown>>
+    )[0]!.sequence = 1002;
+    await expect(
+      appendEntryV3Observation(
+        env(shadow),
+        await observation(laterStop),
+        await payloadDigest(laterStop),
+      ),
+    ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
+    expect(
+      shadow.database
+        .prepare("SELECT state FROM observation_entry_v3_shadow_positions")
+        .get(),
+    ).toEqual({ state: "TARGET_HIT" });
+    expect(
+      shadow.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 3 });
+  });
+
+  it("keeps ambiguity open when only a changed plan spans the durable levels", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const entryPayload = payloadFor("discretionary_boc_shadow");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(entryPayload),
+      await payloadDigest(entryPayload),
+    );
+    const ambiguous = structuredClone(entryPayload);
+    const bundle = (ambiguous.setups as Array<Record<string, unknown>>)[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    const plan = bundle.trade_plan as Record<string, unknown>;
+    plan.stop_ticks = 105;
+    plan.target_ticks = 120;
+    ambiguous.event_id = "pine-v3-store:changed-plan-ambiguity";
+    ambiguous.producer_sequence = 1003;
+    ambiguous.is_realtime = false;
+    ambiguous.observed_at_epoch = 2700;
+    ambiguous.market_event = {
+      epoch: 2700,
+      sequence: 1003,
+      tick_price_ticks: 111,
+      barstate_isconfirmed: true,
+      confirmed_bar: {
+        open_epoch: 2400,
+        close_epoch: 2700,
+        open_ticks: 111,
+        high_ticks: 120,
+        low_ticks: 105,
+        close_ticks: 111,
+      },
+    };
+    ambiguous.exit_events = [
+      {
+        event_id: "pine-v3-store:changed-plan-ambiguity:exit",
+        setup_id: setup.setup_id,
+        exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
+        epoch: 2700,
+        sequence: 1003,
+        price_ticks: 111,
+      },
+    ];
+    await appendEntryV3Observation(
+      env(database),
+      await observation(ambiguous),
+      await payloadDigest(ambiguous),
+    );
+
+    expect(
+      database.database
+        .prepare("SELECT state FROM observation_entry_v3_shadow_positions")
+        .get(),
+    ).toEqual({ state: "OPEN" });
+  });
+
+  it("downgrades paper-incompatible decimal conversion after audit validation", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    payload.tick_size = "0.000000001";
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PAPER_CONFIGURATION_UNAVAILABLE",
+    });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("stores producer parity disagreement without changing edge authority", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const validated = await observation(payload);
+    const bundle = validated.entryBundles[0]!;
+    (
+      bundle as unknown as {
+        selectionProposal: Record<string, unknown>;
+      }
+    ).selectionProposal = {
+      ...bundle.selectionProposal,
+      action: "SHADOW_ONLY",
+    };
+    const result = await appendEntryV3Observation(
+      env(database),
+      validated,
+      await payloadDigest(payload),
+    );
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "PAPER_ELIGIBLE",
+      parityStatus: "MISMATCH",
+      parityMismatchReason: "ACTION",
+    });
+  });
+
+  it("classifies receipt, event, and producer-sequence conflicts", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const validated = await observation(payload);
+    const digest = await payloadDigest(payload);
+    await appendEntryV3Observation(env(database), validated, digest);
+    await expect(
+      appendEntryV3Observation(env(database), validated, "f".repeat(64)),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+
+    const sequenceCollision = payloadFor("strict_long_boc_only");
+    sequenceCollision.event_id = "pine-v3-store:sequence-collision";
+    await expect(
+      appendEntryV3Observation(
+        env(database),
+        await observation(sequenceCollision),
+        await payloadDigest(sequenceCollision),
+      ),
+    ).rejects.toMatchObject({ code: "PRODUCER_SEQUENCE_CONFLICT" });
+  });
+
+  it("counts readiness only for new unlinked setup attempts", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const sourcePayload = payloadFor("strict_long_boc_only");
+    const source = await observation(sourcePayload);
+    const bundles = [1, 2, 3, 4].map((tag) =>
+      retagBundle(source.entryBundles[0]!, tag),
+    );
+    for (let index = 0; index < 3; index += 1) {
+      const eventId = `readiness-existing:${index + 1}`;
+      await appendEntryV3Observation(
+        env(database),
+        observationWithBundles(
+          source,
+          eventId,
+          2000 + index,
+          [bundles[index]!],
+        ),
+        await payloadDigest({ eventId }),
+      );
+    }
+
+    const result = await appendEntryV3Observation(
+      env(database),
+      observationWithBundles(
+        source,
+        "readiness-one-new",
+        2004,
+        bundles,
+      ),
+      await payloadDigest({ eventId: "readiness-one-new" }),
+    );
+
+    expect(
+      result.evaluations.map((item) => ({
+        setup: item.evaluation.selection.setup_id,
+        action: item.effectiveAction,
+        reason: item.effectiveActionReason,
+      })),
+    ).toEqual([
+      {
+        setup: "setup-readiness-1",
+        action: "SHADOW_ONLY",
+        reason: "NOT_SELECTED_ALREADY_OPEN",
+      },
+      {
+        setup: "setup-readiness-2",
+        action: "SHADOW_ONLY",
+        reason: "NOT_SELECTED_ALREADY_OPEN",
+      },
+      {
+        setup: "setup-readiness-3",
+        action: "SHADOW_ONLY",
+        reason: "NOT_SELECTED_ALREADY_OPEN",
+      },
+      {
+        setup: "setup-readiness-4",
+        action: "PAPER_ELIGIBLE",
+        reason: null,
+      },
+    ]);
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 4 });
+  });
+
+  it("enforces append-only v3 audit rows at the database boundary", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+    expect(() =>
+      database.database.exec(
+        "UPDATE observation_entry_v3_candidates SET state = 'REJECTED'",
+      ),
+    ).toThrow(/append-only/u);
+    expect(() =>
+      database.database.exec("DELETE FROM observation_entry_v3_parity"),
+    ).toThrow(/append-only/u);
   });
 });
