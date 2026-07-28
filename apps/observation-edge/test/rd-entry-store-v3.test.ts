@@ -36,6 +36,7 @@ class SqliteStatement {
   constructor(
     private readonly database: DatabaseSync,
     readonly sql: string,
+    private readonly hideFirstRow: () => boolean = () => false,
   ) {}
 
   bind(...values: unknown[]): SqliteStatement {
@@ -64,6 +65,7 @@ class SqliteStatement {
   }
 
   async first<T>(): Promise<T | null> {
+    if (this.hideFirstRow()) return null;
     return (
       (this.database
         .prepare(this.sql)
@@ -83,11 +85,39 @@ class SqliteStatement {
 class SqliteD1 {
   readonly database = migratedDatabase();
   failNextAllocationReadiness = false;
+  failNextBatchUnrelated = false;
+  hideNextPaperLinkRead = false;
+  hideNextPaperSettlementRead = false;
+  hideNextPaperExitApplicationRead = false;
 
   prepare(sql: string): D1PreparedStatement {
     return new SqliteStatement(
       this.database,
       sql,
+      () => {
+        if (
+          this.hideNextPaperLinkRead &&
+          sql.includes("FROM observation_entry_v3_paper_links")
+        ) {
+          this.hideNextPaperLinkRead = false;
+          return true;
+        }
+        if (
+          this.hideNextPaperSettlementRead &&
+          sql.includes("FROM paper_trade_settlements")
+        ) {
+          this.hideNextPaperSettlementRead = false;
+          return true;
+        }
+        if (
+          this.hideNextPaperExitApplicationRead &&
+          sql.includes("FROM observation_entry_v3_exit_applications")
+        ) {
+          this.hideNextPaperExitApplicationRead = false;
+          return true;
+        }
+        return false;
+      },
     ) as unknown as D1PreparedStatement;
   }
 
@@ -96,6 +126,17 @@ class SqliteD1 {
   ): Promise<D1Result<T>[]> {
     this.database.exec("BEGIN");
     try {
+      if (
+        this.failNextBatchUnrelated &&
+        statements.some((statement) =>
+          (statement as unknown as SqliteStatement).sql.includes(
+            "INSERT INTO observation_receipts",
+          ),
+        )
+      ) {
+        this.failNextBatchUnrelated = false;
+        throw new Error("injected unrelated batch failure");
+      }
       const results = statements.map((statement) =>
         (() => {
           const item = statement as unknown as SqliteStatement;
@@ -418,6 +459,16 @@ function realtimeExitPayload(
   return value;
 }
 
+function setExitSequence(
+  payload: Record<string, unknown>,
+  sequence: number,
+): void {
+  payload.producer_sequence = sequence;
+  (payload.market_event as Record<string, unknown>).sequence = sequence;
+  (payload.exit_events as Array<Record<string, unknown>>)[0]!.sequence =
+    sequence;
+}
+
 describe("RD entry v3 persistence", () => {
   it("installs the v3 entry and paper decision schema", () => {
     const database = migratedDatabase();
@@ -444,6 +495,7 @@ describe("RD entry v3 persistence", () => {
         "observation_entry_v3_paper_links",
         "observation_entry_v3_shadow_positions",
         "observation_entry_v3_exit_applications",
+        "observation_entry_v3_event_dispositions",
       ]),
     );
     expect(triggerNames).toEqual(
@@ -459,6 +511,8 @@ describe("RD entry v3 persistence", () => {
         "observation_entry_v3_shadow_positions_no_delete",
         "observation_entry_v3_exit_applications_no_update",
         "observation_entry_v3_exit_applications_no_delete",
+        "observation_entry_v3_event_dispositions_no_update",
+        "observation_entry_v3_event_dispositions_no_delete",
       ]),
     );
     database.close();
@@ -869,6 +923,70 @@ describe("RD entry v3 persistence", () => {
     ).toEqual({ count: 0 });
   });
 
+  it("propagates an unrelated batch failure when a paper link already existed", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const first = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(first),
+      await payloadDigest(first),
+    );
+    const later = payloadFor("strict_long_boc_only");
+    later.producer_instance_id = "pine-v3-existing-link-failure";
+    later.event_id = "pine-v3-existing-link-failure:1";
+    database.failNextBatchUnrelated = true;
+
+    await expect(
+      appendEntryV3Observation(
+        env(database),
+        await observation(later),
+        await payloadDigest(later),
+      ),
+    ).rejects.toThrow("injected unrelated batch failure");
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("recovers only a true paper-link uniqueness race with a durable winner", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const first = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(first),
+      await payloadDigest(first),
+    );
+    const raced = payloadFor("strict_long_boc_only");
+    raced.producer_instance_id = "pine-v3-link-race";
+    raced.event_id = "pine-v3-link-race:1";
+    database.hideNextPaperLinkRead = true;
+
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(raced),
+      await payloadDigest(raced),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "NOT_SELECTED_ALREADY_OPEN",
+    });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 2 });
+  });
+
   it("rejects conflicting paper and shadow terminals after storing audit", async () => {
     const paper = new SqliteD1();
     installPaperAccount(paper);
@@ -905,11 +1023,30 @@ describe("RD entry v3 persistence", () => {
         await payloadDigest(target),
       ),
     ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
+    await expect(
+      appendEntryV3Observation(
+        env(paper),
+        await observation(target),
+        await payloadDigest(target),
+      ),
+    ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
     expect(
       paper.database
         .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
         .get(),
     ).toEqual({ count: 3 });
+    expect(
+      paper.database
+        .prepare(
+          `SELECT disposition, conflict_code
+           FROM observation_entry_v3_event_dispositions
+           WHERE event_id = ?`,
+        )
+        .get(target.event_id as string),
+    ).toEqual({
+      disposition: "CONFLICT",
+      conflict_code: "EXIT_CONFLICT",
+    });
 
     const shadow = new SqliteD1();
     installPaperAccount(shadow);
@@ -953,6 +1090,148 @@ describe("RD entry v3 persistence", () => {
     ).toEqual({ state: "TARGET_HIT" });
     expect(
       shadow.database
+        .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
+        .get(),
+    ).toEqual({ count: 3 });
+  });
+
+  it("checks an existing paper terminal before exit applicability", async () => {
+    const stopped = new SqliteD1();
+    installPaperAccount(stopped);
+    const entry = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(stopped),
+      await observation(entry),
+      await payloadDigest(entry),
+    );
+    const stop = realtimeExitPayload(
+      entry,
+      "pine-v3-store:terminal-first-stop",
+      "STOP_LOSS",
+    );
+    await appendEntryV3Observation(
+      env(stopped),
+      await observation(stop),
+      await payloadDigest(stop),
+    );
+    const duplicate = await appendEntryV3Observation(
+      env(stopped),
+      await observation(stop),
+      await payloadDigest(stop),
+    );
+    expect(duplicate.inserted).toBe(false);
+
+    const ambiguous = realtimeExitPayload(
+      entry,
+      "pine-v3-store:terminal-later-ambiguous",
+      "AMBIGUOUS_SAME_BAR_EXIT",
+    );
+    setExitSequence(ambiguous, 1001);
+    ambiguous.is_realtime = false;
+    ambiguous.market_event = {
+      epoch: 3000,
+      sequence: 1001,
+      tick_price_ticks: 111,
+      barstate_isconfirmed: true,
+      confirmed_bar: {
+        open_epoch: 2700,
+        close_epoch: 3000,
+        open_ticks: 111,
+        high_ticks: 151,
+        low_ticks: 101,
+        close_ticks: 111,
+      },
+    };
+    await expect(
+      appendEntryV3Observation(
+        env(stopped),
+        await observation(ambiguous),
+        await payloadDigest(ambiguous),
+      ),
+    ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
+
+    const wrongSide = new SqliteD1();
+    installPaperAccount(wrongSide);
+    await appendEntryV3Observation(
+      env(wrongSide),
+      await observation(entry),
+      await payloadDigest(entry),
+    );
+    await appendEntryV3Observation(
+      env(wrongSide),
+      await observation(stop),
+      await payloadDigest(stop),
+    );
+    const wrongTarget = realtimeExitPayload(
+      entry,
+      "pine-v3-store:terminal-wrong-side-target",
+      "TARGET",
+    );
+    setExitSequence(wrongTarget, 1002);
+    const plan = (
+      (wrongTarget.setups as Array<Record<string, unknown>>)[0]!
+        .trade_plan as Record<string, unknown>
+    );
+    const wrongPrice = (plan.entry_ticks as number) + 1;
+    plan.target_ticks = wrongPrice;
+    (wrongTarget.market_event as Record<string, unknown>).tick_price_ticks =
+      wrongPrice;
+    (
+      wrongTarget.exit_events as Array<Record<string, unknown>>
+    )[0]!.price_ticks = wrongPrice;
+    await expect(
+      appendEntryV3Observation(
+        env(wrongSide),
+        await observation(wrongTarget),
+        await payloadDigest(wrongTarget),
+      ),
+    ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
+  });
+
+  it("reloads a concurrent paper terminal winner and stores a stable conflict", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const entry = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(entry),
+      await payloadDigest(entry),
+    );
+    const stop = realtimeExitPayload(
+      entry,
+      "pine-v3-store:concurrent-terminal-stop",
+      "STOP_LOSS",
+    );
+    await appendEntryV3Observation(
+      env(database),
+      await observation(stop),
+      await payloadDigest(stop),
+    );
+    const target = realtimeExitPayload(
+      entry,
+      "pine-v3-store:concurrent-terminal-target",
+      "TARGET",
+    );
+    setExitSequence(target, 1003);
+    database.hideNextPaperSettlementRead = true;
+    database.hideNextPaperExitApplicationRead = true;
+
+    await expect(
+      appendEntryV3Observation(
+        env(database),
+        await observation(target),
+        await payloadDigest(target),
+      ),
+    ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
+    await expect(
+      appendEntryV3Observation(
+        env(database),
+        await observation(target),
+        await payloadDigest(target),
+      ),
+    ).rejects.toMatchObject({ code: "EXIT_CONFLICT" });
+    expect(
+      database.database
         .prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events")
         .get(),
     ).toEqual({ count: 3 });
@@ -1167,6 +1446,16 @@ describe("RD entry v3 persistence", () => {
     ).toThrow(/append-only/u);
     expect(() =>
       database.database.exec("DELETE FROM observation_entry_v3_parity"),
+    ).toThrow(/append-only/u);
+    expect(() =>
+      database.database.exec(
+        "UPDATE observation_entry_v3_event_dispositions SET disposition = 'CONFLICT'",
+      ),
+    ).toThrow(/append-only/u);
+    expect(() =>
+      database.database.exec(
+        "DELETE FROM observation_entry_v3_event_dispositions",
+      ),
     ).toThrow(/append-only/u);
   });
 });

@@ -395,6 +395,25 @@ CREATE TABLE observation_entry_v3_exit_applications (
     )
 ) STRICT;
 
+CREATE TABLE observation_entry_v3_event_dispositions (
+    event_id TEXT PRIMARY KEY NOT NULL
+        REFERENCES observation_entry_v3_events(event_id) ON DELETE RESTRICT,
+    receipt_id TEXT NOT NULL UNIQUE
+        REFERENCES observation_receipts(receipt_id) ON DELETE RESTRICT,
+    disposition TEXT NOT NULL CHECK (
+        disposition IN ('ACCEPTED', 'CONFLICT')
+    ),
+    conflict_code TEXT CHECK (
+        conflict_code IS NULL OR conflict_code = 'EXIT_CONFLICT'
+    ),
+    recorded_at TEXT NOT NULL,
+    CHECK (
+        (disposition = 'ACCEPTED' AND conflict_code IS NULL)
+        OR
+        (disposition = 'CONFLICT' AND conflict_code = 'EXIT_CONFLICT')
+    )
+) STRICT;
+
 CREATE TRIGGER observation_entry_v3_paper_links_authorization_guard
 BEFORE INSERT ON observation_entry_v3_paper_links
 WHEN NOT EXISTS (
@@ -501,4 +520,10 @@ BEFORE UPDATE ON observation_entry_v3_exit_applications
 BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
 CREATE TRIGGER observation_entry_v3_exit_applications_no_delete
 BEFORE DELETE ON observation_entry_v3_exit_applications
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_event_dispositions_no_update
+BEFORE UPDATE ON observation_entry_v3_event_dispositions
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_event_dispositions_no_delete
+BEFORE DELETE ON observation_entry_v3_event_dispositions
 BEGIN SELECT RAISE(ABORT, 'append-only table'); END;

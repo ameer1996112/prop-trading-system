@@ -17,6 +17,7 @@ import {
 import {
   INSERT_ENTRY_V3_CANDIDATES_SQL,
   INSERT_ENTRY_V3_EVENT_SQL,
+  INSERT_ENTRY_V3_EVENT_DISPOSITION_SQL,
   INSERT_ENTRY_V3_EVIDENCE_SQL,
   INSERT_ENTRY_V3_EXIT_APPLICATION_SQL,
   INSERT_ENTRY_V3_PAPER_LINK_SQL,
@@ -28,6 +29,7 @@ import {
   LIST_ENTRY_V3_STORED_DECISIONS_SQL,
   SELECT_ENTRY_V3_EVENT_BY_ID_SQL,
   SELECT_ENTRY_V3_EVENT_BY_PRODUCER_SEQUENCE_SQL,
+  SELECT_ENTRY_V3_EVENT_DISPOSITION_SQL,
   SELECT_ENTRY_V3_EXIT_APPLICATION_SQL,
   SELECT_ENTRY_V3_PAPER_LINK_SQL,
   SELECT_ENTRY_V3_SHADOW_POSITION_SQL,
@@ -133,6 +135,14 @@ interface StoredExitApplicationV3 {
     | "AMBIGUOUS";
   readonly outcome_r_millis: number | null;
   readonly applied_at: string;
+}
+
+interface StoredEventDispositionV3 {
+  readonly event_id: string;
+  readonly receipt_id: string;
+  readonly disposition: "ACCEPTED" | "CONFLICT";
+  readonly conflict_code: "EXIT_CONFLICT" | null;
+  readonly recorded_at: string;
 }
 
 interface PaperConfiguration {
@@ -562,10 +572,54 @@ function isExitApplicationRace(error: unknown): boolean {
     message.includes(
       "UNIQUE constraint failed: observation_entry_v3_exit_applications",
     ) ||
-    message.includes(
-      "UNIQUE constraint failed: paper_trade_settlements.intent_id",
+    /UNIQUE constraint failed: paper_trade_settlements\.(?:settlement_id|intent_id|idempotency_key)/u.test(
+      message,
     )
   );
+}
+
+function isPaperLinkRace(error: unknown): boolean {
+  const message = databaseErrorMessage(error);
+  return (
+    message.includes(
+      "UNIQUE constraint failed: observation_entry_v3_paper_links.setup_id, observation_entry_v3_paper_links.attempt_kind",
+    ) ||
+    message.includes(
+      "UNIQUE constraint failed: paper_trade_intents.intent_id",
+    ) ||
+    message.includes(
+      "UNIQUE constraint failed: paper_trade_intents.idempotency_key",
+    )
+  );
+}
+
+async function storedEventDisposition(
+  env: Env,
+  eventId: string,
+): Promise<StoredEventDispositionV3> {
+  const disposition = await env.DB
+    .prepare(SELECT_ENTRY_V3_EVENT_DISPOSITION_SQL)
+    .bind(eventId)
+    .first<StoredEventDispositionV3>();
+  if (disposition === null) throw new TypeError("v3 disposition unavailable");
+  return disposition;
+}
+
+async function throwStoredEventConflict(
+  env: Env,
+  eventId: string,
+  receiptId: string,
+): Promise<void> {
+  const disposition = await storedEventDisposition(env, eventId);
+  if (disposition.receipt_id !== receiptId) {
+    throw new EntryV3StoreConflict("EVENT_ID_CONFLICT");
+  }
+  if (
+    disposition.disposition === "CONFLICT" &&
+    disposition.conflict_code === "EXIT_CONFLICT"
+  ) {
+    throw new EntryV3StoreConflict("EXIT_CONFLICT");
+  }
 }
 
 async function appendEntryV3ObservationAttempt(
@@ -599,6 +653,11 @@ async function appendEntryV3ObservationAttempt(
     ) {
       throw new EntryV3StoreConflict("EVENT_ID_CONFLICT");
     }
+    await throwStoredEventConflict(
+      env,
+      observation.eventId,
+      existingReceipt.receipt_id,
+    );
     return {
       record: existingReceipt,
       inserted: false,
@@ -931,12 +990,7 @@ async function appendEntryV3ObservationAttempt(
         .bind(bundle.setup.setup_id, ATTEMPT_KIND)
         .first<StoredShadowPositionV3>();
       for (const exit of exits) {
-        if (
-          link !== null &&
-          exit.exit_reason !== "AMBIGUOUS_SAME_BAR_EXIT" &&
-          exitIsCausallyEconomic(observation, exit, link) &&
-          exitHitsStoredPlan(observation, exit, link)
-        ) {
+        if (link !== null) {
           const settled = await env.DB
             .prepare(SELECT_PAPER_TRADE_SETTLEMENT_SQL)
             .bind(link.intent_id)
@@ -946,24 +1000,36 @@ async function appendEntryV3ObservationAttempt(
             .bind("PAPER", bundle.setup.setup_id, ATTEMPT_KIND)
             .first<StoredExitApplicationV3>();
           const outcome =
-            exit.exit_reason === "STOP_LOSS" ? -1_000 : targetRMillis(link);
+            exit.exit_reason === "STOP_LOSS"
+              ? -1_000
+              : exit.exit_reason === "TARGET"
+                ? targetRMillis(link)
+                : null;
           const terminal =
-            exit.exit_reason === "STOP_LOSS" ? "STOP" : "TARGET";
-          if (outcome !== null && settled !== null) {
-            if (
-              settled.exit_reason !== terminal ||
-              settled.outcome_r_millis !== outcome ||
-              application === null ||
-              application.exit_event_id !== exit.event_id ||
-              application.terminal_code !== terminal ||
-              application.outcome_r_millis !== outcome ||
-              application.intent_id !== link.intent_id
-            ) {
-              exitConflict = true;
-            }
-          } else if (outcome !== null && application !== null) {
-            exitConflict = true;
-          } else if (settled === null && outcome !== null) {
+            exit.exit_reason === "STOP_LOSS"
+              ? "STOP"
+              : exit.exit_reason === "TARGET"
+                ? "TARGET"
+                : null;
+          if (settled !== null || application !== null) {
+            const terminalMatches =
+              terminal !== null &&
+              outcome !== null &&
+              settled !== null &&
+              application !== null &&
+              settled.exit_reason === terminal &&
+              settled.outcome_r_millis === outcome &&
+              application.exit_event_id === exit.event_id &&
+              application.terminal_code === terminal &&
+              application.outcome_r_millis === outcome &&
+              application.intent_id === link.intent_id;
+            if (!terminalMatches) exitConflict = true;
+          } else if (
+            terminal !== null &&
+            outcome !== null &&
+            exitIsCausallyEconomic(observation, exit, link) &&
+            exitHitsStoredPlan(observation, exit, link)
+          ) {
             const settlementPayloadSha256 = await canonicalSha256({
               intent_id: link.intent_id,
               schema_version: "1.0",
@@ -1088,6 +1154,13 @@ async function appendEntryV3ObservationAttempt(
       observation.observedAtEpoch,
       recordedAt,
     ),
+    env.DB.prepare(INSERT_ENTRY_V3_EVENT_DISPOSITION_SQL).bind(
+      observation.eventId,
+      receiptId,
+      exitConflict ? "CONFLICT" : "ACCEPTED",
+      exitConflict ? "EXIT_CONFLICT" : null,
+      recordedAt,
+    ),
     env.DB
       .prepare(INSERT_ENTRY_V3_CANDIDATES_SQL)
       .bind(JSON.stringify(candidateRows)),
@@ -1123,6 +1196,11 @@ async function appendEntryV3ObservationAttempt(
       ) {
         throw new EntryV3StoreConflict("EVENT_ID_CONFLICT");
       }
+      await throwStoredEventConflict(
+        env,
+        observation.eventId,
+        raced.receipt_id,
+      );
       return {
         record: raced,
         inserted: false,
@@ -1163,19 +1241,25 @@ async function appendEntryV3ObservationAttempt(
     }
     if (
       allowDecisionRaceRetry &&
-      observation.entryBundles.some(
-        (bundle) => bundle.evaluation.selection.action === "PAPER_ELIGIBLE",
-      )
+      isPaperLinkRace(error)
     ) {
+      const raceEligibleBundles = observation.entryBundles.filter(
+        (bundle) =>
+          bundle.evaluation.selection.action === "PAPER_ELIGIBLE" &&
+          (existingLinks.get(bundle.setup.setup_id) ?? null) === null,
+      );
       const racedLinks = await Promise.all(
-        observation.entryBundles.map((bundle) =>
+        raceEligibleBundles.map((bundle) =>
           env.DB
             .prepare(SELECT_ENTRY_V3_PAPER_LINK_SQL)
             .bind(bundle.setup.setup_id, ATTEMPT_KIND)
             .first<StoredPaperLinkV3>(),
         ),
       );
-      if (racedLinks.some((link) => link !== null)) {
+      if (
+        raceEligibleBundles.length > 0 &&
+        racedLinks.some((link) => link !== null)
+      ) {
         return appendEntryV3ObservationAttempt(
           env,
           observation,

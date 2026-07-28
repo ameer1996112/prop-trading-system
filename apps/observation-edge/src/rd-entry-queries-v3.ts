@@ -28,6 +28,19 @@ INSERT INTO observation_entry_v3_events (
 ) VALUES (?, ?, ?, ?, '3.0.0-contract3', '3.0.0', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
+export const SELECT_ENTRY_V3_EVENT_DISPOSITION_SQL = `
+SELECT event_id, receipt_id, disposition, conflict_code, recorded_at
+FROM observation_entry_v3_event_dispositions
+WHERE event_id = ?
+LIMIT 1
+`;
+
+export const INSERT_ENTRY_V3_EVENT_DISPOSITION_SQL = `
+INSERT INTO observation_entry_v3_event_dispositions (
+  event_id, receipt_id, disposition, conflict_code, recorded_at
+) VALUES (?, ?, ?, ?, ?)
+`;
+
 export const INSERT_ENTRY_V3_CANDIDATES_SQL = `
 INSERT INTO observation_entry_v3_candidates (
   candidate_id, logical_candidate_id, event_id, setup_id, model, state,

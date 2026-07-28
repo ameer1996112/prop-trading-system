@@ -626,6 +626,15 @@ class FakeStatement {
   }
 
   async run(): Promise<D1Result> {
+    if (/^\s*SELECT\b/iu.test(this.sql)) {
+      return {
+        success: true,
+        results: this.database.sqlite
+          .prepare(this.sql)
+          .all(...(this.values as SqliteInput[])),
+        meta: {},
+      } as unknown as D1Result;
+    }
     if (this.sql === INSERT_RECEIPT_SQL) {
       const record: StoredReceipt = {
         receipt_id: String(this.values[0]),
@@ -1474,6 +1483,72 @@ function entryV3WorkerPayload(): Record<string, unknown> {
   };
 }
 
+function entryV3WorkerExitPayload(
+  base: Record<string, unknown>,
+  eventId: string,
+  exitReason: "STOP_LOSS" | "TARGET",
+  sequence: number,
+): Record<string, unknown> {
+  const payload = structuredClone(base);
+  const bundle = (payload.setups as Array<Record<string, unknown>>)[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  const plan = bundle.trade_plan as Record<string, unknown>;
+  const priceTicks =
+    exitReason === "STOP_LOSS" ? plan.stop_ticks : plan.target_ticks;
+  payload.event_id = eventId;
+  payload.producer_sequence = sequence;
+  payload.observed_at_epoch = 3000 + sequence;
+  payload.market_event = {
+    epoch: 3000 + sequence,
+    sequence,
+    tick_price_ticks: priceTicks,
+    barstate_isconfirmed: false,
+    confirmed_bar: null,
+  };
+  payload.exit_events = [
+    {
+      event_id: `${eventId}:exit`,
+      setup_id: setup.setup_id,
+      exit_reason: exitReason,
+      epoch: 3000 + sequence,
+      sequence,
+      price_ticks: priceTicks,
+    },
+  ];
+  return payload;
+}
+
+function installWorkerPaperAccount(database: FakeD1): void {
+  database.sqlite
+    .prepare(
+      `INSERT INTO paper_accounts (
+        account_id, mode, label, currency_code, currency_scale,
+        opening_balance_minor, idempotency_key, payload_sha256, created_at
+      ) VALUES (?, 'PAPER_ONLY', ?, 'USD', 2, ?, ?, ?, ?)`,
+    )
+    .run(
+      "paper-primary",
+      "Primary",
+      5_000_000,
+      "paper-account:paper-primary",
+      "9".repeat(64),
+      "2026-07-28T00:00:00.000Z",
+    );
+  database.sqlite
+    .prepare(
+      `INSERT INTO paper_kill_switch_events (
+        event_id, idempotency_key, payload_sha256, enabled, reason, changed_at
+      ) VALUES (?, ?, ?, 0, ?, ?)`,
+    )
+    .run(
+      "paper-kill-switch-worker-disabled",
+      "paper-kill-switch:worker-disabled",
+      "8".repeat(64),
+      "TEST_DISABLED",
+      "2026-07-28T00:00:01.000Z",
+    );
+}
+
 async function body(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
@@ -1521,6 +1596,68 @@ describe("observation edge Worker", () => {
     expect(await body(sequenceConflict)).toMatchObject({
       error: { code: "PRODUCER_SEQUENCE_CONFLICT" },
     });
+  });
+
+  it("replays a stored v3 exit conflict as the same bounded 409", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+    });
+    const entry = entryV3WorkerPayload();
+    const entryResponse = await handleRequest(postBody(entry), env);
+    const entryBody = await body(entryResponse);
+    expect(entryResponse.status).toBe(202);
+    expect(entryBody).toMatchObject({
+      evaluations: [{ action: "PAPER_ELIGIBLE" }],
+    });
+    expect(
+      database.sqlite
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_intents")
+        .get(),
+    ).toEqual({ count: 1 });
+
+    const stop = entryV3WorkerExitPayload(
+      entry,
+      "worker-v3:paper-stop",
+      "STOP_LOSS",
+      2,
+    );
+    expect((await handleRequest(postBody(stop), env)).status).toBe(202);
+    expect(
+      database.sqlite
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_settlements")
+        .get(),
+    ).toEqual({ count: 1 });
+    const acceptedReplay = await handleRequest(postBody(stop), env);
+    expect(acceptedReplay.status).toBe(200);
+    expect(await body(acceptedReplay)).toMatchObject({ status: "DUPLICATE" });
+
+    const target = entryV3WorkerExitPayload(
+      entry,
+      "worker-v3:paper-target-conflict",
+      "TARGET",
+      3,
+    );
+    const first = await handleRequest(postBody(target), env);
+    const firstBody = await body(first);
+    expect(first.status).toBe(409);
+    expect(firstBody).toMatchObject({
+      error: { code: "EXIT_CONFLICT" },
+    });
+    expect(Object.keys(firstBody)).toEqual(["error"]);
+    expect(Object.keys(firstBody.error as Record<string, unknown>).sort()).toEqual(
+      ["code", "message"],
+    );
+    expect(JSON.stringify(firstBody)).not.toContain(CREDENTIAL);
+    expect(JSON.stringify(firstBody)).not.toContain("setups");
+
+    const replay = await handleRequest(postBody(target), env);
+    expect(replay.status).toBe(409);
+    expect(await body(replay)).toEqual(firstBody);
   });
 
   it("keeps liveness public while ingress defaults fail-closed", async () => {
