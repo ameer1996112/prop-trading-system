@@ -1,36 +1,7 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import {
-  evaluateEntryV3Bundle,
-} from "../src/rd-entry-arbitrator-v3";
-import type {
-  EntryArbitrationInputV3,
-} from "../src/rd-entry-domain-v3";
-import {
-  validateEntryV3Payload,
-} from "../src/rd-entry-wire-v3";
+import { validateEntryV3Payload } from "../src/rd-entry-wire-v3";
 import { parseStrictJson } from "../src/strict-json";
-
-const vectors = JSON.parse(
-  readFileSync(
-    new URL(
-      "../../../contracts/vectors/rd-entry-arbitration-v3.json",
-      import.meta.url,
-    ),
-    "utf8",
-  ),
-) as {
-  cases: Array<{
-    case_id: string;
-    input: EntryArbitrationInputV3;
-    expected: {
-      candidates: Array<Record<string, unknown>>;
-      evidence: Array<Record<string, unknown>>;
-      selection: Record<string, unknown>;
-    };
-  }>;
-};
 
 const reviewedHashes = {
   detector_code_hash: "a".repeat(64),
@@ -54,189 +25,428 @@ const requiredRuleIds = [
   "ZONE_PRE_ENTRY_CLOSE_OUTSIDE",
 ] as const;
 
-function vector(caseId: string) {
-  return structuredClone(
-    vectors.cases.find((item) => item.case_id === caseId)!,
-  );
-}
+const bocClaims = [
+  "discretionary-break-2025-11",
+  "reject-non-htf-break-2026-05",
+  "htf-timed-boc-2026-06",
+];
 
-function pinePayload(caseId: string): {
-  payload: Record<string, unknown>;
-  input: EntryArbitrationInputV3;
-} {
-  const fixture = vector(caseId);
-  const { input, expected } = fixture;
-  const selection = expected.selection;
-  const canonicalEvidence = expected.evidence.find(
-    (item) => item.evidence_id === selection.canonical_evidence_id,
-  )!;
-  const direction = input.direction;
-  const entryTicks = canonicalEvidence.observed_trigger_ticks as number;
-  const confirmedBar =
-    selection.canonical_model === "DIR_CLOSE" ? input.confirmed_bar : null;
-  const observedAtEpoch = Math.max(
-    input.observed_at_epoch,
-    selection.evaluated_at_epoch as number,
-  );
-  return {
-    input,
-    payload: {
-      schema_version: "3.0",
-      strategy_id: "rd_liquidity_sd_5m_v1",
-      strategy_version: "3.0.0-contract3",
-      rule_contract_version: "3.0.0",
-      execution_mode: "PAPER_ONLY",
-      producer_instance_id: "pine-v3",
-      producer_sequence: canonicalEvidence.trigger_sequence,
-      event_id: `pine-v3:${caseId}`,
-      is_realtime: canonicalEvidence.proof_plane === "REALTIME_TICK",
-      symbol: "EURUSD",
-      ticker_id: "OANDA:EURUSD",
-      feed: "OANDA",
-      timeframe: "5",
-      tick_size: "0.00001",
-      detector_code_hash: reviewedHashes.detector_code_hash,
-      settings_hash: reviewedHashes.settings_hash,
-      observed_at_epoch: observedAtEpoch,
-      market_event: {
-        epoch: canonicalEvidence.observed_trigger_epoch,
-        sequence: canonicalEvidence.trigger_sequence,
-        tick_price_ticks: entryTicks,
-        barstate_isconfirmed: confirmedBar !== null,
-        confirmed_bar: confirmedBar,
-      },
-      exit_events: [],
-      setups: [
-        {
-          setup: {
-            setup_id: input.setup_id,
-            direction,
-            zone_top_ticks: input.zone_top_ticks,
-            zone_bottom_ticks: input.zone_bottom_ticks,
-            zone_engaged_epoch: input.zone_engaged_epoch,
-            invalidated_before_entry: input.setup_invalidated,
-            common_fidelity: input.common_fidelity,
-            common_rule_results: requiredRuleIds.map((rule_id) => ({
-              rule_id,
-              passed: true,
-            })),
-          },
-          candidates: expected.candidates,
-          evidence: expected.evidence,
-          selection_proposal: selection,
-          trade_plan: {
-            direction,
-            entry_ticks: entryTicks,
-            stop_ticks: direction === "LONG" ? entryTicks - 10 : entryTicks + 10,
-            target_ticks: direction === "LONG" ? entryTicks + 20 : entryTicks - 20,
-          },
-        },
-      ],
-    },
-  };
-}
+const flipClaims = [
+  "htf-flip-2024-03",
+  "htf-context-set-2025-08",
+  "htf-flip-definition-2025-08",
+  "pure-flip-narrowing-2026-05",
+  "model-continuation-2026-07",
+];
 
 function strict(value: unknown) {
   return parseStrictJson(new TextEncoder().encode(JSON.stringify(value)));
 }
 
-function useEdgeDerivedReferences(value: Record<string, unknown>): void {
-  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
-  const candidates = bundle.candidates as Array<Record<string, unknown>>;
-  const evidence = bundle.evidence as Array<Record<string, unknown>>;
-  const selection = bundle.selection_proposal as Record<string, unknown>;
-  const modelByCandidateId = new Map(
-    candidates.map((item) => [
-      item.candidate_id as string,
-      item.model as string,
-    ]),
-  );
-  const modelByEvidenceId = new Map(
-    evidence.map((item) => [
-      item.evidence_id as string,
-      modelByCandidateId.get(item.candidate_id as string)!,
-    ]),
-  );
-  const canonicalCandidateModel =
-    selection.canonical_candidate_id === null
-      ? null
-      : modelByCandidateId.get(selection.canonical_candidate_id as string)!;
-  const canonicalEvidenceModel =
-    selection.canonical_evidence_id === null
-      ? null
-      : modelByEvidenceId.get(selection.canonical_evidence_id as string)!;
-  for (const candidate of candidates) {
-    candidate.candidate_id = `EDGE_DERIVED:${candidate.model as string}`;
-  }
-  for (const item of evidence) {
-    const model = modelByCandidateId.get(item.candidate_id as string);
-    item.candidate_id = `EDGE_DERIVED:${model!}`;
-    item.evidence_id = `EDGE_DERIVED:${model!}`;
-    item.payload_sha256 = "EDGE_DERIVED";
-  }
-  selection.selection_id = "EDGE_DERIVED";
-  selection.candidate_ids_considered = candidates
-    .map((item) => item.candidate_id as string)
-    .sort();
-  selection.canonical_candidate_id =
-    canonicalCandidateModel === null
-      ? null
-      : `EDGE_DERIVED:${canonicalCandidateModel}`;
-  selection.canonical_evidence_id =
-    canonicalEvidenceModel === null
-      ? null
-      : `EDGE_DERIVED:${canonicalEvidenceModel}`;
+function commonRules(falseRule?: (typeof requiredRuleIds)[number]) {
+  return requiredRuleIds.map((rule_id) => ({
+    rule_id,
+    passed: rule_id !== falseRule,
+  }));
 }
 
-describe("RD Pine v3 payload parity", () => {
-  it("keeps BOC and flip when the same tick satisfies both", async () => {
-    const fixture = pinePayload("boc_flip_same_event");
-    useEdgeDerivedReferences(fixture.payload);
-    const parsed = await validateEntryV3Payload(
-      strict(fixture.payload),
-      reviewedHashes,
-    );
-    const evaluated = await evaluateEntryV3Bundle(fixture.input);
+function bocCandidate(setupId: string, state: "MATCHED" | "BLOCKED") {
+  return {
+    candidate_id: "EDGE_DERIVED:BOC",
+    setup_id: setupId,
+    model: "BOC",
+    state,
+    direction: "LONG",
+    event_anchor_epoch: 900,
+    trigger_ordinal: 1,
+    boc_tier: "HTF_TIMED",
+    reference_candle_open_epoch: 900,
+    source_claim_ids: bocClaims,
+    observed_at_epoch: 2400,
+  };
+}
 
-    expect(parsed.entryBundles[0]!.evaluation).toEqual(evaluated);
-    expect(evaluated.selection.reason).toBe("CO_TRIGGER_SAME_EVENT");
-    expect(evaluated.selection.co_triggered_models).toEqual([
+function exactBocEvidence(setupId: string) {
+  void setupId;
+  return {
+    evidence_id: "EDGE_DERIVED:BOC",
+    candidate_id: "EDGE_DERIVED:BOC",
+    observed_trigger_epoch: 1802,
+    trigger_sequence: 5,
+    observed_trigger_ticks: 111,
+    htf_context_minutes: [15, 30],
+    fidelity: "EXACT",
+    proof_plane: "REALTIME_TICK",
+    replayability: "LIVE_EXACT_NON_REPLAYABLE",
+    coverage_start_epoch: 900,
+    coverage_end_epoch: 2400,
+    ambiguity_codes: [],
+    boc_tier: "HTF_TIMED",
+    reference_candle_open_epoch: 900,
+    reference_candle_open_ticks: 105,
+    reference_candle_high_ticks: 110,
+    reference_candle_low_ticks: 100,
+    reference_candle_close_ticks: 102,
+    htf_open_ticks: null,
+    contact_candle: null,
+    recross_candle: null,
+    coverage_gap_detected: null,
+    full_lifecycle_ordered: null,
+    destination_seen_before_contact: null,
+    passed_rule_ids: ["ENTRY_BOC_HTF_TIMED"],
+    failed_rule_ids: [],
+    source_claim_ids: bocClaims,
+    payload_sha256: "EDGE_DERIVED",
+    observed_at_epoch: 2400,
+  };
+}
+
+function flipCandidate(setupId: string) {
+  return {
+    candidate_id: "EDGE_DERIVED:HTF_FLIP",
+    setup_id: setupId,
+    model: "HTF_FLIP",
+    state: "MATCHED",
+    direction: "LONG",
+    event_anchor_epoch: 1800,
+    trigger_ordinal: 1,
+    boc_tier: null,
+    reference_candle_open_epoch: null,
+    source_claim_ids: flipClaims,
+    observed_at_epoch: 2400,
+  };
+}
+
+function exactFlipEvidence() {
+  return {
+    evidence_id: "EDGE_DERIVED:HTF_FLIP",
+    candidate_id: "EDGE_DERIVED:HTF_FLIP",
+    observed_trigger_epoch: 1802,
+    trigger_sequence: 5,
+    observed_trigger_ticks: 111,
+    htf_context_minutes: [15, 30],
+    fidelity: "EXACT",
+    proof_plane: "REALTIME_TICK",
+    replayability: "LIVE_EXACT_NON_REPLAYABLE",
+    coverage_start_epoch: 900,
+    coverage_end_epoch: 2400,
+    ambiguity_codes: [],
+    boc_tier: null,
+    reference_candle_open_epoch: null,
+    reference_candle_open_ticks: null,
+    reference_candle_high_ticks: null,
+    reference_candle_low_ticks: null,
+    reference_candle_close_ticks: null,
+    htf_open_ticks: 111,
+    contact_candle: {
+      open_epoch: 1800,
+      close_epoch: 1801,
+      open_ticks: 105,
+      high_ticks: 110,
+      low_ticks: 100,
+      close_ticks: 105,
+    },
+    recross_candle: {
+      open_epoch: 1801,
+      close_epoch: 1802,
+      open_ticks: 110,
+      high_ticks: 112,
+      low_ticks: 109,
+      close_ticks: 111,
+    },
+    coverage_gap_detected: false,
+    full_lifecycle_ordered: true,
+    destination_seen_before_contact: false,
+    passed_rule_ids: ["ENTRY_HTF_FLIP"],
+    failed_rule_ids: [],
+    source_claim_ids: flipClaims,
+    payload_sha256: "EDGE_DERIVED",
+    observed_at_epoch: 2400,
+  };
+}
+
+function payloadEnvelope(
+  setupId: string,
+  candidates: Array<Record<string, unknown>>,
+  evidence: Array<Record<string, unknown>>,
+  selection: Record<string, unknown>,
+  options: {
+    detectorHash?: string;
+    settingsHash?: string;
+    commonFidelity?: "EXACT" | "UNRESOLVED";
+    falseRule?: (typeof requiredRuleIds)[number];
+    isRealtime?: boolean;
+    marketEvent?: Record<string, unknown>;
+    exitEvents?: Array<Record<string, unknown>>;
+  } = {},
+) {
+  return {
+    schema_version: "3.0",
+    strategy_id: "rd_liquidity_sd_5m_v1",
+    strategy_version: "3.0.0-contract3",
+    rule_contract_version: "3.0.0",
+    execution_mode: "PAPER_ONLY",
+    producer_instance_id: "pine-v3-independent-fixture",
+    producer_sequence: 5,
+    event_id: `pine-v3-independent-fixture:${setupId}`,
+    is_realtime: options.isRealtime ?? true,
+    symbol: "EURUSD",
+    ticker_id: "OANDA:EURUSD",
+    feed: "OANDA",
+    timeframe: "5",
+    tick_size: "0.00001",
+    detector_code_hash:
+      options.detectorHash ?? reviewedHashes.detector_code_hash,
+    settings_hash: options.settingsHash ?? reviewedHashes.settings_hash,
+    observed_at_epoch: 2400,
+    market_event: options.marketEvent ?? {
+      epoch: 1802,
+      sequence: 5,
+      tick_price_ticks: 111,
+      barstate_isconfirmed: false,
+      confirmed_bar: null,
+    },
+    exit_events: options.exitEvents ?? [],
+    setups: [
+      {
+        setup: {
+          setup_id: setupId,
+          direction: "LONG",
+          zone_top_ticks: 103,
+          zone_bottom_ticks: 97,
+          zone_engaged_epoch: 800,
+          invalidated_before_entry: false,
+          common_fidelity: options.commonFidelity ?? "EXACT",
+          common_rule_results: commonRules(options.falseRule),
+        },
+        candidates,
+        evidence,
+        selection_proposal: selection,
+        trade_plan: {
+          direction: "LONG",
+          entry_ticks: 111,
+          stop_ticks: 101,
+          target_ticks: 131,
+        },
+      },
+    ],
+  };
+}
+
+describe("RD Pine v3 independent raw payload parity", () => {
+  it("aggregates simultaneous 15m/30m BOC and flip facts before selection", async () => {
+    const setupId = "setup-independent-boc-flip";
+    const payload = payloadEnvelope(
+      setupId,
+      [bocCandidate(setupId, "MATCHED"), flipCandidate(setupId)],
+      [exactBocEvidence(setupId), exactFlipEvidence()],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: [
+          "EDGE_DERIVED:BOC",
+          "EDGE_DERIVED:HTF_FLIP",
+        ],
+        canonical_candidate_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_evidence_id: "EDGE_DERIVED:HTF_FLIP",
+        canonical_model: "HTF_FLIP",
+        reason: "CO_TRIGGER_SAME_EVENT",
+        fidelity: "EXACT",
+        action: "PAPER_ELIGIBLE",
+        co_triggered_models: ["BOC", "HTF_FLIP"],
+        evaluated_at_epoch: 2400,
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+    const evaluation = parsed.entryBundles[0]!.evaluation;
+
+    expect(evaluation.selection.reason).toBe("CO_TRIGGER_SAME_EVENT");
+    expect(evaluation.selection.co_triggered_models).toEqual([
       "BOC",
       "HTF_FLIP",
     ]);
+    expect(
+      evaluation.evidence.find((item) =>
+        evaluation.candidates.find(
+          (candidate) =>
+            candidate.candidate_id === item.candidate_id &&
+            candidate.model === "HTF_FLIP",
+        ),
+      )!.htf_context_minutes,
+    ).toEqual([15, 30]);
     expect(JSON.stringify(parsed.canonicalPayload)).not.toContain(
       "EDGE_DERIVED",
     );
+  });
+
+  it("keeps a strict BOC distinct and derives every sentinel identity", async () => {
+    const setupId = "setup-independent-strict-boc";
+    const payload = payloadEnvelope(
+      setupId,
+      [bocCandidate(setupId, "MATCHED")],
+      [exactBocEvidence(setupId)],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: "EDGE_DERIVED:BOC",
+        canonical_evidence_id: "EDGE_DERIVED:BOC",
+        canonical_model: "BOC",
+        reason: "ONLY_EXACT_TRIGGER",
+        fidelity: "EXACT",
+        action: "PAPER_ELIGIBLE",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2400,
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+    const bundle = parsed.entryBundles[0]!;
+
+    expect(bundle.evaluation.selection.canonical_model).toBe("BOC");
+    expect(bundle.evaluation.candidates.map((item) => item.model)).toEqual([
+      "BOC",
+    ]);
     expect(
-      parsed.entryBundles[0]!.candidates.every((item) =>
-        /^[a-f0-9]{64}$/u.test(item.candidate_id),
-      ),
+      bundle.candidates.every((item) => /^[a-f0-9]{64}$/u.test(item.candidate_id)),
     ).toBe(true);
     expect(
-      parsed.entryBundles[0]!.evidence.every(
+      bundle.evidence.every(
         (item) =>
           /^[a-f0-9]{64}$/u.test(item.evidence_id) &&
           /^[a-f0-9]{64}$/u.test(item.payload_sha256),
       ),
     ).toBe(true);
-    expect(
-      /^[a-f0-9]{64}$/u.test(
-        parsed.entryBundles[0]!.selectionProposal.selection_id,
-      ),
-    ).toBe(true);
   });
 
-  it("keeps an exact strict BOC distinct from directional close", async () => {
-    const fixture = pinePayload("strict_long_boc_only");
-    useEdgeDerivedReferences(fixture.payload);
-    const parsed = await validateEntryV3Payload(
-      strict(fixture.payload),
-      reviewedHashes,
+  it("accepts a truthful unreviewed blocked observation without suppressing it", async () => {
+    const setupId = "setup-independent-unreviewed";
+    const blockedEvidence = {
+      ...exactBocEvidence(setupId),
+      fidelity: "UNRESOLVED",
+      ambiguity_codes: ["SHADOW_MISSING_INTRABAR_COVERAGE"],
+      passed_rule_ids: [],
+      failed_rule_ids: ["COMMON_SETUP_NOT_EXACT"],
+    };
+    const payload = payloadEnvelope(
+      setupId,
+      [bocCandidate(setupId, "BLOCKED")],
+      [blockedEvidence],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+        canonical_model: null,
+        reason: "NO_EXACT_CANDIDATE",
+        fidelity: null,
+        action: "SHADOW_ONLY",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2400,
+      },
+      {
+        detectorHash: "UNREVIEWED",
+        settingsHash: "UNREVIEWED",
+        commonFidelity: "UNRESOLVED",
+        falseRule: "LIQ_DISTANCE_INFLUENCES_ZONE",
+      },
     );
-    const evaluated = await evaluateEntryV3Bundle(fixture.input);
 
-    expect(parsed.entryBundles[0]!.evaluation).toEqual(evaluated);
-    expect(evaluated.selection.canonical_model).toBe("BOC");
-    expect(evaluated.candidates.map((item) => item.model)).toEqual(["BOC"]);
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+    const bundle = parsed.entryBundles[0]!;
+
+    expect(bundle.commonRuleResults).toContainEqual({
+      rule_id: "LIQ_DISTANCE_INFLUENCES_ZONE",
+      passed: false,
+    });
+    expect(bundle.evaluation.selection.action).toBe("SHADOW_ONLY");
+    expect(bundle.evaluation.selection.canonical_model).toBeNull();
+    expect(bundle.evidence[0]!.failed_rule_ids).toEqual([
+      "COMMON_SETUP_NOT_EXACT",
+    ]);
+  });
+
+  it("emits one terminal historical ambiguity audit instead of inventing exit order", async () => {
+    const setupId = "setup-independent-ambiguous-exit";
+    const candidate = {
+      ...bocCandidate(setupId, "MATCHED"),
+      boc_tier: "DISCRETIONARY_5M",
+      source_claim_ids: ["discretionary-break-2025-11"],
+    };
+    const evidence = {
+      ...exactBocEvidence(setupId),
+      htf_context_minutes: [],
+      fidelity: "DISCRETIONARY",
+      proof_plane: "LOWER_TIMEFRAME_REPLAY",
+      replayability: "REPLAYABLE",
+      ambiguity_codes: ["SHADOW_SAME_CHILD_BAR_ORDER"],
+      boc_tier: "DISCRETIONARY_5M",
+      passed_rule_ids: [],
+      failed_rule_ids: ["BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED"],
+      source_claim_ids: ["discretionary-break-2025-11"],
+    };
+    const payload = payloadEnvelope(
+      setupId,
+      [candidate],
+      [evidence],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+        canonical_model: null,
+        reason: "NO_EXACT_CANDIDATE",
+        fidelity: null,
+        action: "SHADOW_ONLY",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2400,
+      },
+      {
+        isRealtime: false,
+        marketEvent: {
+          epoch: 2400,
+          sequence: 6,
+          tick_price_ticks: 115,
+          barstate_isconfirmed: true,
+          confirmed_bar: {
+            open_epoch: 2100,
+            close_epoch: 2400,
+            open_ticks: 112,
+            high_ticks: 140,
+            low_ticks: 90,
+            close_ticks: 115,
+          },
+        },
+        exitEvents: [
+          {
+            event_id: `${setupId}:exit:AMBIGUOUS_SAME_BAR_EXIT:6`,
+            setup_id: setupId,
+            exit_reason: "AMBIGUOUS_SAME_BAR_EXIT",
+            epoch: 2400,
+            sequence: 6,
+            price_ticks: 115,
+          },
+        ],
+      },
+    );
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+
+    expect(parsed.exitEvents).toHaveLength(1);
+    expect(parsed.exitEvents[0]!.exit_reason).toBe(
+      "AMBIGUOUS_SAME_BAR_EXIT",
+    );
+    expect(parsed.entryBundles[0]!.selectionProposal.action).toBe("SHADOW_ONLY");
   });
 });

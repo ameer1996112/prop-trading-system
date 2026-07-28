@@ -19,6 +19,23 @@ def test_pine_v3_declares_the_closed_three_model_contract() -> None:
     assert 'const string ENTRY_RULE_CONTRACT_VERSION = "3.0.0"' in pine
 
 
+def test_pine_v3_user_defined_types_have_unique_fields() -> None:
+    current_type = None
+    fields: dict[str, set[str]] = {}
+    for line in source().splitlines():
+        if line.startswith("type "):
+            current_type = line.split()[1]
+            fields[current_type] = set()
+        elif current_type is not None and line.startswith("    ") and " " in line.strip():
+            field = line.strip().split()[1]
+            assert field not in fields[current_type], (
+                f"duplicate {current_type}.{field}"
+            )
+            fields[current_type].add(field)
+        elif line and not line.startswith("    "):
+            current_type = None
+
+
 def test_pine_v3_keeps_boc_distinct_and_classifies_its_timing() -> None:
     pine = source()
 
@@ -45,14 +62,14 @@ def test_pine_v3_captures_immutable_boc_reference_and_independent_candidates() -
         "bool paperDecisionEmitted",
     ):
         assert field in pine
-    assert "bool longBreak = zone.demand and high > attempt.referenceHighPrice" in pine
-    assert "bool shortBreak = not zone.demand and low < attempt.referenceLowPrice" in pine
+    assert "bool longBreak = attempt.demand and close > attempt.referenceHighPrice" in pine
+    assert "bool shortBreak = not attempt.demand and close < attempt.referenceLowPrice" in pine
     assert "attempt.bocEmitted := true" in pine
     assert "attempt.flipEmitted := true" in pine
     assert "attempt.paperDecisionEmitted := true" in pine
     assert "entryObservedEpoch(attempt, model)" in pine
     assert "entryEvaluationEpoch(attempt)" in pine
-    assert "bool candidateObservationOpen = zone.state != STATE_INVALIDATED and zone.setupState == SETUP_ARMED" in pine
+    assert "bool candidateObservationOpen = not attempt.invalidatedBeforeEntry and zone.state != STATE_INVALIDATED and zone.setupState == SETUP_ARMED" in pine
 
 
 def test_pine_v3_guards_realtime_evidence_and_reviewed_hashes() -> None:
@@ -64,9 +81,9 @@ def test_pine_v3_guards_realtime_evidence_and_reviewed_hashes() -> None:
     assert 'input.string("", "Reviewed detector SHA-256"' in pine
     assert 'input.string("", "Reviewed settings SHA-256"' in pine
     assert "reviewedHashesValid" in pine
-    assert 'string commonFidelity = commonRulesPass and reviewedHashesValid ? "EXACT" : "UNRESOLVED"' in pine
-    assert "if not reviewedProducerHashesValid()" in pine
-    assert "ENTRY_V3_REVIEWED_HASHES_REQUIRED" in pine
+    assert 'string detectorHash = reviewedPromotion ? detectorCodeHash : "UNREVIEWED"' in pine
+    assert 'string settingsHashValue = reviewedPromotion ? settingsHash : "UNREVIEWED"' in pine
+    assert "if not reviewedProducerHashesValid()" not in pine
     for field in (
         "string bocProofPlane",
         "string bocReplayability",
@@ -99,6 +116,27 @@ def test_pine_v3_serializes_complete_sorted_common_rules() -> None:
 
     positions = [pine.index(f'\\"rule_id\\":\\"{rule_id}\\"') for rule_id in required_rule_ids]
     assert positions == sorted(positions)
+    assert '"passed\\":true' not in pine
+    assert "commonRuleResultsPayload(EntryAttempt attempt)" in pine
+    for field in (
+        "ruleLiqActualExtremeSwept",
+        "ruleLiqDistanceInfluencesZone",
+        "ruleLiqEventOrder",
+        "ruleLiqInternalRebreak",
+        "ruleLiqNormalTwoOppositeCandles",
+        "ruleLiqOneCandleException",
+        "ruleLiqOwnExtremeSameLeg",
+        "ruleLiqReplacementAfterStaleMove",
+        "ruleLiqStrictOwnExtremeBreak",
+        "ruleTimeframeFiveMinuteOnly",
+        "ruleZoneAccuracyBounds",
+        "ruleZoneFreshUntapped",
+        "ruleZoneOriginOppositeCandle",
+        "ruleZonePreEntryCloseOutside",
+    ):
+        assert f"bool {field}" in pine
+        assert f"str.tostring(attempt.{field})" in pine
+    assert "attempt.commonRulesPass := attempt.ruleLiqActualExtremeSwept and" in pine
 
 
 def test_pine_v3_tracks_15_30_60_flip_lifecycles_separately() -> None:
@@ -125,8 +163,41 @@ def test_pine_v3_tracks_15_30_60_flip_lifecycles_separately() -> None:
     assert "updateFlipContext(attempt, zone, 15)" in pine
     assert "updateFlipContext(attempt, zone, 30)" in pine
     assert "updateFlipContext(attempt, zone, 60)" in pine
-    assert "math.max(epochSeconds(timenow), barEpoch + 1)" in pine
-    assert "bool contactAlreadyRecrossed = contactSeen and contactOpenEpoch == barEpoch and destinationSeen" in pine
+    assert "math.max(epochSeconds(timenow), barEpoch + 1)" not in pine
+    assert "finalizeFlipCandidate(attempt)" in pine
+    assert "attempt.flipContextMask" in pine
+    assert "attempt.htf15TriggeredThisTick := false" in pine
+    assert "attempt.htf30TriggeredThisTick := false" in pine
+    assert "attempt.htf60TriggeredThisTick := false" in pine
+    assert pine.rindex("updateFlipContext(attempt, zone, 60)") < pine.rindex(
+        "flipTriggered := finalizeFlipCandidate(attempt)"
+    )
+    assert "bool compatible15 =" in pine
+    assert "bool compatible30 =" in pine
+    assert "bool compatible60 =" in pine
+
+
+def test_pine_v3_exact_intrabar_evidence_requires_continuous_first_cross_coverage() -> None:
+    pine = source()
+
+    for field in (
+        "bool bocCoverageReady",
+        "bool bocPreviousNonBrokenSide",
+        "int bocLastTickSequence",
+        "bool bocCoverageGapDetected",
+        "bool htf15CoverageReady",
+        "bool htf30CoverageReady",
+        "bool htf60CoverageReady",
+        "int htf15LastTickSequence",
+        "int htf30LastTickSequence",
+        "int htf60LastTickSequence",
+    ):
+        assert field in pine
+    assert "bool continuousCoverage = attempt.bocCoverageReady and attempt.bocLastTickSequence + 1 == tickSequence" in pine
+    assert "bool exactFirstCross = barstate.isrealtime and continuousCoverage and attempt.bocPreviousNonBrokenSide and brokenNow" in pine
+    assert "attempt.bocEventEpoch := epochSeconds(timenow)" in pine
+    assert 'attempt.bocFidelity := exactFirstCross and epochAdvanced ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"' in pine
+    assert "SHADOW_MISSING_INTRABAR_COVERAGE" in pine
 
 
 def test_pine_v3_emits_authoritative_bounded_event_bundles() -> None:
@@ -176,6 +247,34 @@ def test_pine_v3_emits_generic_exits_and_fails_closed_on_historical_ambiguity() 
     assert "not barstate.isrealtime and stopHit and targetHit" in pine
     assert "barstate.isrealtime ? close <= stopPrice" in pine
     assert "barstate.isrealtime ? close >= targetPrice" in pine
+    assert 'string reason = historicalAmbiguous ? "AMBIGUOUS_SAME_BAR_EXIT"' in pine
+    assert "attempt.exitTerminal := true" in pine
+    assert "monitorAttemptExit(attempt, zone)" in pine
+    assert "else\n                monitorAttemptExit" not in pine
+    assert pine.rindex('emitEntryPayload(attempt, zone, intrabarCandidate, "[]", false)') < pine.rindex(
+        "monitorAttemptExit(attempt, zone)"
+    )
+
+
+def test_pine_v3_freezes_setup_facts_and_protects_open_attempts_from_eviction() -> None:
+    pine = source()
+
+    assert "bool invalidatedBeforeEntry" in pine
+    assert "bool demand" in pine
+    assert "int zoneTopTicks" in pine
+    assert "int zoneBottomTicks" in pine
+    assert "attempt.invalidatedBeforeEntry := zone.state == STATE_INVALIDATED" in pine
+    assert '"\\"invalidated_before_entry\\":" + str.tostring(attempt.invalidatedBeforeEntry)' in pine
+    assert "zoneHasUnresolvedAttempt(oldest.id)" in pine
+    assert "array.shift(entryAttempts)" not in pine
+
+
+def test_pine_v3_has_only_schema_v3_alert_surface() -> None:
+    pine = source()
+
+    assert pine.count("alert(") == 2
+    assert pine.count("alert(payload, alert.freq_all)") == 1
+    assert pine.count("alert(payload, alert.freq_once_per_bar_close)") == 1
 
 
 def test_pine_v3_contains_no_broker_or_live_execution_surface() -> None:
