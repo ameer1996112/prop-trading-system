@@ -28,23 +28,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "006b4602cc01c42edf204728ae558be1ce20daa85470f8bb05dfc8a8780de69e",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "5446672dccb5aa686a5b9d242f3eb1d4aa901f04c801267cf15f563df5c15b95",
+            "destination_seen_before_contact": null,
+            "evidence_id": "bbcde1e389cae66854c094fa60e118c069ff0fc3154940d40edbf58f54abdd86",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_BOC_HTF_TIMED"
             ],
-            "payload_sha256": "ec4b4cec0820097a2effc8af8552f5fb1ff18475905a10c329adb5e5c20cc8a0",
+            "payload_sha256": "cf874752d822ac4415818cca2ceb5642f1d8fe18819b1894209eeacdf3b23487",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -65,7 +71,7 @@
             "006b4602cc01c42edf204728ae558be1ce20daa85470f8bb05dfc8a8780de69e"
           ],
           "canonical_candidate_id": "006b4602cc01c42edf204728ae558be1ce20daa85470f8bb05dfc8a8780de69e",
-          "canonical_evidence_id": "5446672dccb5aa686a5b9d242f3eb1d4aa901f04c801267cf15f563df5c15b95",
+          "canonical_evidence_id": "bbcde1e389cae66854c094fa60e118c069ff0fc3154940d40edbf58f54abdd86",
           "canonical_model": "BOC",
           "co_triggered_models": [],
           "evaluated_at_epoch": 2400,
@@ -73,7 +79,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "ONLY_EXACT_TRIGGER",
           "revision": 0,
-          "selection_id": "0197ee372fc55086002163c0c3afa19204e5039e122fddff33348e2ec7555cb3",
+          "selection_id": "362370264d55de993cf3177318eeefe02d442c06be74f4512281846d91ad82b6",
           "setup_id": "setup-strict-long"
         }
       },
@@ -116,7 +122,9 @@
         "revision": 0,
         "setup_id": "setup-strict-long",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -146,23 +154,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "9c8d2c1ba50f5f95f34da0621651892415d0df0bdca296148af61b66e89e3651",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "515b258c440374c6d122903bb8cd0ded0f6a9430ef698d7f3c938145a27460b7",
+            "destination_seen_before_contact": null,
+            "evidence_id": "5a41a7cb4caf4c1aade0baf14a7562c2b210b8fc92f99921eaec259d1dfbd75f",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 99,
             "passed_rule_ids": [
               "ENTRY_BOC_HTF_TIMED"
             ],
-            "payload_sha256": "ac584c8f4031dda1afcea871a9b40c9b1f461737c74cd1bbce6ceecd64c6eb99",
+            "payload_sha256": "6853f58f1524151673a2726dd0c6d2ff6d094537f2e207656f06964363b2d5c9",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -183,7 +197,7 @@
             "9c8d2c1ba50f5f95f34da0621651892415d0df0bdca296148af61b66e89e3651"
           ],
           "canonical_candidate_id": "9c8d2c1ba50f5f95f34da0621651892415d0df0bdca296148af61b66e89e3651",
-          "canonical_evidence_id": "515b258c440374c6d122903bb8cd0ded0f6a9430ef698d7f3c938145a27460b7",
+          "canonical_evidence_id": "5a41a7cb4caf4c1aade0baf14a7562c2b210b8fc92f99921eaec259d1dfbd75f",
           "canonical_model": "BOC",
           "co_triggered_models": [],
           "evaluated_at_epoch": 2400,
@@ -191,7 +205,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "ONLY_EXACT_TRIGGER",
           "revision": 0,
-          "selection_id": "4418beafa2dc40bcbb24771016a296b28c08a204208e30bec5caa5260be883a9",
+          "selection_id": "e6014c8477ccf293353d6582d25ef57c5c97938e5e10b26ba8f52a23ffd19d79",
           "setup_id": "setup-strict-short"
         }
       },
@@ -234,7 +248,9 @@
         "revision": 0,
         "setup_id": "setup-strict-short",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -262,20 +278,26 @@
             "ambiguity_codes": [],
             "boc_tier": "DISCRETIONARY_5M",
             "candidate_id": "70a0d3c58268828eb6e5c410fe07dfc67018d50041629a43e233b96794ec02d9",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "8d55e92d229c237178c35da18668d83a293474a740ab4d22818452bdbf60b03c",
+            "destination_seen_before_contact": null,
+            "evidence_id": "eedc262573aaeeb4458225744663227ba7cfb4f24c5dbeee5f3d2b1f74dc0c9d",
             "failed_rule_ids": [
               "BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED"
             ],
             "fidelity": "DISCRETIONARY",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 2101,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [],
-            "payload_sha256": "7902b6f71fe9bff06da69954df75c0514781c019e8f606b1ea80fb5305eef75c",
+            "payload_sha256": "4af5fc0615a03b81925732f8433d1917df88b573b269c0afe3a795ea2007630c",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -342,7 +364,9 @@
         "revision": 0,
         "setup_id": "setup-discretionary",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -391,23 +415,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "7a2fddf1aa8463ae3597ec949c1d44519705712ffc89a94d624ce70c5c1cee97",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "850bfd0a6c27a7bc95811e70f9220c89d4b24b7233426d0b61c139c154af39b9",
+            "destination_seen_before_contact": null,
+            "evidence_id": "656f87a274425de5ca3539fd5729fb5c735cb03f5d994ac03f7e514da97900ca",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_BOC_HTF_TIMED"
             ],
-            "payload_sha256": "90980f0a16d294f467d77f8656a1aa0e55eb42183c78cf725d3e6e088d8c6713",
+            "payload_sha256": "df75e486e0a36808db998e515baee8ea116fb513fa4410a7bf76cb982f493e2d",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -425,20 +455,26 @@
             "ambiguity_codes": [],
             "boc_tier": null,
             "candidate_id": "cb2ba2c851fc8d786a07d3560dd9eaf7937fa88a08985e2eec206d1bcf0e17ac",
+            "contact_candle": null,
             "coverage_end_epoch": 2100,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 1800,
-            "evidence_id": "cc5ab20e121dbb747fc1ecacef56f8b2fee72fe05b5aab550070c19ef001ebaa",
+            "destination_seen_before_contact": null,
+            "evidence_id": "fb2d4662816245bd7ff0961f8352d3e4894e33483785397a09f0d92d0cfd27c3",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 2100,
             "observed_trigger_ticks": 109,
             "passed_rule_ids": [
               "ENTRY_DIR_CLOSE"
             ],
-            "payload_sha256": "9c0e335af17e62b5ab11e2ce55fd693815400d447636e1e6d85bd2a051999bfb",
+            "payload_sha256": "76c9ba3564b6ba01554faf03217446f2fb95829aa69bf2eb4231ec9a2a5cb0d9",
             "proof_plane": "CONFIRMED_5M",
+            "recross_candle": null,
             "reference_candle_close_ticks": null,
             "reference_candle_high_ticks": null,
             "reference_candle_low_ticks": null,
@@ -462,7 +498,7 @@
             "cb2ba2c851fc8d786a07d3560dd9eaf7937fa88a08985e2eec206d1bcf0e17ac"
           ],
           "canonical_candidate_id": "7a2fddf1aa8463ae3597ec949c1d44519705712ffc89a94d624ce70c5c1cee97",
-          "canonical_evidence_id": "850bfd0a6c27a7bc95811e70f9220c89d4b24b7233426d0b61c139c154af39b9",
+          "canonical_evidence_id": "656f87a274425de5ca3539fd5729fb5c735cb03f5d994ac03f7e514da97900ca",
           "canonical_model": "BOC",
           "co_triggered_models": [],
           "evaluated_at_epoch": 2400,
@@ -470,7 +506,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "EARLIEST_EXACT_TRIGGER",
           "revision": 0,
-          "selection_id": "ce5eaf6e23f051a4afc6aa79b181ce4aebf0fbf64c49f9a63aea6a111650bcdc",
+          "selection_id": "bebb7095f86c7f26f6d07701cfe08e1323e9ac65f788ff0840c2447ef47905f6",
           "setup_id": "setup-boc-before-close"
         }
       },
@@ -520,7 +556,9 @@
         "revision": 0,
         "setup_id": "setup-boc-before-close",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -569,23 +607,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "0e63ae62e919b1d3292271b38a5a221d9f765929223771ea595aa116c7557cb8",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "4a4c8b928fb0c02cbfcab3a7069cef1055f17c7f1caf8735a2be1e64fecc0465",
+            "destination_seen_before_contact": null,
+            "evidence_id": "13dfa5eca47f2eda9f04f034de1a753f27652b8011cd65163e7199759bd047d3",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 112,
             "passed_rule_ids": [
               "ENTRY_BOC_HTF_TIMED"
             ],
-            "payload_sha256": "6935b9cd208ba0609141de8a318deb52d9fe6f382d13fc620f83840a909e1ba9",
+            "payload_sha256": "a22d191ab80889de8fe4dac406a631d9b53ddd0b0d5657b3b1ac37101227713a",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -603,23 +647,43 @@
             "ambiguity_codes": [],
             "boc_tier": null,
             "candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
+            "contact_candle": {
+              "close_epoch": 1800,
+              "close_ticks": 105,
+              "high_ticks": 110,
+              "low_ticks": 100,
+              "open_epoch": 1500,
+              "open_ticks": 105
+            },
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
-            "evidence_id": "ada3d61aa51e29e3db1954f58208801baf62f050449a6e056a92876ca8279fe3",
+            "destination_seen_before_contact": false,
+            "evidence_id": "9c890b494574008319636f63bfe3fb6a551f1a018cae19b28dee9757d8f85c13",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": true,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": 111,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_HTF_FLIP"
             ],
-            "payload_sha256": "c503113576b823974814d9e39e72d001c22968a9e4e3e98cfa14e43e6dc1f1b8",
+            "payload_sha256": "30847e313e74a6ef9385a6df82602b6c23b701c6adb78227a26250306e9d52a7",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": {
+              "close_epoch": 1801,
+              "close_ticks": 111,
+              "high_ticks": 112,
+              "low_ticks": 109,
+              "open_epoch": 1800,
+              "open_ticks": 110
+            },
             "reference_candle_close_ticks": null,
             "reference_candle_high_ticks": null,
             "reference_candle_low_ticks": null,
@@ -643,7 +707,7 @@
             "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26"
           ],
           "canonical_candidate_id": "75b99440ca8915dfd27019af210b061cd8cb69a151aa55e86e3d88f43574ae26",
-          "canonical_evidence_id": "ada3d61aa51e29e3db1954f58208801baf62f050449a6e056a92876ca8279fe3",
+          "canonical_evidence_id": "9c890b494574008319636f63bfe3fb6a551f1a018cae19b28dee9757d8f85c13",
           "canonical_model": "HTF_FLIP",
           "co_triggered_models": [],
           "evaluated_at_epoch": 2400,
@@ -651,7 +715,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "EARLIEST_EXACT_TRIGGER",
           "revision": 0,
-          "selection_id": "43dc5082994473fe58d06fcfe518dfb2ff67355a5160c0078cbb76d19f533447",
+          "selection_id": "093d1b34d5308e437810bbcc95d222b25326efc180e3f997e6d3387cc4ae7a5c",
           "setup_id": "setup-flip-before-boc"
         }
       },
@@ -688,16 +752,37 @@
         "directional_close": false,
         "evaluated_at_epoch": 2400,
         "htf_flip_proof": {
+          "ambiguity_codes": [],
+          "contact_candle": {
+            "close_epoch": 1800,
+            "close_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 1500,
+            "open_ticks": 105
+          },
           "coverage_end_epoch": 2400,
+          "coverage_gap_detected": false,
           "coverage_start_epoch": 900,
+          "destination_seen_before_contact": false,
           "event_anchor_epoch": 1800,
           "fidelity": "EXACT",
+          "full_lifecycle_ordered": true,
           "htf_context_minutes": [
             15,
             30
           ],
+          "htf_open_ticks": 111,
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
+          "recross_candle": {
+            "close_epoch": 1801,
+            "close_ticks": 111,
+            "high_ticks": 112,
+            "low_ticks": 109,
+            "open_epoch": 1800,
+            "open_ticks": 110
+          },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "trigger_epoch": 1801,
           "trigger_sequence": 5,
@@ -709,7 +794,9 @@
         "revision": 0,
         "setup_id": "setup-flip-before-boc",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -756,25 +843,85 @@
         "evidence": [
           {
             "ambiguity_codes": [],
-            "boc_tier": null,
-            "candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "7ed545861bc89d6fef16abed6447626f8adde71ef10681e0e15897274f66dd6b",
+            "destination_seen_before_contact": null,
+            "evidence_id": "9b4f3f5d93a0772bef52c30fbe700e9753d2e346745af3fb98301d406e742c18",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [
+              "ENTRY_BOC_HTF_TIMED"
+            ],
+            "payload_sha256": "c5c4972bc1933c4103c46270e9800d37c51a569b7c48e9c009ceb039be0a64e4",
+            "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
+            "contact_candle": {
+              "close_epoch": 1800,
+              "close_ticks": 105,
+              "high_ticks": 110,
+              "low_ticks": 100,
+              "open_epoch": 1500,
+              "open_ticks": 105
+            },
+            "coverage_end_epoch": 2400,
+            "coverage_gap_detected": false,
+            "coverage_start_epoch": 900,
+            "destination_seen_before_contact": false,
+            "evidence_id": "d8d99413f65902a5cc9295e2798d1105478cd5a23a9409e77737dfabcd0426c7",
+            "failed_rule_ids": [],
+            "fidelity": "EXACT",
+            "full_lifecycle_ordered": true,
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "htf_open_ticks": 111,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_HTF_FLIP"
             ],
-            "payload_sha256": "41b75e313c338086ca97f3898878598cac27c092f1c6f5a2a219936afaf0df88",
+            "payload_sha256": "b4dd6bfd9e684aea82e80c7264b846629067d499397d002c6aed1edf856ec988",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": {
+              "close_epoch": 1801,
+              "close_ticks": 111,
+              "high_ticks": 112,
+              "low_ticks": 109,
+              "open_epoch": 1800,
+              "open_ticks": 110
+            },
             "reference_candle_close_ticks": null,
             "reference_candle_high_ticks": null,
             "reference_candle_low_ticks": null,
@@ -789,40 +936,6 @@
               "model-continuation-2026-07"
             ],
             "trigger_sequence": 5
-          },
-          {
-            "ambiguity_codes": [],
-            "boc_tier": "HTF_TIMED",
-            "candidate_id": "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a",
-            "coverage_end_epoch": 2400,
-            "coverage_start_epoch": 900,
-            "evidence_id": "a84a8d2e018e5ee5c5741c69fed06282d8390e6a3c218c04a2d6c2e5d9546859",
-            "failed_rule_ids": [],
-            "fidelity": "EXACT",
-            "htf_context_minutes": [
-              15,
-              30
-            ],
-            "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1801,
-            "observed_trigger_ticks": 111,
-            "passed_rule_ids": [
-              "ENTRY_BOC_HTF_TIMED"
-            ],
-            "payload_sha256": "805b6763b16bb5fe61074f4ee418dfc6c33fdae6714eba8100b4911c090dd7de",
-            "proof_plane": "REALTIME_TICK",
-            "reference_candle_close_ticks": 102,
-            "reference_candle_high_ticks": 110,
-            "reference_candle_low_ticks": 100,
-            "reference_candle_open_epoch": 900,
-            "reference_candle_open_ticks": 105,
-            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
-            "source_claim_ids": [
-              "discretionary-break-2025-11",
-              "reject-non-htf-break-2026-05",
-              "htf-timed-boc-2026-06"
-            ],
-            "trigger_sequence": 5
           }
         ],
         "selection": {
@@ -832,7 +945,7 @@
             "278f6e869d9b2e1bdfa42b6bc6ae79b24a01a5c63904b380803d165d6ff9b58a"
           ],
           "canonical_candidate_id": "16b01f9aa5d44ead9e9ee1afe387035f3c87fd3c6d6e680164e91430d1d007ae",
-          "canonical_evidence_id": "7ed545861bc89d6fef16abed6447626f8adde71ef10681e0e15897274f66dd6b",
+          "canonical_evidence_id": "d8d99413f65902a5cc9295e2798d1105478cd5a23a9409e77737dfabcd0426c7",
           "canonical_model": "HTF_FLIP",
           "co_triggered_models": [
             "BOC",
@@ -843,7 +956,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "CO_TRIGGER_SAME_EVENT",
           "revision": 0,
-          "selection_id": "e70338aefe7299e919d844b57c7a07c86e40dac9a6123741bbfeeedb3186cf09",
+          "selection_id": "c9e0023ab988162caac606e8d9e60c0d7a6d59920352e644e259b3fdf9be9f41",
           "setup_id": "setup-boc-flip-same"
         }
       },
@@ -880,16 +993,37 @@
         "directional_close": false,
         "evaluated_at_epoch": 2400,
         "htf_flip_proof": {
+          "ambiguity_codes": [],
+          "contact_candle": {
+            "close_epoch": 1800,
+            "close_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "open_epoch": 1500,
+            "open_ticks": 105
+          },
           "coverage_end_epoch": 2400,
+          "coverage_gap_detected": false,
           "coverage_start_epoch": 900,
+          "destination_seen_before_contact": false,
           "event_anchor_epoch": 1800,
           "fidelity": "EXACT",
+          "full_lifecycle_ordered": true,
           "htf_context_minutes": [
             15,
             30
           ],
+          "htf_open_ticks": 111,
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
+          "recross_candle": {
+            "close_epoch": 1801,
+            "close_ticks": 111,
+            "high_ticks": 112,
+            "low_ticks": 109,
+            "open_epoch": 1800,
+            "open_ticks": 110
+          },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "trigger_epoch": 1801,
           "trigger_sequence": 5,
@@ -901,7 +1035,9 @@
         "revision": 0,
         "setup_id": "setup-boc-flip-same",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -950,23 +1086,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "a3f20db91ad489a457bc71b4f58fec293f5a53c903336c1a7665bac005707db6",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "2375bfa2e9747584de914f3b606d1626ba216ade21cd7c2d9c040eae80f4f36f",
+            "destination_seen_before_contact": null,
+            "evidence_id": "3dc61939f77783ff9fc384bf34b7a306af36212afcf545a5925909d07170237a",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [
               "ENTRY_BOC_HTF_TIMED"
             ],
-            "payload_sha256": "d24f1474a5129e9a610c3f5809210f43d58febf3507870611eed974b9c439dca",
+            "payload_sha256": "9c9038b4a52a8356bab0b790c16292528c022e796d55727c6175962fee3a584a",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -984,23 +1126,43 @@
             "ambiguity_codes": [],
             "boc_tier": null,
             "candidate_id": "ccbb66fc6948864e19b8d2ada69c2184e127d0755346d469b76b10babd5851ca",
+            "contact_candle": {
+              "close_epoch": 1800,
+              "close_ticks": 105,
+              "high_ticks": 111,
+              "low_ticks": 100,
+              "open_epoch": 1500,
+              "open_ticks": 105
+            },
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": false,
             "coverage_start_epoch": 900,
-            "evidence_id": "7c146ea70ddebb351477597b44fd21fb3040803965778bb6971a8629b5b1a7b0",
+            "destination_seen_before_contact": false,
+            "evidence_id": "910e8319b93987af11fdd222fdfad6f7972cc9fe6060038c7cec63854961a0b3",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": true,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": 112,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 112,
             "passed_rule_ids": [
               "ENTRY_HTF_FLIP"
             ],
-            "payload_sha256": "7943d482c77582d0426c2e52cdcd277c0482f68ff50e0b6dc29129c989f81e89",
+            "payload_sha256": "8b56307840a847df841d664552771678838ebfe3205f0a20d1e33392cd7e4bb2",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": {
+              "close_epoch": 1801,
+              "close_ticks": 112,
+              "high_ticks": 113,
+              "low_ticks": 110,
+              "open_epoch": 1800,
+              "open_ticks": 111
+            },
             "reference_candle_close_ticks": null,
             "reference_candle_high_ticks": null,
             "reference_candle_low_ticks": null,
@@ -1069,16 +1231,37 @@
         "directional_close": false,
         "evaluated_at_epoch": 2400,
         "htf_flip_proof": {
+          "ambiguity_codes": [],
+          "contact_candle": {
+            "close_epoch": 1800,
+            "close_ticks": 105,
+            "high_ticks": 111,
+            "low_ticks": 100,
+            "open_epoch": 1500,
+            "open_ticks": 105
+          },
           "coverage_end_epoch": 2400,
+          "coverage_gap_detected": false,
           "coverage_start_epoch": 900,
+          "destination_seen_before_contact": false,
           "event_anchor_epoch": 1800,
           "fidelity": "EXACT",
+          "full_lifecycle_ordered": true,
           "htf_context_minutes": [
             15,
             30
           ],
+          "htf_open_ticks": 112,
           "is_realtime": true,
           "proof_plane": "REALTIME_TICK",
+          "recross_candle": {
+            "close_epoch": 1801,
+            "close_ticks": 112,
+            "high_ticks": 113,
+            "low_ticks": 110,
+            "open_epoch": 1800,
+            "open_ticks": 111
+          },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "trigger_epoch": 1801,
           "trigger_sequence": 5,
@@ -1090,7 +1273,9 @@
         "revision": 0,
         "setup_id": "setup-price-conflict",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -1156,25 +1341,85 @@
         "evidence": [
           {
             "ambiguity_codes": [],
-            "boc_tier": null,
-            "candidate_id": "d9480218591f75eee94815f81b112ba48fe047175f5f6dd4e699ddf112f85d71",
+            "boc_tier": "HTF_TIMED",
+            "candidate_id": "46a0505a6cf2e496dc132fc449a86e4dd48feb3ccaab3c84ee6122972610e9de",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "4499664a1be2dd5f6e90326ecb36dc6a9841bf66a0e8f6c2a3689e0a51c81aa5",
+            "destination_seen_before_contact": null,
+            "evidence_id": "0c0e7563d388690d94c726805b406cefd637ed78f121ab97d3b7bb63e3484057",
             "failed_rule_ids": [
               "REALTIME_EVIDENCE_NOT_LIVE"
             ],
-            "fidelity": "EXACT",
+            "fidelity": "UNRESOLVED",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
+            "observed_at_epoch": 2400,
+            "observed_trigger_epoch": 1801,
+            "observed_trigger_ticks": 111,
+            "passed_rule_ids": [],
+            "payload_sha256": "3f51ce19ae085dc0225bb012f91dec1622d8fe38436cc190553181c507aa41bd",
+            "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
+            "reference_candle_close_ticks": 102,
+            "reference_candle_high_ticks": 110,
+            "reference_candle_low_ticks": 100,
+            "reference_candle_open_epoch": 900,
+            "reference_candle_open_ticks": 105,
+            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "source_claim_ids": [
+              "discretionary-break-2025-11",
+              "reject-non-htf-break-2026-05",
+              "htf-timed-boc-2026-06"
+            ],
+            "trigger_sequence": 5
+          },
+          {
+            "ambiguity_codes": [],
+            "boc_tier": null,
+            "candidate_id": "d9480218591f75eee94815f81b112ba48fe047175f5f6dd4e699ddf112f85d71",
+            "contact_candle": {
+              "close_epoch": 1801,
+              "close_ticks": 105,
+              "high_ticks": 111,
+              "low_ticks": 100,
+              "open_epoch": 1500,
+              "open_ticks": 105
+            },
+            "coverage_end_epoch": 2400,
+            "coverage_gap_detected": false,
+            "coverage_start_epoch": 900,
+            "destination_seen_before_contact": false,
+            "evidence_id": "1832b26094925dc4abfeb2eb391c657567ba64b89a836509756c86544687d29d",
+            "failed_rule_ids": [
+              "REALTIME_EVIDENCE_NOT_LIVE"
+            ],
+            "fidelity": "UNRESOLVED",
+            "full_lifecycle_ordered": true,
+            "htf_context_minutes": [
+              15,
+              30
+            ],
+            "htf_open_ticks": 112,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1802,
             "observed_trigger_ticks": 112,
             "passed_rule_ids": [],
-            "payload_sha256": "cb47336fac0c6742fbf22d8bc6c1675db0a37a4b3f0f264661a2144cefd5cd37",
+            "payload_sha256": "8a5fded9e1cacde7345cc0191e688e4faabf57e6448c49f0b0d354a6f802feb2",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": {
+              "close_epoch": 1802,
+              "close_ticks": 112,
+              "high_ticks": 113,
+              "low_ticks": 110,
+              "open_epoch": 1801,
+              "open_ticks": 111
+            },
             "reference_candle_close_ticks": null,
             "reference_candle_high_ticks": null,
             "reference_candle_low_ticks": null,
@@ -1192,56 +1437,28 @@
           },
           {
             "ambiguity_codes": [],
-            "boc_tier": "HTF_TIMED",
-            "candidate_id": "46a0505a6cf2e496dc132fc449a86e4dd48feb3ccaab3c84ee6122972610e9de",
-            "coverage_end_epoch": 2400,
-            "coverage_start_epoch": 900,
-            "evidence_id": "bcba519fcd3aed09ef5f51ef855c27997ff0cedb7026cffcb8f5436f688fdc79",
-            "failed_rule_ids": [
-              "REALTIME_EVIDENCE_NOT_LIVE"
-            ],
-            "fidelity": "EXACT",
-            "htf_context_minutes": [
-              15,
-              30
-            ],
-            "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 1801,
-            "observed_trigger_ticks": 111,
-            "passed_rule_ids": [],
-            "payload_sha256": "9bfd1ed919126d82ad705a0988f248e5e10f484625177c35663cb980a7abc77e",
-            "proof_plane": "REALTIME_TICK",
-            "reference_candle_close_ticks": 102,
-            "reference_candle_high_ticks": 110,
-            "reference_candle_low_ticks": 100,
-            "reference_candle_open_epoch": 900,
-            "reference_candle_open_ticks": 105,
-            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
-            "source_claim_ids": [
-              "discretionary-break-2025-11",
-              "reject-non-htf-break-2026-05",
-              "htf-timed-boc-2026-06"
-            ],
-            "trigger_sequence": 5
-          },
-          {
-            "ambiguity_codes": [],
             "boc_tier": null,
             "candidate_id": "1d66f8492b0981c710b0b7cbb945de8233e7c45c3533db8ba55c3513ea289335",
+            "contact_candle": null,
             "coverage_end_epoch": 2100,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 1800,
-            "evidence_id": "e09f2b41876fcc96ae4c6eab24fc8073d402c0df7d11233001b1c993a2c38714",
+            "destination_seen_before_contact": null,
+            "evidence_id": "c414ac2c42c90c9aa7bb6d136be7294ce5a3bb77aa5f2024d37bf582c1d40121",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 2100,
             "observed_trigger_ticks": 109,
             "passed_rule_ids": [
               "ENTRY_DIR_CLOSE"
             ],
-            "payload_sha256": "5f0cd69bb3286223558a4abb6aa78ac12cdab15e4471ea542b94dc75ead2c8b5",
+            "payload_sha256": "76173b117309d4d810191bc91ed2792142342f9e6ddec9ab5e7bfb30c388f657",
             "proof_plane": "CONFIRMED_5M",
+            "recross_candle": null,
             "reference_candle_close_ticks": null,
             "reference_candle_high_ticks": null,
             "reference_candle_low_ticks": null,
@@ -1266,7 +1483,7 @@
             "d9480218591f75eee94815f81b112ba48fe047175f5f6dd4e699ddf112f85d71"
           ],
           "canonical_candidate_id": "1d66f8492b0981c710b0b7cbb945de8233e7c45c3533db8ba55c3513ea289335",
-          "canonical_evidence_id": "e09f2b41876fcc96ae4c6eab24fc8073d402c0df7d11233001b1c993a2c38714",
+          "canonical_evidence_id": "c414ac2c42c90c9aa7bb6d136be7294ce5a3bb77aa5f2024d37bf582c1d40121",
           "canonical_model": "DIR_CLOSE",
           "co_triggered_models": [],
           "evaluated_at_epoch": 2400,
@@ -1274,7 +1491,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "FALLBACK_TO_CONFIRMED_CLOSE",
           "revision": 0,
-          "selection_id": "ef5e30a212c0fb2804c77ae31ff4f268d882fe787ee1cf10242241e8e0a3906f",
+          "selection_id": "d1c9e1c65201962a5a99fc2637c530fab03546af22f71fd80c4a5f2ff2119f84",
           "setup_id": "setup-close-fallback"
         }
       },
@@ -1318,16 +1535,37 @@
         "directional_close": true,
         "evaluated_at_epoch": 2400,
         "htf_flip_proof": {
+          "ambiguity_codes": [],
+          "contact_candle": {
+            "close_epoch": 1801,
+            "close_ticks": 105,
+            "high_ticks": 111,
+            "low_ticks": 100,
+            "open_epoch": 1500,
+            "open_ticks": 105
+          },
           "coverage_end_epoch": 2400,
+          "coverage_gap_detected": false,
           "coverage_start_epoch": 900,
+          "destination_seen_before_contact": false,
           "event_anchor_epoch": 1800,
           "fidelity": "EXACT",
+          "full_lifecycle_ordered": true,
           "htf_context_minutes": [
             15,
             30
           ],
+          "htf_open_ticks": 112,
           "is_realtime": false,
           "proof_plane": "REALTIME_TICK",
+          "recross_candle": {
+            "close_epoch": 1802,
+            "close_ticks": 112,
+            "high_ticks": 113,
+            "low_ticks": 110,
+            "open_epoch": 1801,
+            "open_ticks": 111
+          },
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "trigger_epoch": 1802,
           "trigger_sequence": 6,
@@ -1339,7 +1577,9 @@
         "revision": 0,
         "setup_id": "setup-close-fallback",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -1369,23 +1609,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "227e6204e3d1cff6467f40afbddb61ae742dfc98ec0282fd759af2e58fe8703c",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "c8e4dd8797fe041cd2c2a187eecd7763d6028bf52baafaa73d2aeef9911f15ba",
+            "destination_seen_before_contact": null,
+            "evidence_id": "bb4415c6c27fa86979d53cd629507acabf9c409c98d61e57daa3f4d638e80ef1",
             "failed_rule_ids": [
               "REALTIME_EVIDENCE_NOT_LIVE"
             ],
-            "fidelity": "EXACT",
+            "fidelity": "UNRESOLVED",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [],
-            "payload_sha256": "cd4ee328fe4ff42b60f907bf59cc51db63f0eed8d347af0cd0cbf1dd2c8b6887",
+            "payload_sha256": "39b0ce459b346ac939272c78cb517a40aae2f7b2819a3f92607795facff09927",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -1457,7 +1703,9 @@
         "revision": 0,
         "setup_id": "setup-not-realtime",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -1487,23 +1735,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "8d7d8a62b679c9fea45a0eebc044c525073976bfc0002e52c92bd02eadaa669f",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "78d0a928dc8a8621541313ad980c2fd9dd2aaae9d7b3138e8c4dc5b65900df4b",
+            "destination_seen_before_contact": null,
+            "evidence_id": "70cb3d6985c2262dccd0c109fecfc78f9da44adf92320fc5c5eb88f281cf86d2",
             "failed_rule_ids": [
               "BOC_WRONG_DIRECTION"
             ],
-            "fidelity": "EXACT",
+            "fidelity": "UNRESOLVED",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 99,
             "passed_rule_ids": [],
-            "payload_sha256": "1b7148332e149e0f29f3ed46d63c60ff337f8cb2c23f434e61e8ff16e271abe2",
+            "payload_sha256": "4809dca5f61ee267bdf13615556edc189bc96319be2d36c29d0849c007378c1d",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -1575,7 +1829,9 @@
         "revision": 0,
         "setup_id": "setup-wrong-direction",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -1605,23 +1861,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "b30c24a64cab1a11b826646ce1fad84d1cc572334cbdefff62750fc758684421",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "82eef65ae25822a49488b4935d3d4f8a0e3c45442d21e43cfe712c99571c2dbb",
+            "destination_seen_before_contact": null,
+            "evidence_id": "e455dcdad536e3018318fa6f4b55eb401a2153256a35d8490d4372fb790fbdc5",
             "failed_rule_ids": [
               "ENTRY_BEFORE_ZONE_ENGAGEMENT"
             ],
-            "fidelity": "EXACT",
+            "fidelity": "UNRESOLVED",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [],
-            "payload_sha256": "b57a15416bd078d5e5855f79588d417c2d2fc99371af64f6d9fc6d047ef598e4",
+            "payload_sha256": "6721db1eaf5f1a1c0835d2b6b7c7d9417b6b78fc9b30ceb79175caa31a3e671a",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -1693,7 +1955,9 @@
         "revision": 0,
         "setup_id": "setup-pre-engagement",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 1900
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 1900,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -1701,18 +1965,20 @@
       "expected": {
         "candidates": [
           {
-            "boc_tier": "HTF_TIMED",
-            "candidate_id": "0b5e6ddb5a2e37e5ed920b763f1eacc919ccce469ecab46337992f86fe075f5d",
+            "boc_tier": null,
+            "candidate_id": "5bef8cb74907f23248db2d39eedc09b339b2a5239b7379e1c50c75338dc2b4dd",
             "direction": "LONG",
-            "event_anchor_epoch": 600,
-            "model": "BOC",
-            "observed_at_epoch": 2400,
-            "reference_candle_open_epoch": 600,
+            "event_anchor_epoch": 1200,
+            "model": "DIR_CLOSE",
+            "observed_at_epoch": 1600,
+            "reference_candle_open_epoch": null,
             "setup_id": "setup-opened-frozen",
             "source_claim_ids": [
-              "discretionary-break-2025-11",
-              "reject-non-htf-break-2026-05",
-              "htf-timed-boc-2026-06"
+              "standard-close-2024-03",
+              "closure-or-flip-2025-03",
+              "directional-close-2025-08",
+              "directional-close-required-2026-06",
+              "model-continuation-2026-07"
             ],
             "state": "MATCHED",
             "trigger_ordinal": 1
@@ -1721,36 +1987,42 @@
         "evidence": [
           {
             "ambiguity_codes": [],
-            "boc_tier": "HTF_TIMED",
-            "candidate_id": "0b5e6ddb5a2e37e5ed920b763f1eacc919ccce469ecab46337992f86fe075f5d",
-            "coverage_end_epoch": 1800,
-            "coverage_start_epoch": 600,
-            "evidence_id": "c74cc084606dffea82496f3fb7f7eb775487fb7d123638070dcdad982ff494c2",
+            "boc_tier": null,
+            "candidate_id": "5bef8cb74907f23248db2d39eedc09b339b2a5239b7379e1c50c75338dc2b4dd",
+            "contact_candle": null,
+            "coverage_end_epoch": 1500,
+            "coverage_gap_detected": null,
+            "coverage_start_epoch": 1200,
+            "destination_seen_before_contact": null,
+            "evidence_id": "106a698b94d5a60b665aa19b6e46813c042a355c39a1a0c453c63df8dd3afb99",
             "failed_rule_ids": [],
             "fidelity": "EXACT",
-            "htf_context_minutes": [
-              15
-            ],
-            "observed_at_epoch": 2400,
-            "observed_trigger_epoch": 901,
-            "observed_trigger_ticks": 111,
+            "full_lifecycle_ordered": null,
+            "htf_context_minutes": [],
+            "htf_open_ticks": null,
+            "observed_at_epoch": 1600,
+            "observed_trigger_epoch": 1500,
+            "observed_trigger_ticks": 109,
             "passed_rule_ids": [
-              "ENTRY_BOC_HTF_TIMED"
+              "ENTRY_DIR_CLOSE"
             ],
-            "payload_sha256": "45f0234e3aa3e484b1e4b208c79f4db2dd6a66d3ff2c2b433a3b0f7ff76a41e3",
-            "proof_plane": "REALTIME_TICK",
-            "reference_candle_close_ticks": 102,
-            "reference_candle_high_ticks": 110,
-            "reference_candle_low_ticks": 100,
-            "reference_candle_open_epoch": 600,
-            "reference_candle_open_ticks": 105,
-            "replayability": "LIVE_EXACT_NON_REPLAYABLE",
+            "payload_sha256": "34f44fd56a80eba54cb37d5c098d86fb123449ce3164e12cff10f5d227400b85",
+            "proof_plane": "CONFIRMED_5M",
+            "recross_candle": null,
+            "reference_candle_close_ticks": null,
+            "reference_candle_high_ticks": null,
+            "reference_candle_low_ticks": null,
+            "reference_candle_open_epoch": null,
+            "reference_candle_open_ticks": null,
+            "replayability": "REPLAYABLE",
             "source_claim_ids": [
-              "discretionary-break-2025-11",
-              "reject-non-htf-break-2026-05",
-              "htf-timed-boc-2026-06"
+              "standard-close-2024-03",
+              "closure-or-flip-2025-03",
+              "directional-close-2025-08",
+              "directional-close-required-2026-06",
+              "model-continuation-2026-07"
             ],
-            "trigger_sequence": 1
+            "trigger_sequence": 0
           }
         ],
         "selection": {
@@ -1759,7 +2031,7 @@
             "5bef8cb74907f23248db2d39eedc09b339b2a5239b7379e1c50c75338dc2b4dd"
           ],
           "canonical_candidate_id": "5bef8cb74907f23248db2d39eedc09b339b2a5239b7379e1c50c75338dc2b4dd",
-          "canonical_evidence_id": "f137b80a49c0e7b7235ddb63768280397842ea04db739fed851d1a5f8163f5c3",
+          "canonical_evidence_id": "106a698b94d5a60b665aa19b6e46813c042a355c39a1a0c453c63df8dd3afb99",
           "canonical_model": "DIR_CLOSE",
           "co_triggered_models": [],
           "evaluated_at_epoch": 1600,
@@ -1767,7 +2039,7 @@
           "policy_version": "rd-entry-arbitration-v3",
           "reason": "ONLY_EXACT_TRIGGER",
           "revision": 1,
-          "selection_id": "26b19e4240dc5585efa2625c2ebf60f5649d726959950279d9ef9deb8c970222",
+          "selection_id": "db0a4a5bfcc9affd817318165ffe6d5a1ccfbaa062ab4f4a362889027266d7b1",
           "setup_id": "setup-opened-frozen"
         }
       },
@@ -1821,7 +2093,9 @@
         "revision": 2,
         "setup_id": "setup-opened-frozen",
         "setup_invalidated": false,
-        "zone_engaged_epoch": 500
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 500,
+        "zone_top_ticks": 103
       }
     },
     {
@@ -1851,23 +2125,29 @@
             "ambiguity_codes": [],
             "boc_tier": "HTF_TIMED",
             "candidate_id": "a6847a389c3a15850a1d97ce9b1da02743a26a3a25d00d6d036d8352d216516a",
+            "contact_candle": null,
             "coverage_end_epoch": 2400,
+            "coverage_gap_detected": null,
             "coverage_start_epoch": 900,
-            "evidence_id": "23ed6fe17d86db3f5938a5a55c7421820ccbadf856e0bf51756a874967537894",
+            "destination_seen_before_contact": null,
+            "evidence_id": "a68efe301dad57471468901314a9979cd506e956e3373c8b9b700966d04101ef",
             "failed_rule_ids": [
               "SETUP_INVALIDATED"
             ],
-            "fidelity": "EXACT",
+            "fidelity": "UNRESOLVED",
+            "full_lifecycle_ordered": null,
             "htf_context_minutes": [
               15,
               30
             ],
+            "htf_open_ticks": null,
             "observed_at_epoch": 2400,
             "observed_trigger_epoch": 1801,
             "observed_trigger_ticks": 111,
             "passed_rule_ids": [],
-            "payload_sha256": "daa7086fc45c1ec981fc8f75d9cf6122bb9032dafd4fc10558fa38af943755fe",
+            "payload_sha256": "8033a5f89ddf5fff75fb993e88e0caf6eca6ec6b967a1cef3d2107c61e0f9e4a",
             "proof_plane": "REALTIME_TICK",
+            "recross_candle": null,
             "reference_candle_close_ticks": 102,
             "reference_candle_high_ticks": 110,
             "reference_candle_low_ticks": 100,
@@ -1939,7 +2219,9 @@
         "revision": 0,
         "setup_id": "setup-invalidated",
         "setup_invalidated": true,
-        "zone_engaged_epoch": 800
+        "zone_bottom_ticks": 97,
+        "zone_engaged_epoch": 800,
+        "zone_top_ticks": 103
       }
     }
   ],

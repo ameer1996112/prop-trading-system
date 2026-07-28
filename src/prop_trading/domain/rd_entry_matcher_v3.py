@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from prop_trading.contracts.rd_strategy_v3 import RDStrategyRuleContractV3
 from prop_trading.domain.rd_entry_models import (
+    AmbiguityCode,
     CandidateFidelity,
     CandidateState,
     EntryDirection,
@@ -44,6 +45,8 @@ def _require_bool(value: object, name: str) -> None:
 class SetupEntryFactsV3:
     setup_id: str
     direction: EntryDirection
+    zone_top_ticks: int
+    zone_bottom_ticks: int
     zone_engaged_epoch: int | None
     invalidated_before_entry: bool
     common_fidelity: CandidateFidelity
@@ -53,6 +56,10 @@ class SetupEntryFactsV3:
             raise ValueError("setup_id must be a non-empty string")
         if not isinstance(self.direction, EntryDirection):
             raise ValueError("direction must be an EntryDirection")
+        _require_int(self.zone_top_ticks, "zone_top_ticks")
+        _require_int(self.zone_bottom_ticks, "zone_bottom_ticks")
+        if self.zone_top_ticks <= self.zone_bottom_ticks:
+            raise ValueError("zone_top_ticks must be above zone_bottom_ticks")
         if self.zone_engaged_epoch is not None:
             _require_int(self.zone_engaged_epoch, "zone_engaged_epoch", non_negative=True)
         _require_bool(self.invalidated_before_entry, "invalidated_before_entry")
@@ -122,6 +129,13 @@ class _EvidenceFields:
     coverage_end_epoch: int
     boc_tier: BocTier | None
     reference_candle: OrderedCandle | None
+    ambiguity_codes: tuple[AmbiguityCode, ...]
+    htf_open_ticks: int | None
+    contact_candle: OrderedCandle | None
+    recross_candle: OrderedCandle | None
+    coverage_gap_detected: bool | None
+    full_lifecycle_ordered: bool | None
+    destination_seen_before_contact: bool | None
     passed_rule_ids: tuple[str, ...]
     failed_rule_ids: tuple[str, ...]
     source_claim_ids: tuple[str, ...]
@@ -172,6 +186,55 @@ def _realtime_failure(
             return ("REALTIME_EVIDENCE_NOT_LIVE",)
     elif replayability is not EvidenceReplayability.REPLAYABLE:
         return ("EVIDENCE_REPLAYABILITY_MISMATCH",)
+    return ()
+
+
+def _contacts_zone(setup: SetupEntryFactsV3, candle: OrderedCandle) -> bool:
+    return candle.low_ticks <= setup.zone_top_ticks and candle.high_ticks >= setup.zone_bottom_ticks
+
+
+def _recrosses_htf_open(
+    direction: EntryDirection,
+    htf_open_ticks: int,
+    candle: OrderedCandle,
+) -> bool:
+    if direction is EntryDirection.LONG:
+        return candle.high_ticks > htf_open_ticks
+    return candle.low_ticks < htf_open_ticks
+
+
+def _flip_lifecycle_failure(
+    setup: SetupEntryFactsV3,
+    proof: EntryTriggerProofV3,
+) -> tuple[str, ...]:
+    if proof.contact_candle is None or proof.recross_candle is None:
+        return ("HTF_FLIP_INCOMPLETE_LIFECYCLE",)
+    if proof.coverage_gap_detected:
+        return ("HTF_FLIP_COVERAGE_GAP",)
+    if not proof.full_lifecycle_ordered:
+        return ("HTF_FLIP_ORDER_UNPROVEN",)
+    if proof.destination_seen_before_contact:
+        return ("HTF_FLIP_DESTINATION_BEFORE_CONTACT",)
+    if proof.ambiguity_codes:
+        return ("HTF_FLIP_AMBIGUOUS",)
+    if not _contacts_zone(setup, proof.contact_candle):
+        return ("HTF_FLIP_CONTACT_OUTSIDE_ZONE",)
+    if _recrosses_htf_open(
+        setup.direction,
+        proof.htf_open_ticks,
+        proof.contact_candle,
+    ):
+        return ("HTF_FLIP_CONTACT_ALREADY_RECROSSED",)
+    if not _recrosses_htf_open(
+        setup.direction,
+        proof.htf_open_ticks,
+        proof.recross_candle,
+    ):
+        return ("HTF_FLIP_OPEN_NOT_RECROSSED",)
+    if not proof.htf_context_minutes or any(
+        proof.event_anchor_epoch % (context * 60) != 0 for context in proof.htf_context_minutes
+    ):
+        return ("HTF_FLIP_CONTEXT_MISALIGNED",)
     return ()
 
 
@@ -231,13 +294,19 @@ def _evidence(
         replayability=fields.replayability,
         coverage_start_epoch=fields.coverage_start_epoch,
         coverage_end_epoch=fields.coverage_end_epoch,
-        ambiguity_codes=(),
+        ambiguity_codes=fields.ambiguity_codes,
         boc_tier=fields.boc_tier,
         reference_candle_open_epoch=reference_open_epoch,
         reference_candle_open_ticks=reference_open_ticks,
         reference_candle_high_ticks=reference_high_ticks,
         reference_candle_low_ticks=reference_low_ticks,
         reference_candle_close_ticks=reference_close_ticks,
+        htf_open_ticks=fields.htf_open_ticks,
+        contact_candle=fields.contact_candle,
+        recross_candle=fields.recross_candle,
+        coverage_gap_detected=fields.coverage_gap_detected,
+        full_lifecycle_ordered=fields.full_lifecycle_ordered,
+        destination_seen_before_contact=fields.destination_seen_before_contact,
         passed_rule_ids=fields.passed_rule_ids,
         failed_rule_ids=fields.failed_rule_ids,
         source_claim_ids=fields.source_claim_ids,
@@ -263,13 +332,19 @@ def _evidence(
         replayability=fields.replayability,
         coverage_start_epoch=fields.coverage_start_epoch,
         coverage_end_epoch=fields.coverage_end_epoch,
-        ambiguity_codes=(),
+        ambiguity_codes=fields.ambiguity_codes,
         boc_tier=fields.boc_tier,
         reference_candle_open_epoch=reference_open_epoch,
         reference_candle_open_ticks=reference_open_ticks,
         reference_candle_high_ticks=reference_high_ticks,
         reference_candle_low_ticks=reference_low_ticks,
         reference_candle_close_ticks=reference_close_ticks,
+        htf_open_ticks=fields.htf_open_ticks,
+        contact_candle=fields.contact_candle,
+        recross_candle=fields.recross_candle,
+        coverage_gap_detected=fields.coverage_gap_detected,
+        full_lifecycle_ordered=fields.full_lifecycle_ordered,
+        destination_seen_before_contact=fields.destination_seen_before_contact,
         passed_rule_ids=fields.passed_rule_ids,
         failed_rule_ids=fields.failed_rule_ids,
         source_claim_ids=fields.source_claim_ids,
@@ -315,6 +390,8 @@ def _match_boc(
         state = CandidateState.MATCHED
         passed_rule_ids = (rule_id,)
         failed_rule_ids = ()
+    if failed_rule_ids and fidelity is CandidateFidelity.EXACT:
+        fidelity = CandidateFidelity.UNRESOLVED
 
     candidate = _candidate(
         request,
@@ -340,6 +417,13 @@ def _match_boc(
             coverage_end_epoch=proof.coverage_end_epoch,
             boc_tier=tier,
             reference_candle=proof.reference_candle,
+            ambiguity_codes=(),
+            htf_open_ticks=None,
+            contact_candle=None,
+            recross_candle=None,
+            coverage_gap_detected=None,
+            full_lifecycle_ordered=None,
+            destination_seen_before_contact=None,
             passed_rule_ids=passed_rule_ids,
             failed_rule_ids=failed_rule_ids,
             source_claim_ids=source_claim_ids,
@@ -356,13 +440,21 @@ def _match_close(
     source_claim_ids = _claims(request, rule_id)
     common_failure = _common_failure(request.setup, bar.close_epoch)
     passed_rule_ids: tuple[str, ...]
-    if common_failure is None:
-        state = CandidateState.MATCHED
-        passed_rule_ids = (rule_id,)
-        failed_rule_ids: tuple[str, ...] = ()
-    else:
+    confirmed_five_minute = bar.close_epoch - bar.open_epoch == 300
+    if common_failure is not None:
         state, failed_rule_ids = common_failure
         passed_rule_ids = ()
+    elif not confirmed_five_minute:
+        state = CandidateState.BLOCKED
+        passed_rule_ids = ()
+        failed_rule_ids = ("DIR_CLOSE_NOT_CONFIRMED_5M",)
+    else:
+        state = CandidateState.MATCHED
+        passed_rule_ids = (rule_id,)
+        failed_rule_ids = ()
+    fidelity = (
+        CandidateFidelity.EXACT if state is CandidateState.MATCHED else CandidateFidelity.UNRESOLVED
+    )
     candidate = _candidate(
         request,
         model=EntryModelV3.DIR_CLOSE,
@@ -380,13 +472,20 @@ def _match_close(
             trigger_sequence=request.close_trigger_sequence,
             observed_trigger_ticks=bar.close_ticks,
             htf_context_minutes=(),
-            fidelity=CandidateFidelity.EXACT,
+            fidelity=fidelity,
             proof_plane=ProofPlane.CONFIRMED_5M,
             replayability=EvidenceReplayability.REPLAYABLE,
             coverage_start_epoch=bar.open_epoch,
             coverage_end_epoch=bar.close_epoch,
             boc_tier=None,
             reference_candle=None,
+            ambiguity_codes=(),
+            htf_open_ticks=None,
+            contact_candle=None,
+            recross_candle=None,
+            coverage_gap_detected=None,
+            full_lifecycle_ordered=None,
+            destination_seen_before_contact=None,
             passed_rule_ids=passed_rule_ids,
             failed_rule_ids=failed_rule_ids,
             source_claim_ids=source_claim_ids,
@@ -402,6 +501,7 @@ def _match_flip(
     rule_id = "ENTRY_HTF_FLIP"
     source_claim_ids = _claims(request, rule_id)
     common_failure = _common_failure(request.setup, proof.trigger_epoch)
+    lifecycle_failure = _flip_lifecycle_failure(request.setup, proof)
     realtime_failure = _realtime_failure(
         proof_plane=proof.proof_plane,
         replayability=proof.replayability,
@@ -410,6 +510,10 @@ def _match_flip(
     if common_failure is not None:
         state, failed_rule_ids = common_failure
         passed_rule_ids: tuple[str, ...] = ()
+    elif lifecycle_failure:
+        state = CandidateState.BLOCKED
+        passed_rule_ids = ()
+        failed_rule_ids = lifecycle_failure
     elif realtime_failure:
         state = CandidateState.BLOCKED
         passed_rule_ids = ()
@@ -422,6 +526,9 @@ def _match_flip(
         state = CandidateState.MATCHED
         passed_rule_ids = (rule_id,)
         failed_rule_ids = ()
+    fidelity = (
+        CandidateFidelity.EXACT if state is CandidateState.MATCHED else CandidateFidelity.UNRESOLVED
+    )
     candidate = _candidate(
         request,
         model=EntryModelV3.HTF_FLIP,
@@ -439,13 +546,20 @@ def _match_flip(
             trigger_sequence=proof.trigger_sequence,
             observed_trigger_ticks=proof.trigger_ticks,
             htf_context_minutes=proof.htf_context_minutes,
-            fidelity=proof.fidelity,
+            fidelity=fidelity,
             proof_plane=proof.proof_plane,
             replayability=proof.replayability,
             coverage_start_epoch=proof.coverage_start_epoch,
             coverage_end_epoch=proof.coverage_end_epoch,
             boc_tier=None,
             reference_candle=None,
+            ambiguity_codes=proof.ambiguity_codes,
+            htf_open_ticks=proof.htf_open_ticks,
+            contact_candle=proof.contact_candle,
+            recross_candle=proof.recross_candle,
+            coverage_gap_detected=proof.coverage_gap_detected,
+            full_lifecycle_ordered=proof.full_lifecycle_ordered,
+            destination_seen_before_contact=proof.destination_seen_before_contact,
             passed_rule_ids=passed_rule_ids,
             failed_rule_ids=failed_rule_ids,
             source_claim_ids=source_claim_ids,

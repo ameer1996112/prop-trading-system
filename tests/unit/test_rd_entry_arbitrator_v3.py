@@ -8,6 +8,7 @@ from prop_trading.domain.rd_entry_models import (
     CandidateFidelity,
     CandidateState,
     EntryDirection,
+    OrderedCandle,
     ProofPlane,
     SelectionAction,
 )
@@ -40,10 +41,23 @@ def candidate_evidence(
     fidelity: CandidateFidelity = CandidateFidelity.EXACT,
     setup_id: str = "setup-1",
     anchor_salt: int = 0,
+    passed_rule_ids: tuple[str, ...] | None = None,
+    coverage_start_epoch: int | None = None,
+    coverage_end_epoch: int | None = None,
 ) -> tuple[EntryCandidateV3, EntryCandidateEvidenceV3]:
     tier = BocTier.HTF_TIMED if model is EntryModelV3.BOC else None
-    reference_open_epoch = 900 + anchor_salt if model is EntryModelV3.BOC else None
+    reference_open_epoch = 600 + anchor_salt if model is EntryModelV3.BOC else None
     event_anchor_epoch = reference_open_epoch or 900 + anchor_salt
+    effective_coverage_start = (
+        coverage_start_epoch
+        if coverage_start_epoch is not None
+        else (trigger_epoch - 300 if model is EntryModelV3.DIR_CLOSE else 900)
+    )
+    effective_coverage_end = (
+        coverage_end_epoch
+        if coverage_end_epoch is not None
+        else (trigger_epoch if model is EntryModelV3.DIR_CLOSE else 2_000)
+    )
     identity = EntryCandidateIdentityV3(
         setup_id=setup_id,
         model=model,
@@ -89,6 +103,46 @@ def candidate_evidence(
             "reference_candle_close_ticks": None,
         }
     )
+    flip_fields: dict[str, object]
+    if model is EntryModelV3.HTF_FLIP:
+        flip_fields = {
+            "htf_open_ticks": ticks,
+            "contact_candle": OrderedCandle(
+                open_epoch=900,
+                close_epoch=trigger_epoch - 1,
+                open_ticks=100,
+                high_ticks=ticks - 1,
+                low_ticks=90,
+                close_ticks=100,
+            ),
+            "recross_candle": OrderedCandle(
+                open_epoch=trigger_epoch - 1,
+                close_epoch=trigger_epoch,
+                open_ticks=ticks - 1,
+                high_ticks=ticks + 1,
+                low_ticks=ticks - 2,
+                close_ticks=ticks,
+            ),
+            "coverage_gap_detected": False,
+            "full_lifecycle_ordered": True,
+            "destination_seen_before_contact": False,
+        }
+    else:
+        flip_fields = {
+            "htf_open_ticks": None,
+            "contact_candle": None,
+            "recross_candle": None,
+            "coverage_gap_detected": None,
+            "full_lifecycle_ordered": None,
+            "destination_seen_before_contact": None,
+        }
+    authoritative_passed_rule_ids = passed_rule_ids or (
+        {
+            EntryModelV3.BOC: "ENTRY_BOC_HTF_TIMED",
+            EntryModelV3.DIR_CLOSE: "ENTRY_DIR_CLOSE",
+            EntryModelV3.HTF_FLIP: "ENTRY_HTF_FLIP",
+        }[model],
+    )
     payload = evidence_payload_sha256_v3(
         candidate_id=candidate.candidate_id,
         observed_trigger_epoch=trigger_epoch,
@@ -98,20 +152,21 @@ def candidate_evidence(
         fidelity=fidelity,
         proof_plane=plane,
         replayability=replayability,
-        coverage_start_epoch=900,
-        coverage_end_epoch=2_000,
+        coverage_start_epoch=effective_coverage_start,
+        coverage_end_epoch=effective_coverage_end,
         ambiguity_codes=(),
         boc_tier=tier,
-        passed_rule_ids=(f"ENTRY_{model.value}",),
+        passed_rule_ids=authoritative_passed_rule_ids,
         failed_rule_ids=(),
         source_claim_ids=("claim-1",),
         **reference_fields,
+        **flip_fields,
     )
     evidence_identity = EntryEvidenceIdentityV3(
         candidate_id=candidate.candidate_id,
         proof_plane=plane,
-        coverage_start_epoch=900,
-        coverage_end_epoch=2_000,
+        coverage_start_epoch=effective_coverage_start,
+        coverage_end_epoch=effective_coverage_end,
         observed_trigger_epoch=trigger_epoch,
         trigger_sequence=sequence,
         payload_sha256=payload,
@@ -126,16 +181,17 @@ def candidate_evidence(
         fidelity=fidelity,
         proof_plane=plane,
         replayability=replayability,
-        coverage_start_epoch=900,
-        coverage_end_epoch=2_000,
+        coverage_start_epoch=effective_coverage_start,
+        coverage_end_epoch=effective_coverage_end,
         ambiguity_codes=(),
         boc_tier=tier,
-        passed_rule_ids=(f"ENTRY_{model.value}",),
+        passed_rule_ids=authoritative_passed_rule_ids,
         failed_rule_ids=(),
         source_claim_ids=("claim-1",),
         payload_sha256=payload,
         observed_at_epoch=2_000,
         **reference_fields,
+        **flip_fields,
     )
     return candidate, evidence
 
@@ -344,3 +400,34 @@ def test_invalidated_setup_cannot_select_an_exact_candidate() -> None:
     assert selection.reason is SelectionReason.SETUP_INVALIDATED
     assert selection.action is SelectionAction.NONE
     assert selection.canonical_candidate_id is None
+
+
+def test_wrong_model_rule_cannot_bypass_exact_eligibility() -> None:
+    forged = candidate_evidence(
+        EntryModelV3.HTF_FLIP,
+        trigger_epoch=1_001,
+        sequence=2,
+        ticks=111,
+        passed_rule_ids=("ENTRY_BOC_HTF_TIMED",),
+    )
+
+    selection = arbitrate_entry_candidates_v3(arbitration(forged))
+
+    assert selection.reason is SelectionReason.NO_EXACT_CANDIDATE
+    assert selection.action is SelectionAction.SHADOW_ONLY
+
+
+def test_one_minute_close_evidence_cannot_bypass_exact_eligibility() -> None:
+    forged = candidate_evidence(
+        EntryModelV3.DIR_CLOSE,
+        trigger_epoch=1_300,
+        sequence=0,
+        ticks=112,
+        coverage_start_epoch=1_240,
+        coverage_end_epoch=1_300,
+    )
+
+    selection = arbitrate_entry_candidates_v3(arbitration(forged))
+
+    assert selection.reason is SelectionReason.NO_EXACT_CANDIDATE
+    assert selection.action is SelectionAction.SHADOW_ONLY

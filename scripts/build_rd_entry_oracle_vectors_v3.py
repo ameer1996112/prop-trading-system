@@ -25,10 +25,12 @@ from prop_trading.domain.rd_entry_arbitrator_v3 import (
 )
 from prop_trading.domain.rd_entry_matcher_v3 import (
     EntryMatchRequestV3,
+    EntryMatchResultV3,
     SetupEntryFactsV3,
     match_entry_candidates_v3,
 )
 from prop_trading.domain.rd_entry_models import (
+    AmbiguityCode,
     CandidateFidelity,
     EntryDirection,
     OrderedCandle,
@@ -116,6 +118,7 @@ def _trigger_proof(
         trigger_epoch=value.trigger_epoch,
         trigger_sequence=value.trigger_sequence,
         trigger_ticks=value.trigger_ticks,
+        htf_open_ticks=value.htf_open_ticks,
         htf_context_minutes=value.htf_context_minutes,
         proof_plane=ProofPlane(value.proof_plane),
         replayability=EvidenceReplayability(value.replayability),
@@ -123,6 +126,16 @@ def _trigger_proof(
         coverage_start_epoch=value.coverage_start_epoch,
         coverage_end_epoch=value.coverage_end_epoch,
         is_realtime=value.is_realtime,
+        contact_candle=(
+            _candle(value.contact_candle) if value.contact_candle is not None else None
+        ),
+        recross_candle=(
+            _candle(value.recross_candle) if value.recross_candle is not None else None
+        ),
+        coverage_gap_detected=value.coverage_gap_detected,
+        full_lifecycle_ordered=value.full_lifecycle_ordered,
+        destination_seen_before_contact=value.destination_seen_before_contact,
+        ambiguity_codes=tuple(AmbiguityCode(code) for code in value.ambiguity_codes),
     )
 
 
@@ -130,6 +143,8 @@ def _setup(value: RDEntryArbitrationInputV3) -> SetupEntryFactsV3:
     return SetupEntryFactsV3(
         setup_id=value.setup_id,
         direction=EntryDirection(value.direction),
+        zone_top_ticks=value.zone_top_ticks,
+        zone_bottom_ticks=value.zone_bottom_ticks,
         zone_engaged_epoch=value.zone_engaged_epoch,
         invalidated_before_entry=value.setup_invalidated,
         common_fidelity=CandidateFidelity(value.common_fidelity),
@@ -139,7 +154,7 @@ def _setup(value: RDEntryArbitrationInputV3) -> SetupEntryFactsV3:
 def _opened_selection(
     value: RDEntryArbitrationInputV3,
     seed: RDEntryOpenedSelectionSeedV3 | None,
-) -> EntrySelectionV3 | None:
+) -> tuple[EntryMatchResultV3, EntrySelectionV3] | None:
     if seed is None:
         return None
     contract = load_rd_strategy_contract_v3()
@@ -148,6 +163,8 @@ def _opened_selection(
             setup=SetupEntryFactsV3(
                 setup_id=value.setup_id,
                 direction=EntryDirection(value.direction),
+                zone_top_ticks=value.zone_top_ticks,
+                zone_bottom_ticks=value.zone_bottom_ticks,
                 zone_engaged_epoch=value.zone_engaged_epoch,
                 invalidated_before_entry=False,
                 common_fidelity=CandidateFidelity.EXACT,
@@ -161,7 +178,7 @@ def _opened_selection(
             observed_at_epoch=seed.evaluated_at_epoch,
         )
     )
-    return arbitrate_entry_candidates_v3(
+    selection = arbitrate_entry_candidates_v3(
         EntryArbitrationRequestV3(
             setup_id=value.setup_id,
             candidates=match.candidates,
@@ -172,6 +189,7 @@ def _opened_selection(
             evaluated_at_epoch=seed.evaluated_at_epoch,
         )
     )
+    return match, selection
 
 
 def _evaluate(value: RDEntryArbitrationInputV3) -> dict[str, object]:
@@ -190,6 +208,7 @@ def _evaluate(value: RDEntryArbitrationInputV3) -> dict[str, object]:
             observed_at_epoch=value.observed_at_epoch,
         )
     )
+    opened = _opened_selection(value, value.opened_selection_seed)
     selection = arbitrate_entry_candidates_v3(
         EntryArbitrationRequestV3(
             setup_id=value.setup_id,
@@ -199,12 +218,13 @@ def _evaluate(value: RDEntryArbitrationInputV3) -> dict[str, object]:
             policy_version="rd-entry-arbitration-v3",
             revision=value.revision,
             evaluated_at_epoch=value.evaluated_at_epoch,
-            opened_selection=_opened_selection(value, value.opened_selection_seed),
+            opened_selection=opened[1] if opened is not None else None,
         )
     )
+    output_result = opened[0] if opened is not None else result
     return {
-        "candidates": [candidate.to_mapping() for candidate in result.candidates],
-        "evidence": [item.to_mapping() for item in result.evidence],
+        "candidates": [candidate.to_mapping() for candidate in output_result.candidates],
+        "evidence": [item.to_mapping() for item in output_result.evidence],
         "selection": selection.to_mapping(),
     }
 

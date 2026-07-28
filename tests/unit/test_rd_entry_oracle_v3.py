@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from pathlib import Path
 
+import pytest
 from scripts.build_rd_entry_oracle_vectors_v3 import (
     build_vectors,
     load_fixture_document,
@@ -10,6 +12,13 @@ from scripts.build_rd_entry_oracle_vectors_v3 import (
 
 from prop_trading.contracts.rd_entry_vectors_v3 import (
     RDEntryArbitrationVectorsV3,
+)
+from prop_trading.domain.rd_entry_models import CandidateFidelity, SelectionAction
+from prop_trading.domain.rd_entry_models_v3 import (
+    EntryModelV3,
+    EntrySelectionIdentityV3,
+    SelectionReason,
+    selection_id_v3,
 )
 
 FIXTURES = Path("tests/fixtures/rd_entry_arbitration_cases_v3.json")
@@ -84,3 +93,102 @@ def test_checked_in_vectors_are_a_stable_regeneration() -> None:
 
     assert checked_in == generated()
     assert generated() == generated()
+
+
+def _selection(case: dict[str, object]) -> dict[str, object]:
+    expected = case["expected"]
+    assert isinstance(expected, dict)
+    selection = expected["selection"]
+    assert isinstance(selection, dict)
+    return selection
+
+
+def _rehash_selection(selection: dict[str, object]) -> None:
+    selection["selection_id"] = selection_id_v3(
+        EntrySelectionIdentityV3(
+            setup_id=selection["setup_id"],  # type: ignore[arg-type]
+            policy_version=selection["policy_version"],  # type: ignore[arg-type]
+            revision=selection["revision"],  # type: ignore[arg-type]
+            candidate_ids_considered=tuple(
+                selection["candidate_ids_considered"]  # type: ignore[arg-type]
+            ),
+            canonical_candidate_id=selection["canonical_candidate_id"],  # type: ignore[arg-type]
+            canonical_evidence_id=selection["canonical_evidence_id"],  # type: ignore[arg-type]
+            reason=SelectionReason(selection["reason"]),  # type: ignore[arg-type]
+            fidelity=(
+                CandidateFidelity(selection["fidelity"])
+                if selection["fidelity"] is not None
+                else None
+            ),
+            action=SelectionAction(selection["action"]),  # type: ignore[arg-type]
+            co_triggered_models=tuple(
+                EntryModelV3(model)
+                for model in selection["co_triggered_models"]  # type: ignore[union-attr]
+            ),
+        )
+    )
+
+
+def _validate_forged(document: dict[str, object]) -> None:
+    RDEntryArbitrationVectorsV3.model_validate_json(json.dumps(document, allow_nan=False))
+
+
+def test_vector_contract_rejects_unknown_considered_candidate() -> None:
+    forged = deepcopy(generated())
+    case = forged["cases"][0]  # type: ignore[index]
+    selection = _selection(case)  # type: ignore[arg-type]
+    selection["candidate_ids_considered"] = ["b" * 64]
+    _rehash_selection(selection)
+
+    with pytest.raises(ValueError, match="considered|candidate"):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_canonical_evidence_owned_by_another_candidate() -> None:
+    forged = deepcopy(generated())
+    case = next(  # type: ignore[union-attr]
+        item for item in forged["cases"] if item["case_id"] == "boc_before_close"
+    )
+    expected = case["expected"]
+    selection = _selection(case)
+    evidence = expected["evidence"]
+    canonical_candidate_id = selection["canonical_candidate_id"]
+    other = next(item for item in evidence if item["candidate_id"] != canonical_candidate_id)
+    selection["canonical_evidence_id"] = other["evidence_id"]
+    _rehash_selection(selection)
+
+    with pytest.raises(ValueError, match="canonical.*evidence|ownership"):
+        _validate_forged(forged)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("canonical_model", "HTF_FLIP", "canonical.*model"),
+        ("fidelity", "DISCRETIONARY", "canonical.*fidelity"),
+    ],
+)
+def test_vector_contract_rejects_canonical_field_disagreement(
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    forged = deepcopy(generated())
+    case = forged["cases"][0]  # type: ignore[index]
+    selection = _selection(case)  # type: ignore[arg-type]
+    selection[field] = value
+    _rehash_selection(selection)
+
+    with pytest.raises(ValueError, match=message):
+        _validate_forged(forged)
+
+
+def test_vector_contract_rejects_observation_after_selection_evaluation() -> None:
+    forged = deepcopy(generated())
+    case = forged["cases"][0]  # type: ignore[index]
+    expected = case["expected"]  # type: ignore[index]
+    selection = _selection(case)  # type: ignore[arg-type]
+    expected["candidates"][0]["observed_at_epoch"] = selection["evaluated_at_epoch"] + 1
+
+    with pytest.raises(ValueError, match="observed|evaluation"):
+        _validate_forged(forged)

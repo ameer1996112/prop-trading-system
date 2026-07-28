@@ -104,6 +104,13 @@ def _require_unique_texts(values: tuple[str, ...], name: str) -> None:
         raise ValueError(f"{name} must not contain duplicates")
 
 
+def _require_five_minute_candle(candle: OrderedCandle, name: str) -> None:
+    if candle.close_epoch - candle.open_epoch != 300:
+        raise ValueError(f"{name} must span exactly 300 seconds")
+    if candle.open_epoch % 300 != 0:
+        raise ValueError(f"{name} open must align to a five-minute boundary")
+
+
 def _require_optional_reference(
     *,
     boc_tier: BocTier | None,
@@ -192,6 +199,17 @@ class BocProof:
             raise ValueError("coverage epochs must increase")
         if not self.coverage_start_epoch <= self.trigger_epoch <= self.coverage_end_epoch:
             raise ValueError("trigger epoch must be inside coverage")
+        _require_five_minute_candle(self.reference_candle, "reference candle")
+        if self.trigger_candle_open_epoch % 300 != 0:
+            raise ValueError("trigger candle open must align to a five-minute boundary")
+        if self.reference_candle.close_epoch > self.trigger_candle_open_epoch:
+            raise ValueError("reference candle must precede trigger candle")
+        if not (
+            self.trigger_candle_open_epoch
+            <= self.trigger_epoch
+            < self.trigger_candle_open_epoch + 300
+        ):
+            raise ValueError("trigger must be inside its five-minute candle")
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +218,7 @@ class EntryTriggerProofV3:
     trigger_epoch: int
     trigger_sequence: int
     trigger_ticks: int
+    htf_open_ticks: int
     htf_context_minutes: tuple[int, ...]
     proof_plane: ProofPlane
     replayability: EvidenceReplayability
@@ -207,6 +226,12 @@ class EntryTriggerProofV3:
     coverage_start_epoch: int
     coverage_end_epoch: int
     is_realtime: bool
+    contact_candle: OrderedCandle | None
+    recross_candle: OrderedCandle | None
+    coverage_gap_detected: bool
+    full_lifecycle_ordered: bool
+    destination_seen_before_contact: bool
+    ambiguity_codes: tuple[AmbiguityCode, ...]
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -218,15 +243,53 @@ class EntryTriggerProofV3:
         ):
             _require_int(value, name, non_negative=True)
         _require_int(self.trigger_ticks, "trigger_ticks")
+        _require_int(self.htf_open_ticks, "htf_open_ticks")
         _require_sorted_unique_contexts(self.htf_context_minutes)
         _require_enum(self.proof_plane, ProofPlane, "proof_plane")
         _require_enum(self.replayability, EvidenceReplayability, "replayability")
         _require_enum(self.fidelity, CandidateFidelity, "fidelity")
         _require_bool(self.is_realtime, "is_realtime")
+        for name, value in (
+            ("coverage_gap_detected", self.coverage_gap_detected),
+            ("full_lifecycle_ordered", self.full_lifecycle_ordered),
+            ("destination_seen_before_contact", self.destination_seen_before_contact),
+        ):
+            _require_bool(value, name)
+        for name, candle in (
+            ("contact_candle", self.contact_candle),
+            ("recross_candle", self.recross_candle),
+        ):
+            if candle is not None and not isinstance(candle, OrderedCandle):
+                raise ValueError(f"{name} must be an OrderedCandle or None")
+        if self.recross_candle is not None and self.contact_candle is None:
+            raise ValueError("recross_candle requires contact_candle")
+        if not isinstance(self.ambiguity_codes, tuple):
+            raise ValueError("ambiguity_codes must be a tuple")
+        for code in self.ambiguity_codes:
+            _require_enum(code, AmbiguityCode, "ambiguity_codes")
+        if len(set(self.ambiguity_codes)) != len(self.ambiguity_codes):
+            raise ValueError("ambiguity_codes must not contain duplicates")
         if self.coverage_end_epoch <= self.coverage_start_epoch:
             raise ValueError("coverage epochs must increase")
         if not self.coverage_start_epoch <= self.trigger_epoch <= self.coverage_end_epoch:
             raise ValueError("trigger epoch must be inside coverage")
+        for name, candle in (
+            ("contact candle", self.contact_candle),
+            ("recross candle", self.recross_candle),
+        ):
+            if candle is not None and (
+                candle.open_epoch < self.coverage_start_epoch
+                or candle.close_epoch > self.coverage_end_epoch
+            ):
+                raise ValueError(f"{name} must be inside coverage")
+        if self.contact_candle is not None and self.recross_candle is not None:
+            if self.contact_candle.close_epoch > self.recross_candle.open_epoch:
+                raise ValueError("contact must precede recross")
+            if (
+                self.trigger_epoch != self.recross_candle.close_epoch
+                or self.trigger_ticks != self.htf_open_ticks
+            ):
+                raise ValueError("trigger must be the retained HTF-open recross")
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,6 +449,12 @@ class EntryCandidateEvidenceV3:
     reference_candle_high_ticks: int | None
     reference_candle_low_ticks: int | None
     reference_candle_close_ticks: int | None
+    htf_open_ticks: int | None
+    contact_candle: OrderedCandle | None
+    recross_candle: OrderedCandle | None
+    coverage_gap_detected: bool | None
+    full_lifecycle_ordered: bool | None
+    destination_seen_before_contact: bool | None
     passed_rule_ids: tuple[str, ...]
     failed_rule_ids: tuple[str, ...]
     source_claim_ids: tuple[str, ...]
@@ -426,11 +495,98 @@ class EntryCandidateEvidenceV3:
             reference_candle_low_ticks=self.reference_candle_low_ticks,
             reference_candle_close_ticks=self.reference_candle_close_ticks,
         )
+        flip_fields = (
+            self.htf_open_ticks,
+            self.contact_candle,
+            self.recross_candle,
+            self.coverage_gap_detected,
+            self.full_lifecycle_ordered,
+            self.destination_seen_before_contact,
+        )
+        if any(value is not None for value in flip_fields):
+            if any(value is None for value in flip_fields):
+                raise ValueError("flip evidence requires complete lifecycle fields")
+            _require_int(self.htf_open_ticks, "htf_open_ticks")
+            if not isinstance(self.contact_candle, OrderedCandle) or not isinstance(
+                self.recross_candle, OrderedCandle
+            ):
+                raise ValueError("flip lifecycle candles must be OrderedCandle values")
+            for name, value in (
+                ("coverage_gap_detected", self.coverage_gap_detected),
+                ("full_lifecycle_ordered", self.full_lifecycle_ordered),
+                (
+                    "destination_seen_before_contact",
+                    self.destination_seen_before_contact,
+                ),
+            ):
+                _require_bool(value, name)
+            if self.contact_candle.close_epoch > self.recross_candle.open_epoch:
+                raise ValueError("flip contact must precede recross")
+            if (
+                self.observed_trigger_epoch != self.recross_candle.close_epoch
+                or self.observed_trigger_ticks != self.htf_open_ticks
+            ):
+                raise ValueError("flip trigger must be the retained HTF-open recross")
         _require_unique_texts(self.passed_rule_ids, "passed_rule_ids")
         _require_unique_texts(self.failed_rule_ids, "failed_rule_ids")
+        if set(self.passed_rule_ids) & set(self.failed_rule_ids):
+            raise ValueError("passed and failed rule IDs must be disjoint")
+        if self.fidelity is CandidateFidelity.EXACT:
+            if self.failed_rule_ids:
+                raise ValueError("exact evidence cannot carry failed rules")
+            if not self.passed_rule_ids:
+                raise ValueError("exact evidence requires a passed rule")
         _require_unique_texts(self.source_claim_ids, "source_claim_ids")
         _require_sha256(self.payload_sha256, "payload_sha256")
         _require_int(self.observed_at_epoch, "observed_at_epoch", non_negative=True)
+        if self.coverage_end_epoch > self.observed_at_epoch:
+            raise ValueError("coverage cannot extend past observation")
+        if self.observed_trigger_epoch is not None and not (
+            self.coverage_start_epoch <= self.observed_trigger_epoch <= self.coverage_end_epoch
+        ):
+            raise ValueError("trigger must be inside evidence coverage")
+        if (
+            self.observed_trigger_epoch is not None
+            and self.observed_trigger_epoch > self.observed_at_epoch
+        ):
+            raise ValueError("trigger cannot occur after observation")
+        expected_replayability = (
+            EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE
+            if self.proof_plane is ProofPlane.REALTIME_TICK
+            else EvidenceReplayability.REPLAYABLE
+        )
+        if self.replayability is not expected_replayability:
+            raise ValueError("replayability is inconsistent with proof plane")
+        authoritative_payload_sha256 = evidence_payload_sha256_v3(
+            candidate_id=self.candidate_id,
+            observed_trigger_epoch=self.observed_trigger_epoch,
+            trigger_sequence=self.trigger_sequence,
+            observed_trigger_ticks=self.observed_trigger_ticks,
+            htf_context_minutes=self.htf_context_minutes,
+            fidelity=self.fidelity,
+            proof_plane=self.proof_plane,
+            replayability=self.replayability,
+            coverage_start_epoch=self.coverage_start_epoch,
+            coverage_end_epoch=self.coverage_end_epoch,
+            ambiguity_codes=self.ambiguity_codes,
+            boc_tier=self.boc_tier,
+            reference_candle_open_epoch=self.reference_candle_open_epoch,
+            reference_candle_open_ticks=self.reference_candle_open_ticks,
+            reference_candle_high_ticks=self.reference_candle_high_ticks,
+            reference_candle_low_ticks=self.reference_candle_low_ticks,
+            reference_candle_close_ticks=self.reference_candle_close_ticks,
+            htf_open_ticks=self.htf_open_ticks,
+            contact_candle=self.contact_candle,
+            recross_candle=self.recross_candle,
+            coverage_gap_detected=self.coverage_gap_detected,
+            full_lifecycle_ordered=self.full_lifecycle_ordered,
+            destination_seen_before_contact=self.destination_seen_before_contact,
+            passed_rule_ids=self.passed_rule_ids,
+            failed_rule_ids=self.failed_rule_ids,
+            source_claim_ids=self.source_claim_ids,
+        )
+        if self.payload_sha256 != authoritative_payload_sha256:
+            raise ValueError("payload digest conflicts with expanded evidence")
         identity = EntryEvidenceIdentityV3(
             candidate_id=self.candidate_id,
             proof_plane=self.proof_plane,
@@ -463,6 +619,16 @@ class EntryCandidateEvidenceV3:
             "reference_candle_high_ticks": self.reference_candle_high_ticks,
             "reference_candle_low_ticks": self.reference_candle_low_ticks,
             "reference_candle_close_ticks": self.reference_candle_close_ticks,
+            "htf_open_ticks": self.htf_open_ticks,
+            "contact_candle": (
+                self.contact_candle.to_mapping() if self.contact_candle is not None else None
+            ),
+            "recross_candle": (
+                self.recross_candle.to_mapping() if self.recross_candle is not None else None
+            ),
+            "coverage_gap_detected": self.coverage_gap_detected,
+            "full_lifecycle_ordered": self.full_lifecycle_ordered,
+            "destination_seen_before_contact": self.destination_seen_before_contact,
             "passed_rule_ids": list(self.passed_rule_ids),
             "failed_rule_ids": list(self.failed_rule_ids),
             "source_claim_ids": list(self.source_claim_ids),
@@ -607,6 +773,12 @@ def evidence_payload_sha256_v3(
     reference_candle_high_ticks: int | None,
     reference_candle_low_ticks: int | None,
     reference_candle_close_ticks: int | None,
+    htf_open_ticks: int | None,
+    contact_candle: OrderedCandle | None,
+    recross_candle: OrderedCandle | None,
+    coverage_gap_detected: bool | None,
+    full_lifecycle_ordered: bool | None,
+    destination_seen_before_contact: bool | None,
     passed_rule_ids: tuple[str, ...],
     failed_rule_ids: tuple[str, ...],
     source_claim_ids: tuple[str, ...],
@@ -616,11 +788,16 @@ def evidence_payload_sha256_v3(
             "ambiguity_codes": [item.value for item in ambiguity_codes],
             "boc_tier": boc_tier.value if boc_tier is not None else None,
             "candidate_id": candidate_id,
+            "contact_candle": (contact_candle.to_mapping() if contact_candle is not None else None),
             "coverage_end_epoch": coverage_end_epoch,
+            "coverage_gap_detected": coverage_gap_detected,
             "coverage_start_epoch": coverage_start_epoch,
+            "destination_seen_before_contact": destination_seen_before_contact,
             "failed_rule_ids": list(failed_rule_ids),
             "fidelity": fidelity.value,
+            "full_lifecycle_ordered": full_lifecycle_ordered,
             "htf_context_minutes": list(htf_context_minutes),
+            "htf_open_ticks": htf_open_ticks,
             "observed_trigger_epoch": observed_trigger_epoch,
             "observed_trigger_ticks": observed_trigger_ticks,
             "passed_rule_ids": list(passed_rule_ids),
@@ -630,6 +807,7 @@ def evidence_payload_sha256_v3(
             "reference_candle_low_ticks": reference_candle_low_ticks,
             "reference_candle_open_epoch": reference_candle_open_epoch,
             "reference_candle_open_ticks": reference_candle_open_ticks,
+            "recross_candle": (recross_candle.to_mapping() if recross_candle is not None else None),
             "replayability": replayability.value,
             "source_claim_ids": list(source_claim_ids),
             "trigger_sequence": trigger_sequence,

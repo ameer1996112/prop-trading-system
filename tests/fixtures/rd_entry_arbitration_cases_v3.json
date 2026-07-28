@@ -6,6 +6,8 @@
       "input": {
         "setup_id": "setup-strict-long",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -47,6 +49,8 @@
       "input": {
         "setup_id": "setup-strict-short",
         "direction": "SHORT",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -88,6 +92,8 @@
       "input": {
         "setup_id": "setup-discretionary",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -129,6 +135,8 @@
       "input": {
         "setup_id": "setup-boc-before-close",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -177,6 +185,8 @@
       "input": {
         "setup_id": "setup-flip-before-boc",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -210,13 +220,34 @@
           "trigger_epoch": 1801,
           "trigger_sequence": 5,
           "trigger_ticks": 111,
+          "htf_open_ticks": 111,
           "htf_context_minutes": [15, 30],
           "proof_plane": "REALTIME_TICK",
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "fidelity": "EXACT",
           "coverage_start_epoch": 900,
           "coverage_end_epoch": 2400,
-          "is_realtime": true
+          "is_realtime": true,
+          "contact_candle": {
+            "open_epoch": 1500,
+            "close_epoch": 1800,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 105
+          },
+          "recross_candle": {
+            "open_epoch": 1800,
+            "close_epoch": 1801,
+            "open_ticks": 110,
+            "high_ticks": 112,
+            "low_ticks": 109,
+            "close_ticks": 111
+          },
+          "coverage_gap_detected": false,
+          "full_lifecycle_ordered": true,
+          "destination_seen_before_contact": false,
+          "ambiguity_codes": []
         },
         "observed_at_epoch": 2400,
         "policy_version": "rd-entry-arbitration-v3",
@@ -230,6 +261,8 @@
       "input": {
         "setup_id": "setup-boc-flip-same",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -263,13 +296,34 @@
           "trigger_epoch": 1801,
           "trigger_sequence": 5,
           "trigger_ticks": 111,
+          "htf_open_ticks": 111,
           "htf_context_minutes": [15, 30],
           "proof_plane": "REALTIME_TICK",
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "fidelity": "EXACT",
           "coverage_start_epoch": 900,
           "coverage_end_epoch": 2400,
-          "is_realtime": true
+          "is_realtime": true,
+          "contact_candle": {
+            "open_epoch": 1500,
+            "close_epoch": 1800,
+            "open_ticks": 105,
+            "high_ticks": 110,
+            "low_ticks": 100,
+            "close_ticks": 105
+          },
+          "recross_candle": {
+            "open_epoch": 1800,
+            "close_epoch": 1801,
+            "open_ticks": 110,
+            "high_ticks": 112,
+            "low_ticks": 109,
+            "close_ticks": 111
+          },
+          "coverage_gap_detected": false,
+          "full_lifecycle_ordered": true,
+          "destination_seen_before_contact": false,
+          "ambiguity_codes": []
         },
         "observed_at_epoch": 2400,
         "policy_version": "rd-entry-arbitration-v3",
@@ -283,6 +337,8 @@
       "input": {
         "setup_id": "setup-price-conflict",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -316,13 +372,34 @@
           "trigger_epoch": 1801,
           "trigger_sequence": 5,
           "trigger_ticks": 112,
+          "htf_open_ticks": 112,
           "htf_context_minutes": [15, 30],
           "proof_plane": "REALTIME_TICK",
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "fidelity": "EXACT",
           "coverage_start_epoch": 900,
           "coverage_end_epoch": 2400,
-          "is_realtime": true
+          "is_realtime": true,
+          "contact_candle": {
+            "open_epoch": 1500,
+            "close_epoch": 1800,
+            "open_ticks": 105,
+            "high_ticks": 111,
+            "low_ticks": 100,
+            "close_ticks": 105
+          },
+          "recross_candle": {
+            "open_epoch": 1800,
+            "close_epoch": 1801,
+            "open_ticks": 111,
+            "high_ticks": 113,
+            "low_ticks": 110,
+            "close_ticks": 112
+          },
+          "coverage_gap_detected": false,
+          "full_lifecycle_ordered": true,
+          "destination_seen_before_contact": false,
+          "ambiguity_codes": []
         },
         "observed_at_epoch": 2400,
         "policy_version": "rd-entry-arbitration-v3",
@@ -336,6 +413,8 @@
       "input": {
         "setup_id": "setup-close-fallback",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -376,13 +455,34 @@
           "trigger_epoch": 1802,
           "trigger_sequence": 6,
           "trigger_ticks": 112,
+          "htf_open_ticks": 112,
           "htf_context_minutes": [15, 30],
           "proof_plane": "REALTIME_TICK",
           "replayability": "LIVE_EXACT_NON_REPLAYABLE",
           "fidelity": "EXACT",
           "coverage_start_epoch": 900,
           "coverage_end_epoch": 2400,
-          "is_realtime": false
+          "is_realtime": false,
+          "contact_candle": {
+            "open_epoch": 1500,
+            "close_epoch": 1801,
+            "open_ticks": 105,
+            "high_ticks": 111,
+            "low_ticks": 100,
+            "close_ticks": 105
+          },
+          "recross_candle": {
+            "open_epoch": 1801,
+            "close_epoch": 1802,
+            "open_ticks": 111,
+            "high_ticks": 113,
+            "low_ticks": 110,
+            "close_ticks": 112
+          },
+          "coverage_gap_detected": false,
+          "full_lifecycle_ordered": true,
+          "destination_seen_before_contact": false,
+          "ambiguity_codes": []
         },
         "observed_at_epoch": 2400,
         "policy_version": "rd-entry-arbitration-v3",
@@ -396,6 +496,8 @@
       "input": {
         "setup_id": "setup-not-realtime",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -437,6 +539,8 @@
       "input": {
         "setup_id": "setup-wrong-direction",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -478,6 +582,8 @@
       "input": {
         "setup_id": "setup-pre-engagement",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 1900,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -519,6 +625,8 @@
       "input": {
         "setup_id": "setup-opened-frozen",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 500,
         "common_fidelity": "EXACT",
         "setup_invalidated": false,
@@ -572,6 +680,8 @@
       "input": {
         "setup_id": "setup-invalidated",
         "direction": "LONG",
+        "zone_top_ticks": 103,
+        "zone_bottom_ticks": 97,
         "zone_engaged_epoch": 800,
         "common_fidelity": "EXACT",
         "setup_invalidated": true,

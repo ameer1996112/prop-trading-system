@@ -84,12 +84,32 @@ def flip(
     plane: ProofPlane = ProofPlane.REALTIME_TICK,
     replayability: EvidenceReplayability = (EvidenceReplayability.LIVE_EXACT_NON_REPLAYABLE),
     is_realtime: bool = True,
+    coverage_gap_detected: bool = False,
+    full_lifecycle_ordered: bool = True,
+    contact_already_recrossed: bool = False,
 ) -> EntryTriggerProofV3:
+    contact = OrderedCandle(
+        open_epoch=trigger_epoch - 301,
+        close_epoch=trigger_epoch - 1,
+        open_ticks=105,
+        high_ticks=(trigger_ticks + 1 if contact_already_recrossed else 110),
+        low_ticks=100,
+        close_ticks=105,
+    )
+    recross = OrderedCandle(
+        open_epoch=trigger_epoch - 1,
+        close_epoch=trigger_epoch,
+        open_ticks=110,
+        high_ticks=max(trigger_ticks + 1, 112),
+        low_ticks=109,
+        close_ticks=trigger_ticks,
+    )
     return EntryTriggerProofV3(
         event_anchor_epoch=1_800,
         trigger_epoch=trigger_epoch,
         trigger_sequence=trigger_sequence,
         trigger_ticks=trigger_ticks,
+        htf_open_ticks=trigger_ticks,
         htf_context_minutes=(15, 30),
         proof_plane=plane,
         replayability=replayability,
@@ -97,6 +117,12 @@ def flip(
         coverage_start_epoch=900,
         coverage_end_epoch=2_100,
         is_realtime=is_realtime,
+        contact_candle=contact,
+        recross_candle=recross,
+        coverage_gap_detected=coverage_gap_detected,
+        full_lifecycle_ordered=full_lifecycle_ordered,
+        destination_seen_before_contact=False,
+        ambiguity_codes=(),
     )
 
 
@@ -122,6 +148,8 @@ def request(
         setup=SetupEntryFactsV3(
             setup_id="setup-1",
             direction=direction,
+            zone_top_ticks=103,
+            zone_bottom_ticks=97,
             zone_engaged_epoch=zone_engaged_epoch,
             invalidated_before_entry=False,
             common_fidelity=common_fidelity,
@@ -281,3 +309,56 @@ def test_boc_and_flip_are_emitted_independently_at_same_event() -> None:
         EntryModelV3.BOC,
         EntryModelV3.HTF_FLIP,
     }
+
+
+def test_flip_requires_ordered_contact_then_open_recross() -> None:
+    result = match_entry_candidates_v3(request(htf_flip_proof=flip()))
+
+    candidate = only(result.candidates, model=EntryModelV3.HTF_FLIP)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.MATCHED
+    assert evidence.passed_rule_ids == ("ENTRY_HTF_FLIP",)
+
+
+def test_flip_with_coverage_gap_is_blocked() -> None:
+    result = match_entry_candidates_v3(request(htf_flip_proof=flip(coverage_gap_detected=True)))
+
+    candidate = only(result.candidates, model=EntryModelV3.HTF_FLIP)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.BLOCKED
+    assert evidence.failed_rule_ids == ("HTF_FLIP_COVERAGE_GAP",)
+
+
+def test_flip_without_ordered_lifecycle_is_blocked() -> None:
+    result = match_entry_candidates_v3(request(htf_flip_proof=flip(full_lifecycle_ordered=False)))
+
+    candidate = only(result.candidates, model=EntryModelV3.HTF_FLIP)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.BLOCKED
+    assert evidence.failed_rule_ids == ("HTF_FLIP_ORDER_UNPROVEN",)
+
+
+def test_flip_contact_that_already_recrossed_cannot_nominate_later_trigger() -> None:
+    result = match_entry_candidates_v3(request(htf_flip_proof=flip(contact_already_recrossed=True)))
+
+    candidate = only(result.candidates, model=EntryModelV3.HTF_FLIP)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.BLOCKED
+    assert evidence.failed_rule_ids == ("HTF_FLIP_CONTACT_ALREADY_RECROSSED",)
+
+
+def test_directional_close_must_be_exactly_five_minutes() -> None:
+    one_minute = OrderedCandle(
+        open_epoch=1_800,
+        close_epoch=1_860,
+        open_ticks=105,
+        high_ticks=110,
+        low_ticks=100,
+        close_ticks=109,
+    )
+    result = match_entry_candidates_v3(request(directional_close=True, confirmed_bar=one_minute))
+
+    candidate = only(result.candidates, model=EntryModelV3.DIR_CLOSE)
+    evidence = only(result.evidence, candidate_id=candidate.candidate_id)
+    assert candidate.state is CandidateState.BLOCKED
+    assert evidence.failed_rule_ids == ("DIR_CLOSE_NOT_CONFIRMED_5M",)

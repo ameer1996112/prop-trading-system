@@ -53,9 +53,13 @@ class EntryArbitrationRequestV3:
         for candidate in self.candidates:
             if not isinstance(candidate, EntryCandidateV3):
                 raise ValueError("candidates must contain EntryCandidateV3")
+            if candidate.observed_at_epoch > self.evaluated_at_epoch:
+                raise ValueError("candidate cannot be observed after evaluation")
         for item in self.evidence:
             if not isinstance(item, EntryCandidateEvidenceV3):
                 raise ValueError("evidence must contain EntryCandidateEvidenceV3")
+            if item.observed_at_epoch > self.evaluated_at_epoch:
+                raise ValueError("evidence cannot be observed after evaluation")
         if type(self.setup_invalidated) is not bool:
             raise ValueError("setup_invalidated must be a bool")
         if self.policy_version != POLICY_VERSION_V3:
@@ -95,6 +99,72 @@ def _exact_eligible(
     ):
         return False
     if candidate.model is EntryModelV3.BOC and candidate.boc_tier is not BocTier.HTF_TIMED:
+        return False
+    expected_rule = {
+        EntryModelV3.BOC: "ENTRY_BOC_HTF_TIMED",
+        EntryModelV3.DIR_CLOSE: "ENTRY_DIR_CLOSE",
+        EntryModelV3.HTF_FLIP: "ENTRY_HTF_FLIP",
+    }[candidate.model]
+    if evidence.passed_rule_ids != (expected_rule,) or evidence.failed_rule_ids:
+        return False
+    if (
+        evidence.boc_tier is not candidate.boc_tier
+        or evidence.reference_candle_open_epoch != candidate.reference_candle_open_epoch
+    ):
+        return False
+    if candidate.model is EntryModelV3.BOC:
+        assert evidence.reference_candle_open_epoch is not None
+        trigger_candle_open_epoch = (evidence.observed_trigger_epoch // 300) * 300
+        if (
+            evidence.reference_candle_open_epoch + 300 > trigger_candle_open_epoch
+            or not evidence.htf_context_minutes
+            or any(
+                trigger_candle_open_epoch % (context * 60) != 0
+                for context in evidence.htf_context_minutes
+            )
+        ):
+            return False
+    elif candidate.model is EntryModelV3.DIR_CLOSE:
+        if (
+            evidence.coverage_end_epoch - evidence.coverage_start_epoch != 300
+            or evidence.observed_trigger_epoch != evidence.coverage_end_epoch
+        ):
+            return False
+    else:
+        if (
+            evidence.htf_open_ticks is None
+            or evidence.contact_candle is None
+            or evidence.recross_candle is None
+            or evidence.coverage_gap_detected is not False
+            or evidence.full_lifecycle_ordered is not True
+            or evidence.destination_seen_before_contact is not False
+        ):
+            return False
+        recrossed = (
+            evidence.recross_candle.high_ticks > evidence.htf_open_ticks
+            if candidate.direction.value == "LONG"
+            else evidence.recross_candle.low_ticks < evidence.htf_open_ticks
+        )
+        if not recrossed:
+            return False
+        contact_already_recrossed = (
+            evidence.contact_candle.high_ticks > evidence.htf_open_ticks
+            if candidate.direction.value == "LONG"
+            else evidence.contact_candle.low_ticks < evidence.htf_open_ticks
+        )
+        if contact_already_recrossed:
+            return False
+    if candidate.model is not EntryModelV3.HTF_FLIP and any(
+        value is not None
+        for value in (
+            evidence.htf_open_ticks,
+            evidence.contact_candle,
+            evidence.recross_candle,
+            evidence.coverage_gap_detected,
+            evidence.full_lifecycle_ordered,
+            evidence.destination_seen_before_contact,
+        )
+    ):
         return False
     return (
         evidence.proof_plane is ProofPlane.LOWER_TIMEFRAME_REPLAY
