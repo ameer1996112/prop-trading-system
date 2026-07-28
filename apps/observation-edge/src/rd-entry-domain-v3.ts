@@ -490,6 +490,15 @@ function validateFlipProofV3(
     fail("HTF anchor must precede contact");
   }
   if (
+    proof.contact_candle !== null &&
+    proof.recross_candle !== null &&
+    (proof.contact_candle.close_epoch > proof.recross_candle.open_epoch ||
+      proof.trigger_epoch !== proof.recross_candle.close_epoch ||
+      proof.trigger_ticks !== proof.recross_candle.close_ticks)
+  ) {
+    fail("HTF flip trigger must equal the retained recross market close");
+  }
+  if (
     proof.htf_context_minutes.some(
       (context) =>
         proof.trigger_epoch >= proof.event_anchor_epoch + context * 60,
@@ -863,7 +872,7 @@ export function validateEntryEvidenceV3(
         evidence.recross_candle!.open_epoch ||
       evidence.observed_trigger_epoch !==
         evidence.recross_candle!.close_epoch ||
-      evidence.observed_trigger_ticks !== evidence.htf_open_ticks
+      evidence.observed_trigger_ticks !== evidence.recross_candle!.close_ticks
     ) {
       fail("flip lifecycle chronology is inconsistent");
     }
@@ -988,9 +997,33 @@ export function validateEntryEvaluationV3(
   const evidenceById = new Map(
     evaluation.evidence.map((evidence) => [evidence.evidence_id, evidence]),
   );
+  if (
+    new Set(evaluation.candidates.map((candidate) => candidate.model)).size !==
+      evaluation.candidates.length ||
+    [...evaluation.evidence]
+      .map((evidence) => evidence.candidate_id)
+      .sort()
+      .join() !== [...candidateIds].sort().join()
+  ) {
+    fail("evaluation requires exactly one candidate and evidence per model");
+  }
   for (const evidence of evaluation.evidence) {
     const candidate = candidateById.get(evidence.candidate_id);
     if (candidate === undefined) fail("evidence references unknown candidate");
+    const expectedClaims =
+      candidate.model === "BOC"
+        ? candidate.boc_tier === "HTF_TIMED"
+          ? SOURCE_CLAIMS_V3.BOC_HTF_TIMED
+          : SOURCE_CLAIMS_V3.BOC_DISCRETIONARY_5M
+        : candidate.model === "DIR_CLOSE"
+          ? SOURCE_CLAIMS_V3.DIR_CLOSE
+          : SOURCE_CLAIMS_V3.HTF_FLIP;
+    if (
+      candidate.source_claim_ids.join() !== expectedClaims.join() ||
+      evidence.source_claim_ids.join() !== expectedClaims.join()
+    ) {
+      fail("source claims conflict with candidate model");
+    }
     if (
       evidence.fidelity === "EXACT" &&
       !exactEvidenceRuleIsConsistent(candidate, evidence)
@@ -1055,6 +1088,13 @@ export function validateEntryEvaluationV3(
           ? evidence.contact_candle.high_ticks > evidence.htf_open_ticks
           : evidence.contact_candle.low_ticks < evidence.htf_open_ticks;
       if (contactCrossed) fail("flip contact already crossed the HTF open");
+      const actualCloseCrossed =
+        candidate.direction === "LONG"
+          ? evidence.recross_candle.close_ticks > evidence.htf_open_ticks
+          : evidence.recross_candle.close_ticks < evidence.htf_open_ticks;
+      if (!actualCloseCrossed) {
+        fail("flip actual close did not cross the HTF open");
+      }
     }
   }
   const selection = evaluation.selection;

@@ -109,7 +109,7 @@ function contactsZone(
   );
 }
 
-function recrossesHtfOpen(
+function candleCrossesHtfOpen(
   request: EntryMatchRequestV3,
   proof: EntryTriggerProofV3,
   candle: OrderedCandleV3,
@@ -117,6 +117,16 @@ function recrossesHtfOpen(
   return request.setup.direction === "LONG"
     ? candle.high_ticks > proof.htf_open_ticks
     : candle.low_ticks < proof.htf_open_ticks;
+}
+
+function actualTickCrossesHtfOpen(
+  request: EntryMatchRequestV3,
+  proof: EntryTriggerProofV3,
+  candle: OrderedCandleV3,
+): boolean {
+  return request.setup.direction === "LONG"
+    ? candle.close_ticks > proof.htf_open_ticks
+    : candle.close_ticks < proof.htf_open_ticks;
 }
 
 function flipLifecycleFailure(
@@ -146,10 +156,10 @@ function flipLifecycleFailure(
   if (!contactsZone(request, proof.contact_candle)) {
     return ["HTF_FLIP_CONTACT_OUTSIDE_ZONE"];
   }
-  if (recrossesHtfOpen(request, proof, proof.contact_candle)) {
+  if (candleCrossesHtfOpen(request, proof, proof.contact_candle)) {
     return ["HTF_FLIP_CONTACT_ALREADY_RECROSSED"];
   }
-  if (!recrossesHtfOpen(request, proof, proof.recross_candle)) {
+  if (!actualTickCrossesHtfOpen(request, proof, proof.recross_candle)) {
     return ["HTF_FLIP_OPEN_NOT_RECROSSED"];
   }
   if (

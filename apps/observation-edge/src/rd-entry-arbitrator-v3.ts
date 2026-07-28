@@ -101,8 +101,8 @@ export function exactEligibleV3(
     }
     const recrossed =
       candidate.direction === "LONG"
-        ? evidence.recross_candle.high_ticks > evidence.htf_open_ticks
-        : evidence.recross_candle.low_ticks < evidence.htf_open_ticks;
+        ? evidence.recross_candle.close_ticks > evidence.htf_open_ticks
+        : evidence.recross_candle.close_ticks < evidence.htf_open_ticks;
     const contactAlreadyRecrossed =
       candidate.direction === "LONG"
         ? evidence.contact_candle.high_ticks > evidence.htf_open_ticks

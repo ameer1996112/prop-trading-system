@@ -1144,6 +1144,15 @@ function validateAuthoritativePaperFacts(
       contact.close_epoch > evidence.coverage_end_epoch ||
       recross.open_epoch < evidence.coverage_start_epoch ||
       recross.close_epoch > evidence.coverage_end_epoch ||
+      triggerEpoch !== recross.close_epoch ||
+      evidence.observed_trigger_ticks !== recross.close_ticks ||
+      evidence.htf_open_ticks === null ||
+      (candidate.direction === "LONG"
+        ? recross.close_ticks <= evidence.htf_open_ticks
+        : recross.close_ticks >= evidence.htf_open_ticks) ||
+      (candidate.direction === "LONG"
+        ? contact.high_ticks > evidence.htf_open_ticks
+        : contact.low_ticks < evidence.htf_open_ticks) ||
       contact.low_ticks > setup.zone_top_ticks ||
       contact.high_ticks < setup.zone_bottom_ticks
     ) {

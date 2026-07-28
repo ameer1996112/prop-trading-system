@@ -15,6 +15,15 @@ const VECTOR_BYTES = readFileSync(
 );
 const vectors = parseEntryV3VectorDocument(VECTOR_BYTES);
 
+function rawVector(caseId: string): Record<string, unknown> {
+  const raw = JSON.parse(VECTOR_BYTES.toString("utf8")) as {
+    cases: Array<Record<string, unknown>>;
+  };
+  return structuredClone(
+    raw.cases.find((item) => item.case_id === caseId),
+  ) as Record<string, unknown>;
+}
+
 describe("RD entry v3 Python/TypeScript parity", () => {
   it.each(vectors.cases)("$case_id matches the Python oracle", async (raw) => {
     const vector = parseEntryV3Vector(raw);
@@ -146,5 +155,184 @@ describe("RD entry v3 Python/TypeScript parity", () => {
     }
 
     expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+  });
+
+  it.each([
+    ["HTF threshold", "htf_open_ticks", 109],
+    ["event anchor", "event_anchor_epoch", 1500],
+    ["trigger sequence", "trigger_sequence", 6],
+    ["HTF contexts", "htf_context_minutes", [15]],
+  ])(
+    "binds the flip input %s to expected evidence",
+    (_name, field, replacement) => {
+      const vector = rawVector("flip_before_boc");
+      const input = vector.input as Record<string, unknown>;
+      const proof = input.htf_flip_proof as Record<string, unknown>;
+      proof[field] = replacement;
+
+      expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+    },
+  );
+
+  it.each([
+    ["contact_candle", "close_ticks", 106],
+    ["recross_candle", "open_ticks", 109],
+  ])(
+    "binds the input %s %s to the retained expected lifecycle",
+    (candleName, field, replacement) => {
+      const vector = rawVector("flip_before_boc");
+      const input = vector.input as Record<string, unknown>;
+      const proof = input.htf_flip_proof as Record<string, unknown>;
+      const candle = proof[candleName] as Record<string, unknown>;
+      candle[field] = replacement;
+
+      expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+    },
+  );
+
+  it("binds the input direction to every expected candidate", () => {
+    const vector = rawVector("flip_before_boc");
+    const input = vector.input as Record<string, unknown>;
+    input.direction = "SHORT";
+
+    expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+  });
+
+  it("binds input evaluation facts to the expected selection", () => {
+    const vector = rawVector("flip_before_boc");
+    const input = vector.input as Record<string, unknown>;
+    input.evaluated_at_epoch = 2500;
+
+    expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+  });
+
+  it("requires one expected evidence record for every observed model", () => {
+    const vector = rawVector(
+      "close_fallback_after_blocked_aggressive_models",
+    );
+    const expected = vector.expected as {
+      candidates: Array<Record<string, unknown>>;
+      evidence: Array<Record<string, unknown>>;
+    };
+    const flip = expected.candidates.find(
+      (candidate) => candidate.model === "HTF_FLIP",
+    )!;
+    expected.evidence = expected.evidence.filter(
+      (evidence) => evidence.candidate_id !== flip.candidate_id,
+    );
+
+    expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+  });
+
+  it("binds canonical source claims to the candidate model", () => {
+    const vector = rawVector("flip_before_boc");
+    const expected = vector.expected as {
+      candidates: Array<Record<string, unknown>>;
+    };
+    const flip = expected.candidates.find(
+      (candidate) => candidate.model === "HTF_FLIP",
+    )!;
+    flip.source_claim_ids = ["htf-flip-2024-03"];
+
+    expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+  });
+
+  it("rejects a flip trigger tick different from its recross market close", () => {
+    const vector = rawVector("flip_before_boc");
+    const input = vector.input as Record<string, unknown>;
+    const proof = input.htf_flip_proof as Record<string, unknown>;
+    proof.trigger_ticks = 112;
+
+    expect(() => parseEntryV3Vector(vector)).toThrow(TypeError);
+  });
+
+  it("co-triggers BOC and flip at one actual tick above the HTF threshold", async () => {
+    const vector = vectors.cases.find(
+      (item) => item.case_id === "boc_flip_same_event",
+    )!;
+    const result = await evaluateEntryV3Bundle(vector.input);
+    const flip = result.evidence.find(
+      (evidence) =>
+        result.candidates.find(
+          (candidate) => candidate.candidate_id === evidence.candidate_id,
+        )?.model === "HTF_FLIP",
+    )!;
+
+    expect(flip.observed_trigger_ticks).toBe(111);
+    expect(flip.recross_candle?.close_ticks).toBe(111);
+    expect(flip.htf_open_ticks).toBe(110);
+    expect(result.selection).toMatchObject({
+      reason: "CO_TRIGGER_SAME_EVENT",
+      action: "PAPER_ELIGIBLE",
+      co_triggered_models: ["BOC", "HTF_FLIP"],
+    });
+  });
+
+  it("blocks a LONG flip whose wick crosses but actual close does not", async () => {
+    const base = vectors.cases.find(
+      (item) => item.case_id === "flip_before_boc",
+    )!;
+    const proof = structuredClone(base.input.htf_flip_proof!);
+    const input = {
+      ...structuredClone(base.input),
+      boc_proof: null,
+      htf_flip_proof: {
+        ...proof,
+        trigger_ticks: 109,
+        recross_candle: {
+          ...proof.recross_candle!,
+          close_ticks: 109,
+        },
+      },
+    };
+
+    const result = await evaluateEntryV3Bundle(input);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      model: "HTF_FLIP",
+      state: "BLOCKED",
+    });
+    expect(result.evidence[0]).toMatchObject({
+      observed_trigger_ticks: 109,
+      htf_open_ticks: 110,
+      failed_rule_ids: ["HTF_FLIP_OPEN_NOT_RECROSSED"],
+    });
+  });
+
+  it("blocks a SHORT flip whose wrong-side wick hides a non-crossing close", async () => {
+    const base = vectors.cases.find(
+      (item) => item.case_id === "flip_before_boc",
+    )!;
+    const input = {
+      ...structuredClone(base.input),
+      direction: "SHORT" as const,
+      boc_proof: null,
+      htf_flip_proof: {
+        ...structuredClone(base.input.htf_flip_proof!),
+        htf_open_ticks: 99,
+        trigger_ticks: 100,
+        recross_candle: {
+          open_epoch: 1801,
+          close_epoch: 1802,
+          open_ticks: 99,
+          high_ticks: 101,
+          low_ticks: 98,
+          close_ticks: 100,
+        },
+      },
+    };
+
+    const result = await evaluateEntryV3Bundle(input);
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]).toMatchObject({
+      model: "HTF_FLIP",
+      direction: "SHORT",
+      state: "BLOCKED",
+    });
+    expect(result.evidence[0]).toMatchObject({
+      observed_trigger_ticks: 100,
+      htf_open_ticks: 99,
+      failed_rule_ids: ["HTF_FLIP_OPEN_NOT_RECROSSED"],
+    });
   });
 });
