@@ -9,7 +9,7 @@
 - Added chronology-first arbitration, same-event BOC/flip co-trigger handling, immutable decision
   freeze, and at-most-one initial paper intent per setup.
 - Added append-only D1 event, candidate, evidence, selection, parity, paper-link, shadow, exit, and
-  conflict facts through migrations 0024 and 0025.
+  conflict facts through migrations 0024 and 0025, plus the attempt-order read index in 0026.
 - Added a bounded decision API and operations-console ledger that always explains all three model
   rows, selected/competing candidates, blockers, parity, and linked paper state.
 - Extended the global broker/live boundary scan to contract-v3 edge sources and added a

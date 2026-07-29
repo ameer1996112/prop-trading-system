@@ -19,6 +19,7 @@ import {
   LIST_ENTRY_V3_DECISION_PAPER_SQL,
   LIST_ENTRY_V3_DECISION_PARITY_SQL,
   LIST_ENTRY_V3_DECISION_SHADOW_SQL,
+  LIST_ENTRY_V3_DECISIONS_SQL,
 } from "../src/rd-entry-queries-v3";
 import type {
   Env,
@@ -1843,7 +1844,7 @@ function cloneEntryV3DecisionEvent(
     )
     .get(originalEventId) as Record<string, SqliteInput>;
   const originalSelectionId = String(selection.selection_id);
-  const clonedSelectionId = `zz:${suffix}:${originalSelectionId}`;
+  const clonedSelectionId = `00:${suffix}:${originalSelectionId}`;
   const canonicalCandidateLogical =
     selection.canonical_candidate_id === null
       ? null
@@ -2127,7 +2128,7 @@ describe("observation edge Worker", () => {
     });
   });
 
-  it("keeps opaque decision IDs distinct and does not inherit historical shadows", async () => {
+  it("returns the later same-epoch attempt revision even when its ID sorts earlier", async () => {
     const database = new FakeD1();
     seedEntryV3Decision(database, "discretionary_boc_shadow");
     const sourceCandidate = database.sqlite
@@ -2175,6 +2176,9 @@ describe("observation edge Worker", () => {
       "discretionary_boc_shadow",
       "later-same-setup",
     );
+    expect(
+      clone.clonedSelectionId.localeCompare(clone.originalSelectionId),
+    ).toBeLessThan(0);
     const env = await environment(database, {
       PAPER_LEDGER_ENABLED: "true",
       PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
@@ -2439,6 +2443,62 @@ describe("observation edge Worker", () => {
         expect.objectContaining({ name: "evaluated_at_epoch", desc: 1 }),
         expect.objectContaining({ name: "selection_id", desc: 1 }),
       ]),
+    );
+  });
+
+  it("indexes latest append order per v3 setup attempt without rewriting history", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 25);
+    const before = database
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM observation_entry_v3_selections`,
+      )
+      .get();
+    const migration = readFileSync(
+      `${root}/migrations/0026_observation_entry_v3_attempt_order.sql`,
+      "utf8",
+    );
+    database.exec(migration);
+
+    expect(migration).toContain(
+      "idx_observation_entry_v3_selections_attempt_order",
+    );
+    expect(migration).toContain("setup_id");
+    expect(migration).toContain("attempt_kind");
+    expect(migration).toContain("evaluated_at_epoch DESC");
+    expect(LIST_ENTRY_V3_DECISIONS_SQL).toContain(
+      "stored_selection.rowid AS ingest_ordinal",
+    );
+    expect(LIST_ENTRY_V3_DECISIONS_SQL).toContain(
+      "stored_selection.rowid DESC",
+    );
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM observation_entry_v3_selections`,
+        )
+        .get(),
+    ).toEqual(before);
+    expect(
+      database
+        .prepare("PRAGMA index_list('observation_entry_v3_selections')")
+        .all(),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "idx_observation_entry_v3_selections_attempt_order",
+        }),
+      ]),
+    );
+    const plan = database
+      .prepare(`EXPLAIN QUERY PLAN ${LIST_ENTRY_V3_DECISIONS_SQL}`)
+      .all(20) as Array<{ detail: string }>;
+    expect(plan.map((step) => step.detail).join("\n")).toContain(
+      "idx_observation_entry_v3_selections_attempt_order",
     );
   });
 

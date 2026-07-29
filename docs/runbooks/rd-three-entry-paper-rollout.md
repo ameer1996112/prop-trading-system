@@ -17,8 +17,9 @@ Record the reviewed commit and local build artifacts before approval:
 - console source: `apps/operations-console`;
 - console static artifact: `apps/operations-console/out`;
 - TradingView producer: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`;
-- D1 migrations: `0024_observation_entries_v3.sql` and
-  `0025_observation_entry_v3_decision_order.sql`.
+- D1 migrations: `0024_observation_entries_v3.sql`,
+  `0025_observation_entry_v3_decision_order.sql`, and
+  `0026_observation_entry_v3_attempt_order.sql`.
 
 The required runtime binding names are listed below without values. The four names marked
 **secret binding** are also listed under `secrets.required` in `wrangler.jsonc`, but that field is
@@ -64,18 +65,19 @@ Build the two production artifacts again and retain their output paths:
 
 Do not continue if the working tree differs from the reviewed commit.
 
-## 2. Apply D1 migrations through 0025
+## 2. Apply D1 migrations through 0026
 
 After explicit deployment approval, apply every pending migration through
-`0025_observation_entry_v3_decision_order.sql`:
+`0026_observation_entry_v3_attempt_order.sql`:
 
 ```sh
 (cd apps/observation-edge && npm run db:migrate:remote)
 ```
 
-The migration output must show that both `0024_observation_entries_v3.sql` and
-`0025_observation_entry_v3_decision_order.sql` are already applied or were applied successfully.
-Do not delete, rename, or roll back either migration.
+The migration output must show that `0024_observation_entries_v3.sql`,
+`0025_observation_entry_v3_decision_order.sql`, and
+`0026_observation_entry_v3_attempt_order.sql` are already applied or were applied successfully.
+Do not delete, rename, or roll back any of these migrations.
 
 ## 3. Review and bind detector/settings identities
 

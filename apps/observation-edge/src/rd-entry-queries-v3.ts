@@ -238,11 +238,12 @@ export const LIST_ENTRY_V3_DECISIONS_SQL = `
 WITH ranked_selections AS (
   SELECT
     stored_selection.*,
+    stored_selection.rowid AS ingest_ordinal,
     ROW_NUMBER() OVER (
       PARTITION BY stored_selection.setup_id, stored_selection.attempt_kind
       ORDER BY
         stored_selection.evaluated_at_epoch DESC,
-        stored_selection.selection_id DESC
+        stored_selection.rowid DESC
     ) AS attempt_revision_rank
   FROM observation_entry_v3_selections AS stored_selection
 )
@@ -271,7 +272,7 @@ FROM ranked_selections AS selection
 JOIN observation_entry_v3_events AS event
   ON event.event_id = selection.event_id
 WHERE selection.attempt_revision_rank = 1
-ORDER BY selection.evaluated_at_epoch DESC, selection.selection_id DESC
+ORDER BY selection.evaluated_at_epoch DESC, selection.ingest_ordinal DESC
 LIMIT ?
 `;
 
