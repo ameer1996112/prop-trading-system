@@ -113,6 +113,7 @@ describe("loadObservationReceipts", () => {
       ingressEnabled: true,
       items: [
         {
+          source: "OTHER",
           symbol: "EURUSD",
           feed: "OANDA",
           kind: "ALERT_OBSERVATION",
@@ -125,6 +126,42 @@ describe("loadObservationReceipts", () => {
     expect(snapshot.items[0]).not.toHaveProperty("idempotencyKey");
     expect(snapshot.items[0]).not.toHaveProperty("payloadSha256");
     expect(snapshot.items[0]).not.toHaveProperty("receiptId");
+  });
+
+  it("classifies TradingView and smoke-test receipts without exposing producer identifiers", async () => {
+    mockReceiptApi(
+      report([
+        receipt({ producer_instance_id: "tradingview-v3-gbpjpy", symbol: "GBPJPY" }),
+        receipt({
+          producer_instance_id: "shadow-smoke-gbpusd",
+          symbol: "GBPUSD",
+          sequence: 43,
+        }),
+      ]),
+    );
+
+    const snapshot = await loadObservationReceipts();
+
+    expect(snapshot.items).toEqual([
+      expect.objectContaining({ source: "TRADINGVIEW", symbol: "GBPJPY" }),
+      expect.objectContaining({ source: "TEST", symbol: "GBPUSD" }),
+    ]);
+    expect(snapshot.items[0]).not.toHaveProperty("producerInstanceId");
+    expect(snapshot.items[1]).not.toHaveProperty("producerInstanceId");
+  });
+
+  it("retries one transient read failure before returning receipt state", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network interrupted"))
+      .mockResolvedValueOnce(response(report()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(loadObservationReceipts()).resolves.toMatchObject({
+      state: "RECEIVED",
+      count: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("distinguishes enabled empty state from blocked ingress", async () => {

@@ -9,8 +9,10 @@ export type ApiHealthSnapshot = {
 };
 
 export type ObservationReceiptStatus = "RECEIVED" | "DUPLICATE" | "REJECTED";
+export type ObservationReceiptSource = "TRADINGVIEW" | "TEST" | "OTHER";
 
 export type ObservationReceipt = {
+  source: ObservationReceiptSource;
   symbol: string;
   feed: string;
   kind: string;
@@ -214,21 +216,37 @@ export async function fetchBounded(
   externalSignal?: AbortSignal,
   additionalHeaders: Record<string, string> = {},
 ): Promise<Response> {
-  const { fetchTimeoutMs } = getConsoleConfig();
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  externalSignal?.addEventListener("abort", abort, { once: true });
-  const timeout = setTimeout(abort, fetchTimeoutMs);
-  try {
-    return await fetch(endpoint(path), {
-      cache: "no-store",
-      headers: { Accept: "application/json", ...additionalHeaders },
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-    externalSignal?.removeEventListener("abort", abort);
+  const { fetchAttempts, fetchTimeoutMs } = getConsoleConfig();
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= fetchAttempts; attempt += 1) {
+    externalSignal?.throwIfAborted();
+    const controller = new AbortController();
+    let externallyAborted = false;
+    const abort = () => {
+      externallyAborted = true;
+      controller.abort(externalSignal?.reason);
+    };
+    externalSignal?.addEventListener("abort", abort, { once: true });
+    const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
+    try {
+      return await fetch(endpoint(path), {
+        cache: "no-store",
+        headers: { Accept: "application/json", ...additionalHeaders },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      lastError = error;
+      if (externallyAborted || externalSignal?.aborted || attempt === fetchAttempts) {
+        throw error;
+      }
+    } finally {
+      clearTimeout(timeout);
+      externalSignal?.removeEventListener("abort", abort);
+    }
   }
+
+  throw lastError;
 }
 
 async function mutateBounded(
@@ -316,7 +334,17 @@ function parseReceipt(value: unknown): ObservationReceipt {
   }
 
   // Identifiers and fingerprints are contract-validated, then intentionally discarded.
+  const normalizedProducer = value.producer_instance_id.toLowerCase();
+  const source: ObservationReceiptSource =
+    normalizedProducer.startsWith("tradingview") ||
+    normalizedProducer.startsWith("pine-v3")
+      ? "TRADINGVIEW"
+      : normalizedProducer.startsWith("shadow-smoke") ||
+          normalizedProducer.startsWith("container-smoke")
+        ? "TEST"
+        : "OTHER";
   return {
+    source,
     symbol: value.symbol,
     feed: value.feed,
     kind: value.kind,

@@ -11,6 +11,7 @@ import type {
 } from "../src/lib/api";
 
 const baseReceipt: ObservationReceipt = {
+  source: "TRADINGVIEW",
   symbol: "EURUSD",
   feed: "OANDA",
   kind: "ALERT_OBSERVATION",
@@ -77,10 +78,30 @@ describe("ObservationReceiptsPanel", () => {
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     expect(within(list).getByText("DUPLICATE")).toBeInTheDocument();
     expect(within(list).getByText("REJECTED")).toBeInTheDocument();
+    expect(within(list).getAllByText("TRADINGVIEW")).toHaveLength(3);
     expect(screen.getAllByText(/execution disconnected/i)).toHaveLength(3);
     expect(document.body.textContent).not.toMatch(
       /idempotency|payload fingerprint|credential|account secret/i,
     );
+  });
+
+  it("visibly distinguishes test proof from TradingView delivery", () => {
+    const items: ObservationReceipt[] = [
+      baseReceipt,
+      { ...baseReceipt, source: "TEST", symbol: "GBPUSD", sequence: 43 },
+    ];
+    render(
+      <ObservationReceiptsPanel
+        snapshot={snapshot("RECEIVED", {
+          count: items.length,
+          items,
+          message: "Safe metadata returned.",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("TRADINGVIEW")).toBeInTheDocument();
+    expect(screen.getByText("TEST")).toBeInTheDocument();
   });
 
   it("keeps historical safe metadata visible when ingress is blocked", () => {

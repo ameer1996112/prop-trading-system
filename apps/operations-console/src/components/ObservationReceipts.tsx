@@ -58,9 +58,14 @@ function ReceiptCard({ receipt, index }: { receipt: ObservationReceipt; index: n
         {String(index + 1).padStart(2, "0")}
       </div>
       <div className="receipt-instrument">
-        <span className={`receipt-outcome receipt-outcome-${receipt.status.toLowerCase()}`}>
-          {receipt.status}
-        </span>
+        <div className="receipt-badges">
+          <span className={`receipt-outcome receipt-outcome-${receipt.status.toLowerCase()}`}>
+            {receipt.status}
+          </span>
+          <span className={`receipt-source receipt-source-${receipt.source.toLowerCase()}`}>
+            {receipt.source}
+          </span>
+        </div>
         <h3>{receipt.symbol}</h3>
         <p>
           {receipt.feed} <span aria-hidden="true">/</span> {receipt.kind}

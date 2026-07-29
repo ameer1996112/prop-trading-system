@@ -394,9 +394,16 @@ h1 {
   min-width: 0;
 }
 
+.receipt-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
 .receipt-outcome {
   display: inline-block;
-  margin-bottom: 8px;
   color: var(--oxide);
   font-size: 0.58rem;
   font-weight: 700;
@@ -409,6 +416,23 @@ h1 {
 
 .receipt-outcome-rejected {
   color: var(--red);
+}
+
+.receipt-source {
+  padding-left: 8px;
+  border-left: 1px solid var(--line-bright);
+  color: var(--paper-muted);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.receipt-source-tradingview {
+  color: var(--oxide);
+}
+
+.receipt-source-test {
+  color: var(--amber);
 }
 
 .receipt-instrument h3 {

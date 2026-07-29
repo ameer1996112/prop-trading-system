@@ -80,17 +80,19 @@ describe("loadApiHealth", () => {
 
   it("aborts a hanging health request at the bounded timeout", async () => {
     vi.useFakeTimers();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+    );
     vi.stubGlobal(
       "fetch",
-      vi.fn((_url: string, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        }),
-      ),
+      fetchMock,
     );
 
     const pending = loadApiHealth();
-    await vi.advanceTimersByTimeAsync(2_501);
+    await vi.advanceTimersByTimeAsync(12_001);
     await expect(pending).resolves.toMatchObject({ state: "OFFLINE" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
