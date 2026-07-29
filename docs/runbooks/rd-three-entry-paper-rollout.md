@@ -21,10 +21,10 @@ Record the reviewed commit and local build artifacts before approval:
   `0025_observation_entry_v3_decision_order.sql`, and
   `0026_observation_entry_v3_attempt_order.sql`.
 
-The required runtime binding names are listed below without values. The four names marked
+The required runtime binding names are listed below without values. The five names marked
 **secret binding** are also listed under `secrets.required` in `wrangler.jsonc`, but that field is
 schema/type/local-warning metadata only: it does not inspect remote bindings or block deployment.
-The four secret names must never appear under plaintext `vars`:
+The five secret names must never appear under plaintext `vars`:
 
 - `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED`
 - `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256` (**secret binding**)
@@ -34,7 +34,8 @@ The four secret names must never appear under plaintext `vars`:
 - `RD_ENTRY_PAPER_ACCOUNT_IDS`
 - `RD_ENTRY_PAPER_RISK_BPS`
 - `RD_ENTRY_V3_DETECTOR_CODE_HASH` (**secret binding**)
-- `RD_ENTRY_V3_SETTINGS_HASH` (**secret binding**)
+- `RD_ENTRY_V3_SETTINGS_HASH` (**secret binding**, legacy single-profile fallback)
+- `RD_ENTRY_V3_SETTINGS_HASHES_JSON` (**secret binding**, preferred exact-ticker map)
 - `NEXT_PUBLIC_API_BASE_URL` (only when the console is built for a different API origin)
 
 Never record a raw ingress or paper-admin credential in Git, shell history, command output, D1, a
@@ -98,16 +99,24 @@ jq -S -c . /absolute/path/to/reviewed-settings.json | shasum -a 256
 Two reviewers must compare the digests to the exact source and profile. Keep the paper kill switch
 engaged and contract-v3 Pine emission disabled throughout binding verification.
 
-Create an owner-only JSON file outside the repository with only the two reviewed secret bindings.
-Do not put either value on a command line or in shell history. The file must have this exact shape,
-with the placeholders replaced locally:
+For a multi-pair rollout, create one owner-only canonical settings profile per exact ticker ID and
+compute each digest separately. Create an owner-only JSON file outside the repository with the
+reviewed secret bindings. Do not put any value on a command line or in shell history. The preferred
+multi-pair file has this exact shape, with the placeholders replaced locally:
 
 ```json
 {
   "RD_ENTRY_V3_DETECTOR_CODE_HASH": "<reviewed detector digest>",
-  "RD_ENTRY_V3_SETTINGS_HASH": "<reviewed settings digest>"
+  "RD_ENTRY_V3_SETTINGS_HASHES_JSON": "{\"VANTAGE:GBPJPY\":\"<GBPJPY settings digest>\",\"VANTAGE:GBPUSD\":\"<GBPUSD settings digest>\",\"VANTAGE:USDJPY\":\"<USDJPY settings digest>\"}"
 }
 ```
+
+The secret value is a strict JSON object encoded as a string because Wrangler bulk secret input is
+itself JSON. Every key must be the exact TradingView `ticker_id`, every value must be a non-zero
+lowercase SHA-256, and the map may contain at most 64 entries. When this map is present it takes
+precedence over `RD_ENTRY_V3_SETTINGS_HASH`; malformed maps, missing tickers, and mismatched hashes
+fail closed to shadow-only. Keep `RD_ENTRY_V3_SETTINGS_HASH` only as the legacy single-profile
+fallback until rollback policy permits removing it.
 
 Immediately before the next command, obtain explicit approval for a remote Worker secret change.
 From `apps/observation-edge`, bulk-bind the reviewed values through standard input:
@@ -129,13 +138,14 @@ Before proceeding to the application deployment, list the remote binding names:
 npx wrangler secret list
 ```
 
-Confirm that all four names are present with type `secret_text`:
+Confirm that all five names are present with type `secret_text`:
 
 ```text
 TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256
 PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256
 RD_ENTRY_V3_DETECTOR_CODE_HASH
 RD_ENTRY_V3_SETTINGS_HASH
+RD_ENTRY_V3_SETTINGS_HASHES_JSON
 ```
 
 Stop before deployment continuation if any name is absent. Secret listing does not reveal or prove

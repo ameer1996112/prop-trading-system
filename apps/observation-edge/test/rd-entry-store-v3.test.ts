@@ -586,6 +586,80 @@ describe("RD entry v3 persistence", () => {
     ).toEqual({ count: 0 });
   });
 
+  it("accepts the reviewed settings hash bound to the exact ticker", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const validated = await observation(payload);
+    const pairBoundEnv = {
+      ...env(database, { RD_ENTRY_V3_SETTINGS_HASH: "c".repeat(64) }),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:EURUSD": settingsHash,
+      }),
+    };
+
+    const result = await appendEntryV3Observation(
+      pairBoundEnv,
+      validated,
+      await payloadDigest(payload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "PAPER_ELIGIBLE",
+      effectiveActionReason: null,
+    });
+    expect(result.paperIntentIds).toHaveLength(1);
+  });
+
+  it("fails closed when the reviewed map has no entry for the ticker", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const validated = await observation(payload);
+    const pairBoundEnv = {
+      ...env(database),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:USDJPY": settingsHash,
+      }),
+    };
+
+    const result = await appendEntryV3Observation(
+      pairBoundEnv,
+      validated,
+      await payloadDigest(payload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PROMOTION_IDENTITY_MISMATCH",
+    });
+    expect(result.paperIntentIds).toEqual([]);
+  });
+
+  it("fails closed when the reviewed settings map is malformed", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const validated = await observation(payload);
+    const pairBoundEnv = {
+      ...env(database),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON:
+        '{"OANDA:EURUSD":"' + settingsHash + '",}',
+    };
+
+    const result = await appendEntryV3Observation(
+      pairBoundEnv,
+      validated,
+      await payloadDigest(payload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PROMOTION_IDENTITY_MISMATCH",
+    });
+    expect(result.paperIntentIds).toEqual([]);
+  });
+
   it("downgrades invalid paper configuration without partial allocation", async () => {
     const database = new SqliteD1();
     installPaperAccount(database);

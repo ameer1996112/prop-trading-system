@@ -3783,6 +3783,7 @@ describe("deployment contract", () => {
       "PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256",
       "RD_ENTRY_V3_DETECTOR_CODE_HASH",
       "RD_ENTRY_V3_SETTINGS_HASH",
+      "RD_ENTRY_V3_SETTINGS_HASHES_JSON",
     ];
 
     expect(config.compatibility_date).toBe("2026-07-23");

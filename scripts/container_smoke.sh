@@ -2,7 +2,8 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/phase0-container-smoke.XXXXXX")
+temporary_root_parent=${CONTAINER_SMOKE_TMPDIR:-${TMPDIR:-/tmp}}
+temporary_root=$(mktemp -d "$temporary_root_parent/phase0-container-smoke.XXXXXX")
 secret_file="$temporary_root/postgres_password.txt"
 project_name="phase0_verify_$$"
 api_port=$((20000 + ($$ % 5000)))

@@ -687,6 +687,7 @@ export interface Env {
   readonly RD_ENTRY_PAPER_RISK_BPS?: string;
   readonly RD_ENTRY_V3_DETECTOR_CODE_HASH?: string;
   readonly RD_ENTRY_V3_SETTINGS_HASH?: string;
+  readonly RD_ENTRY_V3_SETTINGS_HASHES_JSON?: string;
   readonly RD_ENTRY_PROMOTION_PINE_SHA256?: string;
   readonly RD_ENTRY_PROMOTION_REPORT_SHA256?: string;
   readonly RD_ENTRY_PROMOTION_SOURCE_COMMIT?: string;

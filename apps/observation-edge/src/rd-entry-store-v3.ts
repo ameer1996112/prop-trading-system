@@ -36,7 +36,7 @@ import {
   TERMINATE_ENTRY_V3_SHADOW_POSITION_SQL,
 } from "./rd-entry-queries-v3";
 import { canonicalSha256 } from "./rd-entry-policy";
-import { parseStrictJson } from "./strict-json";
+import { isStrictJsonNumber, parseStrictJson } from "./strict-json";
 import type {
   EntryCandidateEvidenceV3,
   EntryEvaluationV3,
@@ -64,6 +64,10 @@ import type {
 const SHA256 = /^[a-f0-9]{64}$/u;
 const NONZERO_SHA256 = /^(?!0{64}$)[a-f0-9]{64}$/u;
 const RISK_BPS = /^(?:[1-9][0-9]{0,2})$/u;
+const REVIEWED_TICKER_ID =
+  /^[A-Z0-9][A-Z0-9._-]{0,31}:[A-Z0-9][A-Z0-9._-]{0,63}$/u;
+const MAX_REVIEWED_TICKERS = 64;
+const MAX_REVIEWED_SETTINGS_JSON_BYTES = 16_384;
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991n;
 const ATTEMPT_KIND = "INITIAL" as const;
 
@@ -210,14 +214,66 @@ function reviewedIdentityMatches(
   env: Env,
   observation: EntryV3Observation,
 ): boolean {
+  const settingsHash = reviewedSettingsHashForTicker(
+    env,
+    observation.metadata.tickerId,
+  );
   return (
     typeof env.RD_ENTRY_V3_DETECTOR_CODE_HASH === "string" &&
-    typeof env.RD_ENTRY_V3_SETTINGS_HASH === "string" &&
     NONZERO_SHA256.test(env.RD_ENTRY_V3_DETECTOR_CODE_HASH) &&
-    NONZERO_SHA256.test(env.RD_ENTRY_V3_SETTINGS_HASH) &&
+    settingsHash !== null &&
     observation.detectorCodeHash === env.RD_ENTRY_V3_DETECTOR_CODE_HASH &&
-    observation.settingsHash === env.RD_ENTRY_V3_SETTINGS_HASH
+    observation.settingsHash === settingsHash
   );
+}
+
+function reviewedSettingsHashForTicker(
+  env: Env,
+  tickerId: string,
+): string | null {
+  const rawByTicker = env.RD_ENTRY_V3_SETTINGS_HASHES_JSON;
+  if (rawByTicker === undefined) {
+    const legacyHash = env.RD_ENTRY_V3_SETTINGS_HASH;
+    return typeof legacyHash === "string" && NONZERO_SHA256.test(legacyHash)
+      ? legacyHash
+      : null;
+  }
+  if (
+    rawByTicker.length === 0 ||
+    new TextEncoder().encode(rawByTicker).byteLength >
+      MAX_REVIEWED_SETTINGS_JSON_BYTES
+  ) {
+    return null;
+  }
+  let value;
+  try {
+    value = parseStrictJson(new TextEncoder().encode(rawByTicker));
+  } catch {
+    return null;
+  }
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    isStrictJsonNumber(value)
+  ) {
+    return null;
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0 || entries.length > MAX_REVIEWED_TICKERS) {
+    return null;
+  }
+  for (const [configuredTickerId, configuredHash] of entries) {
+    if (
+      !REVIEWED_TICKER_ID.test(configuredTickerId) ||
+      typeof configuredHash !== "string" ||
+      !NONZERO_SHA256.test(configuredHash)
+    ) {
+      return null;
+    }
+  }
+  const reviewedHash = value[tickerId];
+  return typeof reviewedHash === "string" ? reviewedHash : null;
 }
 
 async function paperConfigurationIsUsable(
