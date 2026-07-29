@@ -4,7 +4,7 @@ SHELL := /bin/sh
 PYTHON := uv run python
 CONSOLE := apps/operations-console
 EDGE := apps/observation-edge
-DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.superpowers|node_modules|\.next|dist|out|\.wrangler)(/|$$)|(^|/)(tsconfig\.tsbuildinfo|\.secrets\.baseline)$$
+DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.worktrees|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.superpowers|node_modules|\.next|dist|out|\.wrangler)(/|$$)|(^|/)(tsconfig\.tsbuildinfo|\.secrets\.baseline)$$
 
 .PHONY: help bootstrap format format-check lint typecheck backend-tests frontend-checks \
 	edge-checks \

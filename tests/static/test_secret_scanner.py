@@ -55,6 +55,7 @@ def test_secret_recipe_is_fail_fast_and_has_dedicated_lockfile_scan() -> None:
     makefile = Path("Makefile").read_text(encoding="utf-8")
     recipe = makefile.split("secret-scan:", 1)[1].split("\nboundary-check:", 1)[0]
     assert "set -eu" in recipe
+    assert r"\.worktrees" in makefile
     assert (
         "check_lockfile_credentials.py uv.lock $(CONSOLE)/package-lock.json "
         "$(EDGE)/package-lock.json"
