@@ -240,7 +240,7 @@ type RawZone
     line ownExtremeLine
     label debugLabel
 
-type EntryAttempt
+type EntryCore
     int zoneId
     string setupId
     bool demand
@@ -270,15 +270,18 @@ type EntryAttempt
     bool ruleZoneOriginOppositeCandle
     bool ruleZonePreEntryCloseOutside
     bool commonRulesPass
-    bool bocEmitted
-    bool closeEmitted
-    bool flipEmitted
     bool paperDecisionEmitted
     bool stopEventEmitted
     bool targetEventEmitted
     bool ambiguousExitEmitted
     bool exitTerminal
     bool retentionBlocked
+    int entryTicks
+    int stopTicks
+    int targetTicks
+
+type EntryBoc
+    bool bocEmitted
     int bocEventEpoch
     int bocEventSequence
     int bocEventTicks
@@ -300,6 +303,9 @@ type EntryAttempt
     bool bocAuditPending
     int bocObservedAtEpoch
     string bocFailureCode
+
+type EntryClose
+    bool closeEmitted
     int closeEventEpoch
     int closeEventSequence
     int closeEventTicks
@@ -309,6 +315,9 @@ type EntryAttempt
     int closeLowTicks
     int closeCloseTicks
     int closeObservedAtEpoch
+
+type EntryFlip
+    bool flipEmitted
     int flipEventEpoch
     int flipEventSequence
     int flipEventTicks
@@ -341,6 +350,8 @@ type EntryAttempt
     int flipRecrossHighTicks
     int flipRecrossLowTicks
     int flipRecrossCloseTicks
+
+type EntryHtf15
     int htf15AnchorEpoch
     int htf15OpenTicks
     bool htf15ContactSeen
@@ -362,6 +373,8 @@ type EntryAttempt
     bool htf15CoverageGapDetected
     bool htf15TriggeredThisTick
     bool htf15TriggerExact
+
+type EntryHtf30
     int htf30AnchorEpoch
     int htf30OpenTicks
     bool htf30ContactSeen
@@ -383,6 +396,8 @@ type EntryAttempt
     bool htf30CoverageGapDetected
     bool htf30TriggeredThisTick
     bool htf30TriggerExact
+
+type EntryHtf60
     int htf60AnchorEpoch
     int htf60OpenTicks
     bool htf60ContactSeen
@@ -404,9 +419,15 @@ type EntryAttempt
     bool htf60CoverageGapDetected
     bool htf60TriggeredThisTick
     bool htf60TriggerExact
-    int entryTicks
-    int stopTicks
-    int targetTicks
+
+type EntryAttempt
+    EntryCore core
+    EntryBoc boc
+    EntryClose directionalClose
+    EntryFlip flip
+    EntryHtf15 htf15
+    EntryHtf30 htf30
+    EntryHtf60 htf60
 
 method reset(Candidate this) =>
     this.isActive := false
@@ -1654,199 +1675,206 @@ entryAttemptIndex(int zoneId) =>
     if attemptCount > 0
         for index = 0 to attemptCount - 1
             EntryAttempt attempt = array.get(entryAttempts, index)
-            if na(result) and attempt.zoneId == zoneId
+            if na(result) and attempt.core.zoneId == zoneId
                 result := index
     result
 
 newEntryAttempt(RawZone zone) =>
     EntryAttempt attempt = EntryAttempt.new()
-    attempt.zoneId := zone.id
-    attempt.setupId := entrySetupId(zone)
-    attempt.demand := zone.demand
-    attempt.zoneTopTicks := priceTicks(zone.top)
-    attempt.zoneBottomTicks := priceTicks(zone.bottom)
-    attempt.invalidatedBeforeEntry := zone.state == STATE_INVALIDATED
-    attempt.engagementEpoch := epochSeconds(zone.stateTime)
-    attempt.referenceOpenEpoch := epochSeconds(time)
-    attempt.referenceOpenTicks := priceTicks(open)
-    attempt.referenceHighTicks := priceTicks(high)
-    attempt.referenceLowTicks := priceTicks(low)
-    attempt.referenceCloseTicks := priceTicks(close)
-    attempt.referenceHighPrice := high
-    attempt.referenceLowPrice := low
+    attempt.core := EntryCore.new()
+    attempt.boc := EntryBoc.new()
+    attempt.directionalClose := EntryClose.new()
+    attempt.flip := EntryFlip.new()
+    attempt.htf15 := EntryHtf15.new()
+    attempt.htf30 := EntryHtf30.new()
+    attempt.htf60 := EntryHtf60.new()
+    attempt.core.zoneId := zone.id
+    attempt.core.setupId := entrySetupId(zone)
+    attempt.core.demand := zone.demand
+    attempt.core.zoneTopTicks := priceTicks(zone.top)
+    attempt.core.zoneBottomTicks := priceTicks(zone.bottom)
+    attempt.core.invalidatedBeforeEntry := zone.state == STATE_INVALIDATED
+    attempt.core.engagementEpoch := epochSeconds(zone.stateTime)
+    attempt.core.referenceOpenEpoch := epochSeconds(time)
+    attempt.core.referenceOpenTicks := priceTicks(open)
+    attempt.core.referenceHighTicks := priceTicks(high)
+    attempt.core.referenceLowTicks := priceTicks(low)
+    attempt.core.referenceCloseTicks := priceTicks(close)
+    attempt.core.referenceHighPrice := high
+    attempt.core.referenceLowPrice := low
     bool liquidityAvailable = not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityAnchor) and not na(zone.liquidityExtreme)
     bool ownExtremeBroken = not na(zone.liquidityTakenBar)
     bool liquiditySwept = not na(zone.liquiditySweptBar)
     bool sequenceOrdered = ownExtremeBroken and liquiditySwept and zone.liquidityFormedBar < zone.liquidityTakenBar and zone.liquidityTakenBar < zone.liquiditySweptBar
     bool engagementOrdered = sequenceOrdered and zone.liquiditySweptBar < zone.stateBar
     int oppositeCandleCount = zone.liquidityOppositeCandleCount
-    attempt.ruleLiqActualExtremeSwept := liquidityAvailable and liquiditySwept
-    attempt.ruleLiqDistanceInfluencesZone := not na(zone.liquidityDistance) and zone.liquidityDistance > 0 and not na(zone.liquidityDistanceGuidanceMax) and zone.liquidityDistance <= zone.liquidityDistanceGuidanceMax
-    attempt.ruleLiqEventOrder := engagementOrdered
-    attempt.ruleLiqInternalRebreak := oppositeCandleCount >= 2 and sequenceOrdered
-    attempt.ruleLiqNormalTwoOppositeCandles := oppositeCandleCount >= 2
+    attempt.core.ruleLiqActualExtremeSwept := liquidityAvailable and liquiditySwept
+    attempt.core.ruleLiqDistanceInfluencesZone := not na(zone.liquidityDistance) and zone.liquidityDistance > 0 and not na(zone.liquidityDistanceGuidanceMax) and zone.liquidityDistance <= zone.liquidityDistanceGuidanceMax
+    attempt.core.ruleLiqEventOrder := engagementOrdered
+    attempt.core.ruleLiqInternalRebreak := oppositeCandleCount >= 2 and sequenceOrdered
+    attempt.core.ruleLiqNormalTwoOppositeCandles := oppositeCandleCount >= 2
     // The one-candle exception is discretionary. It is only vacuously true
     // when the normal two-candle proof already exists.
-    attempt.ruleLiqOneCandleException := oppositeCandleCount >= 2
-    attempt.ruleLiqOwnExtremeSameLeg := liquidityAvailable and zone.liquidityAnchorBar <= zone.liquidityExtremeBar
-    attempt.ruleLiqReplacementAfterStaleMove := na(zone.pendingLiquidityPrimaryIndex)
-    attempt.ruleLiqStrictOwnExtremeBreak := ownExtremeBroken and zone.liquidityFormedBar < zone.liquidityTakenBar
-    attempt.ruleTimeframeFiveMinuteOnly := timeframe.isminutes and timeframe.multiplier == 5
-    attempt.ruleZoneAccuracyBounds := zone.geometry == GEOMETRY_STANDARD and zone.top > zone.bottom
-    attempt.ruleZoneFreshUntapped := zone.state == STATE_TAPPED and zone.stateBar == bar_index
-    attempt.ruleZoneOriginOppositeCandle := zone.demand ? zone.originClose < zone.originOpen : zone.originClose > zone.originOpen
-    attempt.ruleZonePreEntryCloseOutside := not zoneCloseInvalidBeforeEntry(zone)
-    attempt.commonRulesPass := attempt.ruleLiqActualExtremeSwept and
-      attempt.ruleLiqDistanceInfluencesZone and
-      attempt.ruleLiqEventOrder and
-      attempt.ruleLiqInternalRebreak and
-      attempt.ruleLiqNormalTwoOppositeCandles and
-      attempt.ruleLiqOneCandleException and
-      attempt.ruleLiqOwnExtremeSameLeg and
-      attempt.ruleLiqReplacementAfterStaleMove and
-      attempt.ruleLiqStrictOwnExtremeBreak and
-      attempt.ruleTimeframeFiveMinuteOnly and
-      attempt.ruleZoneAccuracyBounds and
-      attempt.ruleZoneFreshUntapped and
-      attempt.ruleZoneOriginOppositeCandle and
-      attempt.ruleZonePreEntryCloseOutside
-    attempt.bocEmitted := false
-    attempt.closeEmitted := false
-    attempt.flipEmitted := false
-    attempt.paperDecisionEmitted := false
-    attempt.stopEventEmitted := false
-    attempt.targetEventEmitted := false
-    attempt.ambiguousExitEmitted := false
-    attempt.exitTerminal := false
-    attempt.retentionBlocked := false
-    attempt.bocEventEpoch := na
-    attempt.bocEventSequence := na
-    attempt.bocEventTicks := na
-    attempt.bocContextMask := 0
-    attempt.bocTier := ""
-    attempt.bocFidelity := "UNRESOLVED"
-    attempt.bocProofPlane := ENTRY_CONFIRMED_PLANE
-    attempt.bocReplayability := ENTRY_REPLAYABLE
-    attempt.bocCoverageReady := false
-    attempt.bocPreviousNonBrokenSide := false
-    attempt.bocLastTickSequence := na
-    attempt.bocLastTickEpoch := na
-    attempt.bocPreviousTickTicks := na
-    attempt.bocCoverageStartEpoch := na
-    attempt.bocCoverageEndEpoch := na
-    attempt.bocCoverageGapDetected := false
-    attempt.bocAmbiguityCode := "SHADOW_SAME_CHILD_BAR_ORDER"
-    attempt.bocTriggerCausal := false
-    attempt.bocAuditPending := false
-    attempt.bocObservedAtEpoch := na
-    attempt.bocFailureCode := "HISTORICAL_ORDER_UNPROVEN"
-    attempt.closeEventEpoch := na
-    attempt.closeEventSequence := na
-    attempt.closeEventTicks := na
-    attempt.closeOpenEpoch := na
-    attempt.closeOpenTicks := na
-    attempt.closeHighTicks := na
-    attempt.closeLowTicks := na
-    attempt.closeCloseTicks := na
-    attempt.closeObservedAtEpoch := na
-    attempt.flipEventEpoch := na
-    attempt.flipEventSequence := na
-    attempt.flipEventTicks := na
-    attempt.flipContextMinutes := na
-    attempt.flipContextMask := 0
-    attempt.flipAnchorEpoch := na
-    attempt.flipOpenTicks := na
-    attempt.flipFidelity := "UNRESOLVED"
-    attempt.flipProofPlane := ENTRY_CONFIRMED_PLANE
-    attempt.flipReplayability := ENTRY_REPLAYABLE
-    attempt.flipCoverageStartEpoch := na
-    attempt.flipCoverageEndEpoch := na
-    attempt.flipCoverageGapDetected := false
-    attempt.flipFullLifecycleOrdered := false
-    attempt.flipAmbiguityCode := "SHADOW_SAME_CHILD_BAR_ORDER"
-    attempt.flipFailureCode := "HISTORICAL_ORDER_UNPROVEN"
-    attempt.flipTriggerCausal := false
-    attempt.flipLifecycleCausal := false
-    attempt.flipAuditPending := false
-    attempt.flipObservedAtEpoch := na
-    attempt.flipContactOpenEpoch := na
-    attempt.flipContactCloseEpoch := na
-    attempt.flipContactOpenTicks := na
-    attempt.flipContactHighTicks := na
-    attempt.flipContactLowTicks := na
-    attempt.flipContactCloseTicks := na
-    attempt.flipRecrossOpenEpoch := na
-    attempt.flipRecrossCloseEpoch := na
-    attempt.flipRecrossOpenTicks := na
-    attempt.flipRecrossHighTicks := na
-    attempt.flipRecrossLowTicks := na
-    attempt.flipRecrossCloseTicks := na
-    attempt.htf15AnchorEpoch := na
-    attempt.htf15OpenTicks := na
-    attempt.htf15ContactSeen := false
-    attempt.htf15DestinationBeforeContact := false
-    attempt.htf15ContactOpenEpoch := na
-    attempt.htf15ContactCloseEpoch := na
-    attempt.htf15ContactOpenTicks := na
-    attempt.htf15ContactHighTicks := na
-    attempt.htf15ContactLowTicks := na
-    attempt.htf15ContactCloseTicks := na
-    attempt.htf15ContactTickEpoch := na
-    attempt.htf15ContactTickSequence := na
-    attempt.htf15CoverageReady := false
-    attempt.htf15PreviousAtOrInsideOpen := false
-    attempt.htf15LastTickSequence := na
-    attempt.htf15LastTickEpoch := na
-    attempt.htf15PreviousTickTicks := na
-    attempt.htf15CoverageStartEpoch := na
-    attempt.htf15CoverageGapDetected := false
-    attempt.htf15TriggeredThisTick := false
-    attempt.htf15TriggerExact := false
-    attempt.htf30AnchorEpoch := na
-    attempt.htf30OpenTicks := na
-    attempt.htf30ContactSeen := false
-    attempt.htf30DestinationBeforeContact := false
-    attempt.htf30ContactOpenEpoch := na
-    attempt.htf30ContactCloseEpoch := na
-    attempt.htf30ContactOpenTicks := na
-    attempt.htf30ContactHighTicks := na
-    attempt.htf30ContactLowTicks := na
-    attempt.htf30ContactCloseTicks := na
-    attempt.htf30ContactTickEpoch := na
-    attempt.htf30ContactTickSequence := na
-    attempt.htf30CoverageReady := false
-    attempt.htf30PreviousAtOrInsideOpen := false
-    attempt.htf30LastTickSequence := na
-    attempt.htf30LastTickEpoch := na
-    attempt.htf30PreviousTickTicks := na
-    attempt.htf30CoverageStartEpoch := na
-    attempt.htf30CoverageGapDetected := false
-    attempt.htf30TriggeredThisTick := false
-    attempt.htf30TriggerExact := false
-    attempt.htf60AnchorEpoch := na
-    attempt.htf60OpenTicks := na
-    attempt.htf60ContactSeen := false
-    attempt.htf60DestinationBeforeContact := false
-    attempt.htf60ContactOpenEpoch := na
-    attempt.htf60ContactCloseEpoch := na
-    attempt.htf60ContactOpenTicks := na
-    attempt.htf60ContactHighTicks := na
-    attempt.htf60ContactLowTicks := na
-    attempt.htf60ContactCloseTicks := na
-    attempt.htf60ContactTickEpoch := na
-    attempt.htf60ContactTickSequence := na
-    attempt.htf60CoverageReady := false
-    attempt.htf60PreviousAtOrInsideOpen := false
-    attempt.htf60LastTickSequence := na
-    attempt.htf60LastTickEpoch := na
-    attempt.htf60PreviousTickTicks := na
-    attempt.htf60CoverageStartEpoch := na
-    attempt.htf60CoverageGapDetected := false
-    attempt.htf60TriggeredThisTick := false
-    attempt.htf60TriggerExact := false
-    attempt.entryTicks := na
-    attempt.stopTicks := na
-    attempt.targetTicks := na
+    attempt.core.ruleLiqOneCandleException := oppositeCandleCount >= 2
+    attempt.core.ruleLiqOwnExtremeSameLeg := liquidityAvailable and zone.liquidityAnchorBar <= zone.liquidityExtremeBar
+    attempt.core.ruleLiqReplacementAfterStaleMove := na(zone.pendingLiquidityPrimaryIndex)
+    attempt.core.ruleLiqStrictOwnExtremeBreak := ownExtremeBroken and zone.liquidityFormedBar < zone.liquidityTakenBar
+    attempt.core.ruleTimeframeFiveMinuteOnly := timeframe.isminutes and timeframe.multiplier == 5
+    attempt.core.ruleZoneAccuracyBounds := zone.geometry == GEOMETRY_STANDARD and zone.top > zone.bottom
+    attempt.core.ruleZoneFreshUntapped := zone.state == STATE_TAPPED and zone.stateBar == bar_index
+    attempt.core.ruleZoneOriginOppositeCandle := zone.demand ? zone.originClose < zone.originOpen : zone.originClose > zone.originOpen
+    attempt.core.ruleZonePreEntryCloseOutside := not zoneCloseInvalidBeforeEntry(zone)
+    attempt.core.commonRulesPass := attempt.core.ruleLiqActualExtremeSwept and
+      attempt.core.ruleLiqDistanceInfluencesZone and
+      attempt.core.ruleLiqEventOrder and
+      attempt.core.ruleLiqInternalRebreak and
+      attempt.core.ruleLiqNormalTwoOppositeCandles and
+      attempt.core.ruleLiqOneCandleException and
+      attempt.core.ruleLiqOwnExtremeSameLeg and
+      attempt.core.ruleLiqReplacementAfterStaleMove and
+      attempt.core.ruleLiqStrictOwnExtremeBreak and
+      attempt.core.ruleTimeframeFiveMinuteOnly and
+      attempt.core.ruleZoneAccuracyBounds and
+      attempt.core.ruleZoneFreshUntapped and
+      attempt.core.ruleZoneOriginOppositeCandle and
+      attempt.core.ruleZonePreEntryCloseOutside
+    attempt.boc.bocEmitted := false
+    attempt.directionalClose.closeEmitted := false
+    attempt.flip.flipEmitted := false
+    attempt.core.paperDecisionEmitted := false
+    attempt.core.stopEventEmitted := false
+    attempt.core.targetEventEmitted := false
+    attempt.core.ambiguousExitEmitted := false
+    attempt.core.exitTerminal := false
+    attempt.core.retentionBlocked := false
+    attempt.boc.bocEventEpoch := na
+    attempt.boc.bocEventSequence := na
+    attempt.boc.bocEventTicks := na
+    attempt.boc.bocContextMask := 0
+    attempt.boc.bocTier := ""
+    attempt.boc.bocFidelity := "UNRESOLVED"
+    attempt.boc.bocProofPlane := ENTRY_CONFIRMED_PLANE
+    attempt.boc.bocReplayability := ENTRY_REPLAYABLE
+    attempt.boc.bocCoverageReady := false
+    attempt.boc.bocPreviousNonBrokenSide := false
+    attempt.boc.bocLastTickSequence := na
+    attempt.boc.bocLastTickEpoch := na
+    attempt.boc.bocPreviousTickTicks := na
+    attempt.boc.bocCoverageStartEpoch := na
+    attempt.boc.bocCoverageEndEpoch := na
+    attempt.boc.bocCoverageGapDetected := false
+    attempt.boc.bocAmbiguityCode := "SHADOW_SAME_CHILD_BAR_ORDER"
+    attempt.boc.bocTriggerCausal := false
+    attempt.boc.bocAuditPending := false
+    attempt.boc.bocObservedAtEpoch := na
+    attempt.boc.bocFailureCode := "HISTORICAL_ORDER_UNPROVEN"
+    attempt.directionalClose.closeEventEpoch := na
+    attempt.directionalClose.closeEventSequence := na
+    attempt.directionalClose.closeEventTicks := na
+    attempt.directionalClose.closeOpenEpoch := na
+    attempt.directionalClose.closeOpenTicks := na
+    attempt.directionalClose.closeHighTicks := na
+    attempt.directionalClose.closeLowTicks := na
+    attempt.directionalClose.closeCloseTicks := na
+    attempt.directionalClose.closeObservedAtEpoch := na
+    attempt.flip.flipEventEpoch := na
+    attempt.flip.flipEventSequence := na
+    attempt.flip.flipEventTicks := na
+    attempt.flip.flipContextMinutes := na
+    attempt.flip.flipContextMask := 0
+    attempt.flip.flipAnchorEpoch := na
+    attempt.flip.flipOpenTicks := na
+    attempt.flip.flipFidelity := "UNRESOLVED"
+    attempt.flip.flipProofPlane := ENTRY_CONFIRMED_PLANE
+    attempt.flip.flipReplayability := ENTRY_REPLAYABLE
+    attempt.flip.flipCoverageStartEpoch := na
+    attempt.flip.flipCoverageEndEpoch := na
+    attempt.flip.flipCoverageGapDetected := false
+    attempt.flip.flipFullLifecycleOrdered := false
+    attempt.flip.flipAmbiguityCode := "SHADOW_SAME_CHILD_BAR_ORDER"
+    attempt.flip.flipFailureCode := "HISTORICAL_ORDER_UNPROVEN"
+    attempt.flip.flipTriggerCausal := false
+    attempt.flip.flipLifecycleCausal := false
+    attempt.flip.flipAuditPending := false
+    attempt.flip.flipObservedAtEpoch := na
+    attempt.flip.flipContactOpenEpoch := na
+    attempt.flip.flipContactCloseEpoch := na
+    attempt.flip.flipContactOpenTicks := na
+    attempt.flip.flipContactHighTicks := na
+    attempt.flip.flipContactLowTicks := na
+    attempt.flip.flipContactCloseTicks := na
+    attempt.flip.flipRecrossOpenEpoch := na
+    attempt.flip.flipRecrossCloseEpoch := na
+    attempt.flip.flipRecrossOpenTicks := na
+    attempt.flip.flipRecrossHighTicks := na
+    attempt.flip.flipRecrossLowTicks := na
+    attempt.flip.flipRecrossCloseTicks := na
+    attempt.htf15.htf15AnchorEpoch := na
+    attempt.htf15.htf15OpenTicks := na
+    attempt.htf15.htf15ContactSeen := false
+    attempt.htf15.htf15DestinationBeforeContact := false
+    attempt.htf15.htf15ContactOpenEpoch := na
+    attempt.htf15.htf15ContactCloseEpoch := na
+    attempt.htf15.htf15ContactOpenTicks := na
+    attempt.htf15.htf15ContactHighTicks := na
+    attempt.htf15.htf15ContactLowTicks := na
+    attempt.htf15.htf15ContactCloseTicks := na
+    attempt.htf15.htf15ContactTickEpoch := na
+    attempt.htf15.htf15ContactTickSequence := na
+    attempt.htf15.htf15CoverageReady := false
+    attempt.htf15.htf15PreviousAtOrInsideOpen := false
+    attempt.htf15.htf15LastTickSequence := na
+    attempt.htf15.htf15LastTickEpoch := na
+    attempt.htf15.htf15PreviousTickTicks := na
+    attempt.htf15.htf15CoverageStartEpoch := na
+    attempt.htf15.htf15CoverageGapDetected := false
+    attempt.htf15.htf15TriggeredThisTick := false
+    attempt.htf15.htf15TriggerExact := false
+    attempt.htf30.htf30AnchorEpoch := na
+    attempt.htf30.htf30OpenTicks := na
+    attempt.htf30.htf30ContactSeen := false
+    attempt.htf30.htf30DestinationBeforeContact := false
+    attempt.htf30.htf30ContactOpenEpoch := na
+    attempt.htf30.htf30ContactCloseEpoch := na
+    attempt.htf30.htf30ContactOpenTicks := na
+    attempt.htf30.htf30ContactHighTicks := na
+    attempt.htf30.htf30ContactLowTicks := na
+    attempt.htf30.htf30ContactCloseTicks := na
+    attempt.htf30.htf30ContactTickEpoch := na
+    attempt.htf30.htf30ContactTickSequence := na
+    attempt.htf30.htf30CoverageReady := false
+    attempt.htf30.htf30PreviousAtOrInsideOpen := false
+    attempt.htf30.htf30LastTickSequence := na
+    attempt.htf30.htf30LastTickEpoch := na
+    attempt.htf30.htf30PreviousTickTicks := na
+    attempt.htf30.htf30CoverageStartEpoch := na
+    attempt.htf30.htf30CoverageGapDetected := false
+    attempt.htf30.htf30TriggeredThisTick := false
+    attempt.htf30.htf30TriggerExact := false
+    attempt.htf60.htf60AnchorEpoch := na
+    attempt.htf60.htf60OpenTicks := na
+    attempt.htf60.htf60ContactSeen := false
+    attempt.htf60.htf60DestinationBeforeContact := false
+    attempt.htf60.htf60ContactOpenEpoch := na
+    attempt.htf60.htf60ContactCloseEpoch := na
+    attempt.htf60.htf60ContactOpenTicks := na
+    attempt.htf60.htf60ContactHighTicks := na
+    attempt.htf60.htf60ContactLowTicks := na
+    attempt.htf60.htf60ContactCloseTicks := na
+    attempt.htf60.htf60ContactTickEpoch := na
+    attempt.htf60.htf60ContactTickSequence := na
+    attempt.htf60.htf60CoverageReady := false
+    attempt.htf60.htf60PreviousAtOrInsideOpen := false
+    attempt.htf60.htf60LastTickSequence := na
+    attempt.htf60.htf60LastTickEpoch := na
+    attempt.htf60.htf60PreviousTickTicks := na
+    attempt.htf60.htf60CoverageStartEpoch := na
+    attempt.htf60.htf60CoverageGapDetected := false
+    attempt.htf60.htf60TriggeredThisTick := false
+    attempt.htf60.htf60TriggerExact := false
+    attempt.core.entryTicks := na
+    attempt.core.stopTicks := na
+    attempt.core.targetTicks := na
     attempt
 
 ensureEntryAttempt(RawZone zone) =>
@@ -1873,20 +1901,20 @@ materializeEngagedEntryAttempts(array<RawZone> zoneItems) =>
 
 commonRuleResultsPayload(EntryAttempt attempt) =>
     "[" +
-     "{\"rule_id\":\"LIQ_ACTUAL_EXTREME_SWEPT\",\"passed\":" + str.tostring(attempt.ruleLiqActualExtremeSwept) + "}," +
-     "{\"rule_id\":\"LIQ_DISTANCE_INFLUENCES_ZONE\",\"passed\":" + str.tostring(attempt.ruleLiqDistanceInfluencesZone) + "}," +
-     "{\"rule_id\":\"LIQ_EVENT_ORDER\",\"passed\":" + str.tostring(attempt.ruleLiqEventOrder) + "}," +
-     "{\"rule_id\":\"LIQ_INTERNAL_REBREAK\",\"passed\":" + str.tostring(attempt.ruleLiqInternalRebreak) + "}," +
-     "{\"rule_id\":\"LIQ_NORMAL_TWO_OPPOSITE_CANDLES\",\"passed\":" + str.tostring(attempt.ruleLiqNormalTwoOppositeCandles) + "}," +
-     "{\"rule_id\":\"LIQ_ONE_CANDLE_EXCEPTION\",\"passed\":" + str.tostring(attempt.ruleLiqOneCandleException) + "}," +
-     "{\"rule_id\":\"LIQ_OWN_EXTREME_SAME_LEG\",\"passed\":" + str.tostring(attempt.ruleLiqOwnExtremeSameLeg) + "}," +
-     "{\"rule_id\":\"LIQ_REPLACEMENT_AFTER_STALE_MOVE\",\"passed\":" + str.tostring(attempt.ruleLiqReplacementAfterStaleMove) + "}," +
-     "{\"rule_id\":\"LIQ_STRICT_OWN_EXTREME_BREAK\",\"passed\":" + str.tostring(attempt.ruleLiqStrictOwnExtremeBreak) + "}," +
-     "{\"rule_id\":\"TIMEFRAME_FIVE_MINUTE_ONLY\",\"passed\":" + str.tostring(attempt.ruleTimeframeFiveMinuteOnly) + "}," +
-     "{\"rule_id\":\"ZONE_ACCURACY_BOUNDS\",\"passed\":" + str.tostring(attempt.ruleZoneAccuracyBounds) + "}," +
-     "{\"rule_id\":\"ZONE_FRESH_UNTAPPED\",\"passed\":" + str.tostring(attempt.ruleZoneFreshUntapped) + "}," +
-     "{\"rule_id\":\"ZONE_ORIGIN_OPPOSITE_CANDLE\",\"passed\":" + str.tostring(attempt.ruleZoneOriginOppositeCandle) + "}," +
-     "{\"rule_id\":\"ZONE_PRE_ENTRY_CLOSE_OUTSIDE\",\"passed\":" + str.tostring(attempt.ruleZonePreEntryCloseOutside) + "}" +
+     "{\"rule_id\":\"LIQ_ACTUAL_EXTREME_SWEPT\",\"passed\":" + str.tostring(attempt.core.ruleLiqActualExtremeSwept) + "}," +
+     "{\"rule_id\":\"LIQ_DISTANCE_INFLUENCES_ZONE\",\"passed\":" + str.tostring(attempt.core.ruleLiqDistanceInfluencesZone) + "}," +
+     "{\"rule_id\":\"LIQ_EVENT_ORDER\",\"passed\":" + str.tostring(attempt.core.ruleLiqEventOrder) + "}," +
+     "{\"rule_id\":\"LIQ_INTERNAL_REBREAK\",\"passed\":" + str.tostring(attempt.core.ruleLiqInternalRebreak) + "}," +
+     "{\"rule_id\":\"LIQ_NORMAL_TWO_OPPOSITE_CANDLES\",\"passed\":" + str.tostring(attempt.core.ruleLiqNormalTwoOppositeCandles) + "}," +
+     "{\"rule_id\":\"LIQ_ONE_CANDLE_EXCEPTION\",\"passed\":" + str.tostring(attempt.core.ruleLiqOneCandleException) + "}," +
+     "{\"rule_id\":\"LIQ_OWN_EXTREME_SAME_LEG\",\"passed\":" + str.tostring(attempt.core.ruleLiqOwnExtremeSameLeg) + "}," +
+     "{\"rule_id\":\"LIQ_REPLACEMENT_AFTER_STALE_MOVE\",\"passed\":" + str.tostring(attempt.core.ruleLiqReplacementAfterStaleMove) + "}," +
+     "{\"rule_id\":\"LIQ_STRICT_OWN_EXTREME_BREAK\",\"passed\":" + str.tostring(attempt.core.ruleLiqStrictOwnExtremeBreak) + "}," +
+     "{\"rule_id\":\"TIMEFRAME_FIVE_MINUTE_ONLY\",\"passed\":" + str.tostring(attempt.core.ruleTimeframeFiveMinuteOnly) + "}," +
+     "{\"rule_id\":\"ZONE_ACCURACY_BOUNDS\",\"passed\":" + str.tostring(attempt.core.ruleZoneAccuracyBounds) + "}," +
+     "{\"rule_id\":\"ZONE_FRESH_UNTAPPED\",\"passed\":" + str.tostring(attempt.core.ruleZoneFreshUntapped) + "}," +
+     "{\"rule_id\":\"ZONE_ORIGIN_OPPOSITE_CANDLE\",\"passed\":" + str.tostring(attempt.core.ruleZoneOriginOppositeCandle) + "}," +
+     "{\"rule_id\":\"ZONE_PRE_ENTRY_CLOSE_OUTSIDE\",\"passed\":" + str.tostring(attempt.core.ruleZonePreEntryCloseOutside) + "}" +
      "]"
 
 entrySourceClaims(string model, string bocTier) =>
@@ -1910,9 +1938,9 @@ entryPassedRules(string model, bool exact) =>
 entryFailedRules(EntryAttempt attempt, string model, string bocTier, bool exact, bool commonExact) =>
     exact ? "[]" :
      not commonExact ? "[\"COMMON_SETUP_NOT_EXACT\"]" :
-     model == ENTRY_MODEL_BOC and bocTier == BOC_TIER_DISCRETIONARY and attempt.bocFidelity == "DISCRETIONARY" ? "[\"" + BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED + "\"]" :
-     model == ENTRY_MODEL_BOC ? "[\"" + attempt.bocFailureCode + "\"]" :
-     model == ENTRY_MODEL_FLIP ? "[\"" + attempt.flipFailureCode + "\"]" :
+     model == ENTRY_MODEL_BOC and bocTier == BOC_TIER_DISCRETIONARY and attempt.boc.bocFidelity == "DISCRETIONARY" ? "[\"" + BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED + "\"]" :
+     model == ENTRY_MODEL_BOC ? "[\"" + attempt.boc.bocFailureCode + "\"]" :
+     model == ENTRY_MODEL_FLIP ? "[\"" + attempt.flip.flipFailureCode + "\"]" :
      "[\"HISTORICAL_ORDER_UNPROVEN\"]"
 
 entryAmbiguities(string model, bool exact) =>
@@ -1937,67 +1965,67 @@ entryClockEpoch() =>
     barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)
 
 entryObservedEpoch(EntryAttempt attempt, string model) =>
-    model == ENTRY_MODEL_BOC ? attempt.bocObservedAtEpoch : model == ENTRY_MODEL_CLOSE ? attempt.closeObservedAtEpoch : attempt.flipObservedAtEpoch
+    model == ENTRY_MODEL_BOC ? attempt.boc.bocObservedAtEpoch : model == ENTRY_MODEL_CLOSE ? attempt.directionalClose.closeObservedAtEpoch : attempt.flip.flipObservedAtEpoch
 
 entryEvaluationEpoch(EntryAttempt attempt) =>
     int result = entryClockEpoch()
-    if attempt.bocEmitted and not na(attempt.bocObservedAtEpoch)
-        result := math.max(result, attempt.bocObservedAtEpoch)
-    if attempt.closeEmitted and not na(attempt.closeObservedAtEpoch)
-        result := math.max(result, attempt.closeObservedAtEpoch)
-    if attempt.flipEmitted and not na(attempt.flipObservedAtEpoch)
-        result := math.max(result, attempt.flipObservedAtEpoch)
+    if attempt.boc.bocEmitted and not na(attempt.boc.bocObservedAtEpoch)
+        result := math.max(result, attempt.boc.bocObservedAtEpoch)
+    if attempt.directionalClose.closeEmitted and not na(attempt.directionalClose.closeObservedAtEpoch)
+        result := math.max(result, attempt.directionalClose.closeObservedAtEpoch)
+    if attempt.flip.flipEmitted and not na(attempt.flip.flipObservedAtEpoch)
+        result := math.max(result, attempt.flip.flipObservedAtEpoch)
     result
 
 entryCandidatePayload(EntryAttempt attempt, RawZone zone, string model) =>
     bool isBoc = model == ENTRY_MODEL_BOC
-    int eventAnchor = isBoc ? attempt.referenceOpenEpoch : model == ENTRY_MODEL_CLOSE ? attempt.closeOpenEpoch : attempt.flipAnchorEpoch
-    string tier = isBoc ? jsonString(attempt.bocTier) : "null"
-    string referenceEpoch = isBoc ? str.tostring(attempt.referenceOpenEpoch) : "null"
-    bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool exact = model == ENTRY_MODEL_BOC ? attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact : model == ENTRY_MODEL_CLOSE ? commonExact : attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
-    string state = commonExact and (exact or (isBoc and attempt.bocTier == BOC_TIER_DISCRETIONARY and attempt.bocFidelity == "DISCRETIONARY")) ? "MATCHED" : "BLOCKED"
+    int eventAnchor = isBoc ? attempt.core.referenceOpenEpoch : model == ENTRY_MODEL_CLOSE ? attempt.directionalClose.closeOpenEpoch : attempt.flip.flipAnchorEpoch
+    string tier = isBoc ? jsonString(attempt.boc.bocTier) : "null"
+    string referenceEpoch = isBoc ? str.tostring(attempt.core.referenceOpenEpoch) : "null"
+    bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
+    bool exact = model == ENTRY_MODEL_BOC ? attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact : model == ENTRY_MODEL_CLOSE ? commonExact : attempt.flip.flipFidelity == "EXACT" and attempt.flip.flipTriggerCausal and attempt.flip.flipLifecycleCausal and commonExact
+    string state = commonExact and (exact or (isBoc and attempt.boc.bocTier == BOC_TIER_DISCRETIONARY and attempt.boc.bocFidelity == "DISCRETIONARY")) ? "MATCHED" : "BLOCKED"
     "{" +
      "\"candidate_id\":" + jsonString(entryCandidateId(model)) + "," +
-     "\"setup_id\":" + jsonString(attempt.setupId) + "," +
+     "\"setup_id\":" + jsonString(attempt.core.setupId) + "," +
      "\"model\":" + jsonString(model) + "," +
      "\"state\":" + jsonString(state) + "," +
-     "\"direction\":" + jsonString(attempt.demand ? "LONG" : "SHORT") + "," +
+     "\"direction\":" + jsonString(attempt.core.demand ? "LONG" : "SHORT") + "," +
      "\"event_anchor_epoch\":" + str.tostring(eventAnchor) + "," +
      "\"trigger_ordinal\":1," +
      "\"boc_tier\":" + tier + "," +
      "\"reference_candle_open_epoch\":" + referenceEpoch + "," +
-     "\"source_claim_ids\":" + entrySourceClaims(model, attempt.bocTier) + "," +
+     "\"source_claim_ids\":" + entrySourceClaims(model, attempt.boc.bocTier) + "," +
      "\"observed_at_epoch\":" + str.tostring(entryObservedEpoch(attempt, model)) + "}"
 
 entryEvidencePayload(EntryAttempt attempt, RawZone zone, string model) =>
     bool isBoc = model == ENTRY_MODEL_BOC
     bool isClose = model == ENTRY_MODEL_CLOSE
-    bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool triggerCausal = isBoc ? attempt.bocTriggerCausal : isClose ? true : attempt.flipTriggerCausal
-    bool lifecycleCausal = model == ENTRY_MODEL_FLIP and attempt.flipLifecycleCausal
-    bool exact = isBoc ? attempt.bocFidelity == "EXACT" and triggerCausal and commonExact : isClose ? commonExact : attempt.flipFidelity == "EXACT" and triggerCausal and lifecycleCausal and commonExact
-    int triggerEpoch = isBoc ? attempt.bocEventEpoch : isClose ? attempt.closeEventEpoch : attempt.flipEventEpoch
-    int triggerSequence = isBoc ? attempt.bocEventSequence : isClose ? attempt.closeEventSequence : attempt.flipEventSequence
-    int triggerTicks = isBoc ? attempt.bocEventTicks : isClose ? attempt.closeEventTicks : attempt.flipEventTicks
-    string fidelity = exact ? "EXACT" : commonExact and isBoc and attempt.bocTier == BOC_TIER_DISCRETIONARY and attempt.bocFidelity == "DISCRETIONARY" ? "DISCRETIONARY" : "UNRESOLVED"
-    string proofPlane = isClose ? ENTRY_CONFIRMED_PLANE : isBoc ? attempt.bocProofPlane : attempt.flipProofPlane
-    string replayability = isClose ? ENTRY_REPLAYABLE : isBoc ? attempt.bocReplayability : attempt.flipReplayability
-    int coverageStart = isBoc ? attempt.bocCoverageStartEpoch : isClose ? attempt.closeOpenEpoch : attempt.flipCoverageStartEpoch
-    int coverageEnd = isBoc ? attempt.bocCoverageEndEpoch : isClose ? attempt.closeEventEpoch : attempt.flipCoverageEndEpoch
-    string contexts = isBoc ? entryHtfContexts(attempt.bocContextMask) : isClose ? "[]" : entryHtfContexts(attempt.flipContextMask)
-    string referenceOpenEpoch = isBoc ? str.tostring(attempt.referenceOpenEpoch) : "null"
-    string referenceOpenTicks = isBoc ? str.tostring(attempt.referenceOpenTicks) : "null"
-    string referenceHighTicks = isBoc ? str.tostring(attempt.referenceHighTicks) : "null"
-    string referenceLowTicks = isBoc ? str.tostring(attempt.referenceLowTicks) : "null"
-    string referenceCloseTicks = isBoc ? str.tostring(attempt.referenceCloseTicks) : "null"
-    string htfOpenTicks = model == ENTRY_MODEL_FLIP ? nullableEntryInt(lifecycleCausal, attempt.flipOpenTicks) : "null"
-    string contactCandle = model == ENTRY_MODEL_FLIP ? nullableOrderedCandlePayload(lifecycleCausal, attempt.flipContactOpenEpoch, attempt.flipContactCloseEpoch, attempt.flipContactOpenTicks, attempt.flipContactHighTicks, attempt.flipContactLowTicks, attempt.flipContactCloseTicks) : "null"
-    string recrossCandle = model == ENTRY_MODEL_FLIP ? nullableOrderedCandlePayload(lifecycleCausal, attempt.flipRecrossOpenEpoch, attempt.flipRecrossCloseEpoch, attempt.flipRecrossOpenTicks, attempt.flipRecrossHighTicks, attempt.flipRecrossLowTicks, attempt.flipRecrossCloseTicks) : "null"
-    string lifecycleFlag = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, attempt.flipCoverageGapDetected) : "null"
-    string lifecycleOrdered = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, attempt.flipFullLifecycleOrdered) : "null"
+    bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
+    bool triggerCausal = isBoc ? attempt.boc.bocTriggerCausal : isClose ? true : attempt.flip.flipTriggerCausal
+    bool lifecycleCausal = model == ENTRY_MODEL_FLIP and attempt.flip.flipLifecycleCausal
+    bool exact = isBoc ? attempt.boc.bocFidelity == "EXACT" and triggerCausal and commonExact : isClose ? commonExact : attempt.flip.flipFidelity == "EXACT" and triggerCausal and lifecycleCausal and commonExact
+    int triggerEpoch = isBoc ? attempt.boc.bocEventEpoch : isClose ? attempt.directionalClose.closeEventEpoch : attempt.flip.flipEventEpoch
+    int triggerSequence = isBoc ? attempt.boc.bocEventSequence : isClose ? attempt.directionalClose.closeEventSequence : attempt.flip.flipEventSequence
+    int triggerTicks = isBoc ? attempt.boc.bocEventTicks : isClose ? attempt.directionalClose.closeEventTicks : attempt.flip.flipEventTicks
+    string fidelity = exact ? "EXACT" : commonExact and isBoc and attempt.boc.bocTier == BOC_TIER_DISCRETIONARY and attempt.boc.bocFidelity == "DISCRETIONARY" ? "DISCRETIONARY" : "UNRESOLVED"
+    string proofPlane = isClose ? ENTRY_CONFIRMED_PLANE : isBoc ? attempt.boc.bocProofPlane : attempt.flip.flipProofPlane
+    string replayability = isClose ? ENTRY_REPLAYABLE : isBoc ? attempt.boc.bocReplayability : attempt.flip.flipReplayability
+    int coverageStart = isBoc ? attempt.boc.bocCoverageStartEpoch : isClose ? attempt.directionalClose.closeOpenEpoch : attempt.flip.flipCoverageStartEpoch
+    int coverageEnd = isBoc ? attempt.boc.bocCoverageEndEpoch : isClose ? attempt.directionalClose.closeEventEpoch : attempt.flip.flipCoverageEndEpoch
+    string contexts = isBoc ? entryHtfContexts(attempt.boc.bocContextMask) : isClose ? "[]" : entryHtfContexts(attempt.flip.flipContextMask)
+    string referenceOpenEpoch = isBoc ? str.tostring(attempt.core.referenceOpenEpoch) : "null"
+    string referenceOpenTicks = isBoc ? str.tostring(attempt.core.referenceOpenTicks) : "null"
+    string referenceHighTicks = isBoc ? str.tostring(attempt.core.referenceHighTicks) : "null"
+    string referenceLowTicks = isBoc ? str.tostring(attempt.core.referenceLowTicks) : "null"
+    string referenceCloseTicks = isBoc ? str.tostring(attempt.core.referenceCloseTicks) : "null"
+    string htfOpenTicks = model == ENTRY_MODEL_FLIP ? nullableEntryInt(lifecycleCausal, attempt.flip.flipOpenTicks) : "null"
+    string contactCandle = model == ENTRY_MODEL_FLIP ? nullableOrderedCandlePayload(lifecycleCausal, attempt.flip.flipContactOpenEpoch, attempt.flip.flipContactCloseEpoch, attempt.flip.flipContactOpenTicks, attempt.flip.flipContactHighTicks, attempt.flip.flipContactLowTicks, attempt.flip.flipContactCloseTicks) : "null"
+    string recrossCandle = model == ENTRY_MODEL_FLIP ? nullableOrderedCandlePayload(lifecycleCausal, attempt.flip.flipRecrossOpenEpoch, attempt.flip.flipRecrossCloseEpoch, attempt.flip.flipRecrossOpenTicks, attempt.flip.flipRecrossHighTicks, attempt.flip.flipRecrossLowTicks, attempt.flip.flipRecrossCloseTicks) : "null"
+    string lifecycleFlag = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, attempt.flip.flipCoverageGapDetected) : "null"
+    string lifecycleOrdered = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, attempt.flip.flipFullLifecycleOrdered) : "null"
     string destinationBeforeContact = model == ENTRY_MODEL_FLIP ? nullableEntryBool(lifecycleCausal, false) : "null"
-    string ambiguities = exact or isClose ? "[]" : model == ENTRY_MODEL_FLIP and attempt.flipFailureCode == "HTF_FLIP_INCOMPATIBLE_CONTEXTS" ? "[]" : "[\"" + (isBoc ? attempt.bocAmbiguityCode : attempt.flipAmbiguityCode) + "\"]"
+    string ambiguities = exact or isClose ? "[]" : model == ENTRY_MODEL_FLIP and attempt.flip.flipFailureCode == "HTF_FLIP_INCOMPATIBLE_CONTEXTS" ? "[]" : "[\"" + (isBoc ? attempt.boc.bocAmbiguityCode : attempt.flip.flipAmbiguityCode) + "\"]"
     string payloadSha = "EDGE_DERIVED"
     "{" +
      "\"evidence_id\":" + jsonString(entryEvidenceId(model)) + "," +
@@ -2012,7 +2040,7 @@ entryEvidencePayload(EntryAttempt attempt, RawZone zone, string model) =>
      "\"coverage_start_epoch\":" + str.tostring(coverageStart) + "," +
      "\"coverage_end_epoch\":" + str.tostring(coverageEnd) + "," +
      "\"ambiguity_codes\":" + ambiguities + "," +
-     "\"boc_tier\":" + (isBoc ? jsonString(attempt.bocTier) : "null") + "," +
+     "\"boc_tier\":" + (isBoc ? jsonString(attempt.boc.bocTier) : "null") + "," +
      "\"reference_candle_open_epoch\":" + referenceOpenEpoch + "," +
      "\"reference_candle_open_ticks\":" + referenceOpenTicks + "," +
      "\"reference_candle_high_ticks\":" + referenceHighTicks + "," +
@@ -2025,85 +2053,85 @@ entryEvidencePayload(EntryAttempt attempt, RawZone zone, string model) =>
      "\"full_lifecycle_ordered\":" + lifecycleOrdered + "," +
      "\"destination_seen_before_contact\":" + destinationBeforeContact + "," +
      "\"passed_rule_ids\":" + entryPassedRules(model, exact) + "," +
-     "\"failed_rule_ids\":" + entryFailedRules(attempt, model, attempt.bocTier, exact, commonExact) + "," +
-     "\"source_claim_ids\":" + entrySourceClaims(model, attempt.bocTier) + "," +
+     "\"failed_rule_ids\":" + entryFailedRules(attempt, model, attempt.boc.bocTier, exact, commonExact) + "," +
+     "\"source_claim_ids\":" + entrySourceClaims(model, attempt.boc.bocTier) + "," +
      "\"payload_sha256\":" + jsonString(payloadSha) + "," +
      "\"observed_at_epoch\":" + str.tostring(entryObservedEpoch(attempt, model)) + "}"
 
 entryCandidatesPayload(EntryAttempt attempt, RawZone zone) =>
     string payload = ""
-    if attempt.bocEmitted
+    if attempt.boc.bocEmitted
         payload := entryCandidatePayload(attempt, zone, ENTRY_MODEL_BOC)
-    if attempt.closeEmitted
+    if attempt.directionalClose.closeEmitted
         string item = entryCandidatePayload(attempt, zone, ENTRY_MODEL_CLOSE)
         payload := str.length(payload) == 0 ? item : payload + "," + item
-    if attempt.flipEmitted
+    if attempt.flip.flipEmitted
         string item = entryCandidatePayload(attempt, zone, ENTRY_MODEL_FLIP)
         payload := str.length(payload) == 0 ? item : payload + "," + item
     "[" + payload + "]"
 
 entryEvidenceListPayload(EntryAttempt attempt, RawZone zone) =>
     string payload = ""
-    if attempt.bocEmitted
+    if attempt.boc.bocEmitted
         payload := entryEvidencePayload(attempt, zone, ENTRY_MODEL_BOC)
-    if attempt.closeEmitted
+    if attempt.directionalClose.closeEmitted
         string item = entryEvidencePayload(attempt, zone, ENTRY_MODEL_CLOSE)
         payload := str.length(payload) == 0 ? item : payload + "," + item
-    if attempt.flipEmitted
+    if attempt.flip.flipEmitted
         string item = entryEvidencePayload(attempt, zone, ENTRY_MODEL_FLIP)
         payload := str.length(payload) == 0 ? item : payload + "," + item
     "[" + payload + "]"
 
 entryCandidateIds(EntryAttempt attempt) =>
     string ids = ""
-    if attempt.bocEmitted
+    if attempt.boc.bocEmitted
         ids := jsonString(entryCandidateId(ENTRY_MODEL_BOC))
-    if attempt.closeEmitted
+    if attempt.directionalClose.closeEmitted
         string item = jsonString(entryCandidateId(ENTRY_MODEL_CLOSE))
         ids := str.length(ids) == 0 ? item : ids + "," + item
-    if attempt.flipEmitted
+    if attempt.flip.flipEmitted
         string item = jsonString(entryCandidateId(ENTRY_MODEL_FLIP))
         ids := str.length(ids) == 0 ? item : ids + "," + item
     "[" + ids + "]"
 
 entrySelectionPayload(EntryAttempt attempt) =>
-    bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact
-    bool closeExact = attempt.closeEmitted and commonExact
-    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
+    bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
+    bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact
+    bool closeExact = attempt.directionalClose.closeEmitted and commonExact
+    bool flipExact = attempt.flip.flipEmitted and attempt.flip.flipFidelity == "EXACT" and attempt.flip.flipTriggerCausal and attempt.flip.flipLifecycleCausal and commonExact
     int exactCount = (bocExact ? 1 : 0) + (closeExact ? 1 : 0) + (flipExact ? 1 : 0)
     int selectedEpoch = na
     int selectedSequence = na
     int selectedTicks = na
     string selectedModel = ""
     if bocExact
-        selectedEpoch := attempt.bocEventEpoch
-        selectedSequence := attempt.bocEventSequence
-        selectedTicks := attempt.bocEventTicks
+        selectedEpoch := attempt.boc.bocEventEpoch
+        selectedSequence := attempt.boc.bocEventSequence
+        selectedTicks := attempt.boc.bocEventTicks
         selectedModel := ENTRY_MODEL_BOC
-    if closeExact and (na(selectedEpoch) or attempt.closeEventEpoch < selectedEpoch or attempt.closeEventEpoch == selectedEpoch and attempt.closeEventSequence < selectedSequence)
-        selectedEpoch := attempt.closeEventEpoch
-        selectedSequence := attempt.closeEventSequence
-        selectedTicks := attempt.closeEventTicks
+    if closeExact and (na(selectedEpoch) or attempt.directionalClose.closeEventEpoch < selectedEpoch or attempt.directionalClose.closeEventEpoch == selectedEpoch and attempt.directionalClose.closeEventSequence < selectedSequence)
+        selectedEpoch := attempt.directionalClose.closeEventEpoch
+        selectedSequence := attempt.directionalClose.closeEventSequence
+        selectedTicks := attempt.directionalClose.closeEventTicks
         selectedModel := ENTRY_MODEL_CLOSE
-    if flipExact and (na(selectedEpoch) or attempt.flipEventEpoch < selectedEpoch or attempt.flipEventEpoch == selectedEpoch and attempt.flipEventSequence < selectedSequence)
-        selectedEpoch := attempt.flipEventEpoch
-        selectedSequence := attempt.flipEventSequence
-        selectedTicks := attempt.flipEventTicks
+    if flipExact and (na(selectedEpoch) or attempt.flip.flipEventEpoch < selectedEpoch or attempt.flip.flipEventEpoch == selectedEpoch and attempt.flip.flipEventSequence < selectedSequence)
+        selectedEpoch := attempt.flip.flipEventEpoch
+        selectedSequence := attempt.flip.flipEventSequence
+        selectedTicks := attempt.flip.flipEventTicks
         selectedModel := ENTRY_MODEL_FLIP
-    bool bocSameEvent = bocExact and attempt.bocEventEpoch == selectedEpoch and attempt.bocEventSequence == selectedSequence
-    bool closeSameEvent = closeExact and attempt.closeEventEpoch == selectedEpoch and attempt.closeEventSequence == selectedSequence
-    bool flipSameEvent = flipExact and attempt.flipEventEpoch == selectedEpoch and attempt.flipEventSequence == selectedSequence
+    bool bocSameEvent = bocExact and attempt.boc.bocEventEpoch == selectedEpoch and attempt.boc.bocEventSequence == selectedSequence
+    bool closeSameEvent = closeExact and attempt.directionalClose.closeEventEpoch == selectedEpoch and attempt.directionalClose.closeEventSequence == selectedSequence
+    bool flipSameEvent = flipExact and attempt.flip.flipEventEpoch == selectedEpoch and attempt.flip.flipEventSequence == selectedSequence
     int sameEventCount = (bocSameEvent ? 1 : 0) + (closeSameEvent ? 1 : 0) + (flipSameEvent ? 1 : 0)
-    bool priceConflict = (bocSameEvent and attempt.bocEventTicks != selectedTicks) or (closeSameEvent and attempt.closeEventTicks != selectedTicks) or (flipSameEvent and attempt.flipEventTicks != selectedTicks)
-    bool blockedAggressive = closeExact and (attempt.bocEmitted and not bocExact or attempt.flipEmitted and not flipExact)
+    bool priceConflict = (bocSameEvent and attempt.boc.bocEventTicks != selectedTicks) or (closeSameEvent and attempt.directionalClose.closeEventTicks != selectedTicks) or (flipSameEvent and attempt.flip.flipEventTicks != selectedTicks)
+    bool blockedAggressive = closeExact and (attempt.boc.bocEmitted and not bocExact or attempt.flip.flipEmitted and not flipExact)
     bool canonicalUnknown = sameEventCount > 1 and not priceConflict
-    string reason = exactCount == 0 ? (attempt.bocEmitted or attempt.closeEmitted or attempt.flipEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE") :
+    string reason = exactCount == 0 ? (attempt.boc.bocEmitted or attempt.directionalClose.closeEmitted or attempt.flip.flipEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE") :
      priceConflict ? "CO_TRIGGER_PRICE_CONFLICT" :
      sameEventCount > 1 ? "CO_TRIGGER_SAME_EVENT" :
      exactCount == 1 and selectedModel == ENTRY_MODEL_CLOSE ? (blockedAggressive ? "FALLBACK_TO_CONFIRMED_CLOSE" : "ONLY_EXACT_TRIGGER") :
      exactCount == 1 ? "ONLY_EXACT_TRIGGER" : "EARLIEST_EXACT_TRIGGER"
-    string action = canonicalUnknown ? "OBSERVE" : exactCount == 0 ? (attempt.bocEmitted or attempt.closeEmitted or attempt.flipEmitted ? "SHADOW_ONLY" : "NONE") : priceConflict ? "SHADOW_ONLY" : "PAPER_ELIGIBLE"
+    string action = canonicalUnknown ? "OBSERVE" : exactCount == 0 ? (attempt.boc.bocEmitted or attempt.directionalClose.closeEmitted or attempt.flip.flipEmitted ? "SHADOW_ONLY" : "NONE") : priceConflict ? "SHADOW_ONLY" : "PAPER_ELIGIBLE"
     string candidateId = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(entryCandidateId(selectedModel))
     string evidenceId = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(entryEvidenceId(selectedModel))
     string model = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(selectedModel)
@@ -2111,7 +2139,7 @@ entrySelectionPayload(EntryAttempt attempt) =>
     string coModels = sameEventCount > 1 and not priceConflict ? (bocSameEvent and closeSameEvent and flipSameEvent ? "[\"BOC\",\"DIR_CLOSE\",\"HTF_FLIP\"]" : bocSameEvent and closeSameEvent ? "[\"BOC\",\"DIR_CLOSE\"]" : bocSameEvent and flipSameEvent ? "[\"BOC\",\"HTF_FLIP\"]" : "[\"DIR_CLOSE\",\"HTF_FLIP\"]") : "[]"
     "{" +
      "\"selection_id\":\"EDGE_DERIVED\"," +
-     "\"setup_id\":" + jsonString(attempt.setupId) + "," +
+     "\"setup_id\":" + jsonString(attempt.core.setupId) + "," +
      "\"policy_version\":" + jsonString(ENTRY_POLICY_VERSION) + "," +
      "\"revision\":" + str.tostring(currentEntrySequence()) + "," +
      "\"candidate_ids_considered\":" + entryCandidateIds(attempt) + "," +
@@ -2125,82 +2153,82 @@ entrySelectionPayload(EntryAttempt attempt) =>
      "\"evaluated_at_epoch\":" + str.tostring(entryEvaluationEpoch(attempt)) + "}"
 
 entrySelectedFacts(EntryAttempt attempt) =>
-    bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact
-    bool closeExact = attempt.closeEmitted and commonExact
-    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
+    bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
+    bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact
+    bool closeExact = attempt.directionalClose.closeEmitted and commonExact
+    bool flipExact = attempt.flip.flipEmitted and attempt.flip.flipFidelity == "EXACT" and attempt.flip.flipTriggerCausal and attempt.flip.flipLifecycleCausal and commonExact
     int selectedEpoch = na
     int selectedSequence = na
     int selectedTicks = na
     if bocExact
-        selectedEpoch := attempt.bocEventEpoch
-        selectedSequence := attempt.bocEventSequence
-        selectedTicks := attempt.bocEventTicks
-    if closeExact and (na(selectedEpoch) or attempt.closeEventEpoch < selectedEpoch or attempt.closeEventEpoch == selectedEpoch and attempt.closeEventSequence < selectedSequence)
-        selectedEpoch := attempt.closeEventEpoch
-        selectedSequence := attempt.closeEventSequence
-        selectedTicks := attempt.closeEventTicks
-    if flipExact and (na(selectedEpoch) or attempt.flipEventEpoch < selectedEpoch or attempt.flipEventEpoch == selectedEpoch and attempt.flipEventSequence < selectedSequence)
-        selectedEpoch := attempt.flipEventEpoch
-        selectedSequence := attempt.flipEventSequence
-        selectedTicks := attempt.flipEventTicks
+        selectedEpoch := attempt.boc.bocEventEpoch
+        selectedSequence := attempt.boc.bocEventSequence
+        selectedTicks := attempt.boc.bocEventTicks
+    if closeExact and (na(selectedEpoch) or attempt.directionalClose.closeEventEpoch < selectedEpoch or attempt.directionalClose.closeEventEpoch == selectedEpoch and attempt.directionalClose.closeEventSequence < selectedSequence)
+        selectedEpoch := attempt.directionalClose.closeEventEpoch
+        selectedSequence := attempt.directionalClose.closeEventSequence
+        selectedTicks := attempt.directionalClose.closeEventTicks
+    if flipExact and (na(selectedEpoch) or attempt.flip.flipEventEpoch < selectedEpoch or attempt.flip.flipEventEpoch == selectedEpoch and attempt.flip.flipEventSequence < selectedSequence)
+        selectedEpoch := attempt.flip.flipEventEpoch
+        selectedSequence := attempt.flip.flipEventSequence
+        selectedTicks := attempt.flip.flipEventTicks
     if na(selectedEpoch)
-        selectedEpoch := attempt.bocEmitted ? attempt.bocEventEpoch : attempt.closeEmitted ? attempt.closeEventEpoch : attempt.flipEventEpoch
-        selectedSequence := attempt.bocEmitted ? attempt.bocEventSequence : attempt.closeEmitted ? attempt.closeEventSequence : attempt.flipEventSequence
-        selectedTicks := attempt.bocEmitted ? attempt.bocEventTicks : attempt.closeEmitted ? attempt.closeEventTicks : attempt.flipEventTicks
+        selectedEpoch := attempt.boc.bocEmitted ? attempt.boc.bocEventEpoch : attempt.directionalClose.closeEmitted ? attempt.directionalClose.closeEventEpoch : attempt.flip.flipEventEpoch
+        selectedSequence := attempt.boc.bocEmitted ? attempt.boc.bocEventSequence : attempt.directionalClose.closeEmitted ? attempt.directionalClose.closeEventSequence : attempt.flip.flipEventSequence
+        selectedTicks := attempt.boc.bocEmitted ? attempt.boc.bocEventTicks : attempt.directionalClose.closeEmitted ? attempt.directionalClose.closeEventTicks : attempt.flip.flipEventTicks
     [selectedEpoch, selectedSequence, selectedTicks]
 
 entryHasPaperEligibleSelection(EntryAttempt attempt) =>
-    bool commonExact = attempt.commonRulesPass and reviewedProducerHashesValid()
-    bool bocExact = attempt.bocEmitted and attempt.bocFidelity == "EXACT" and attempt.bocTriggerCausal and commonExact
-    bool closeExact = attempt.closeEmitted and commonExact
-    bool flipExact = attempt.flipEmitted and attempt.flipFidelity == "EXACT" and attempt.flipTriggerCausal and attempt.flipLifecycleCausal and commonExact
+    bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
+    bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact
+    bool closeExact = attempt.directionalClose.closeEmitted and commonExact
+    bool flipExact = attempt.flip.flipEmitted and attempt.flip.flipFidelity == "EXACT" and attempt.flip.flipTriggerCausal and attempt.flip.flipLifecycleCausal and commonExact
     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
-    bool bocConflict = bocExact and attempt.bocEventEpoch == selectedEpoch and attempt.bocEventSequence == selectedSequence and attempt.bocEventTicks != selectedTicks
-    bool closeConflict = closeExact and attempt.closeEventEpoch == selectedEpoch and attempt.closeEventSequence == selectedSequence and attempt.closeEventTicks != selectedTicks
-    bool flipConflict = flipExact and attempt.flipEventEpoch == selectedEpoch and attempt.flipEventSequence == selectedSequence and attempt.flipEventTicks != selectedTicks
+    bool bocConflict = bocExact and attempt.boc.bocEventEpoch == selectedEpoch and attempt.boc.bocEventSequence == selectedSequence and attempt.boc.bocEventTicks != selectedTicks
+    bool closeConflict = closeExact and attempt.directionalClose.closeEventEpoch == selectedEpoch and attempt.directionalClose.closeEventSequence == selectedSequence and attempt.directionalClose.closeEventTicks != selectedTicks
+    bool flipConflict = flipExact and attempt.flip.flipEventEpoch == selectedEpoch and attempt.flip.flipEventSequence == selectedSequence and attempt.flip.flipEventTicks != selectedTicks
     not na(selectedEpoch) and (bocExact or closeExact or flipExact) and not (bocConflict or closeConflict or flipConflict)
 
 entryBundleReadyToEmit(EntryAttempt attempt) =>
-    not attempt.bocAuditPending and not attempt.flipAuditPending and
-     (not attempt.bocEmitted or not na(attempt.bocObservedAtEpoch)) and
-     (not attempt.closeEmitted or not na(attempt.closeObservedAtEpoch)) and
-     (not attempt.flipEmitted or not na(attempt.flipObservedAtEpoch))
+    not attempt.boc.bocAuditPending and not attempt.flip.flipAuditPending and
+     (not attempt.boc.bocEmitted or not na(attempt.boc.bocObservedAtEpoch)) and
+     (not attempt.directionalClose.closeEmitted or not na(attempt.directionalClose.closeObservedAtEpoch)) and
+     (not attempt.flip.flipEmitted or not na(attempt.flip.flipObservedAtEpoch))
 
 entrySetupBundlePayload(EntryAttempt attempt, RawZone zone) =>
     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
-    int stopTicks = attempt.demand ? selectedTicks - entryStopTicks : selectedTicks + entryStopTicks
-    int targetTicks = attempt.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
-    bool commonRulesPass = attempt.commonRulesPass
+    int stopTicks = attempt.core.demand ? selectedTicks - entryStopTicks : selectedTicks + entryStopTicks
+    int targetTicks = attempt.core.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
+    bool commonRulesPass = attempt.core.commonRulesPass
     bool reviewedHashesValid = reviewedProducerHashesValid()
     string commonFidelity = commonRulesPass and reviewedHashesValid ? "EXACT" : "UNRESOLVED"
     "{" +
      "\"setup\":{" +
-     "\"setup_id\":" + jsonString(attempt.setupId) + "," +
-     "\"direction\":" + jsonString(attempt.demand ? "LONG" : "SHORT") + "," +
-     "\"zone_top_ticks\":" + str.tostring(attempt.zoneTopTicks) + "," +
-     "\"zone_bottom_ticks\":" + str.tostring(attempt.zoneBottomTicks) + "," +
-     "\"zone_engaged_epoch\":" + str.tostring(attempt.engagementEpoch) + "," +
-     "\"invalidated_before_entry\":" + str.tostring(attempt.invalidatedBeforeEntry) + "," +
+     "\"setup_id\":" + jsonString(attempt.core.setupId) + "," +
+     "\"direction\":" + jsonString(attempt.core.demand ? "LONG" : "SHORT") + "," +
+     "\"zone_top_ticks\":" + str.tostring(attempt.core.zoneTopTicks) + "," +
+     "\"zone_bottom_ticks\":" + str.tostring(attempt.core.zoneBottomTicks) + "," +
+     "\"zone_engaged_epoch\":" + str.tostring(attempt.core.engagementEpoch) + "," +
+     "\"invalidated_before_entry\":" + str.tostring(attempt.core.invalidatedBeforeEntry) + "," +
      "\"common_fidelity\":" + jsonString(commonFidelity) + "," +
      "\"common_rule_results\":" + commonRuleResultsPayload(attempt) + "}," +
      "\"candidates\":" + entryCandidatesPayload(attempt, zone) + "," +
      "\"evidence\":" + entryEvidenceListPayload(attempt, zone) + "," +
      "\"selection_proposal\":" + entrySelectionPayload(attempt) + "," +
      "\"trade_plan\":{" +
-     "\"direction\":" + jsonString(attempt.demand ? "LONG" : "SHORT") + "," +
+     "\"direction\":" + jsonString(attempt.core.demand ? "LONG" : "SHORT") + "," +
      "\"entry_ticks\":" + str.tostring(selectedTicks) + "," +
      "\"stop_ticks\":" + str.tostring(stopTicks) + "," +
      "\"target_ticks\":" + str.tostring(targetTicks) + "}}"
 
 entryMarketEventPayload(EntryAttempt attempt, bool historicalAmbiguousExit) =>
     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
-    bool closeSelected = not historicalAmbiguousExit and attempt.closeEmitted and selectedEpoch == attempt.closeEventEpoch and selectedSequence == attempt.closeEventSequence
+    bool closeSelected = not historicalAmbiguousExit and attempt.directionalClose.closeEmitted and selectedEpoch == attempt.directionalClose.closeEventEpoch and selectedSequence == attempt.directionalClose.closeEventSequence
     int marketEpoch = historicalAmbiguousExit ? epochSeconds(time_close) : selectedEpoch
     int marketSequence = historicalAmbiguousExit ? tickSequence : selectedSequence
     int marketTicks = historicalAmbiguousExit ? priceTicks(close) : selectedTicks
     bool confirmedSelected = historicalAmbiguousExit or closeSelected
-    string confirmed = historicalAmbiguousExit ? orderedCandlePayload(epochSeconds(time), epochSeconds(time_close), priceTicks(open), priceTicks(high), priceTicks(low), priceTicks(close)) : closeSelected ? orderedCandlePayload(attempt.closeOpenEpoch, attempt.closeEventEpoch, attempt.closeOpenTicks, attempt.closeHighTicks, attempt.closeLowTicks, attempt.closeCloseTicks) : "null"
+    string confirmed = historicalAmbiguousExit ? orderedCandlePayload(epochSeconds(time), epochSeconds(time_close), priceTicks(open), priceTicks(high), priceTicks(low), priceTicks(close)) : closeSelected ? orderedCandlePayload(attempt.directionalClose.closeOpenEpoch, attempt.directionalClose.closeEventEpoch, attempt.directionalClose.closeOpenTicks, attempt.directionalClose.closeHighTicks, attempt.directionalClose.closeLowTicks, attempt.directionalClose.closeCloseTicks) : "null"
     "{" +
      "\"epoch\":" + str.tostring(marketEpoch) + "," +
      "\"sequence\":" + str.tostring(marketSequence) + "," +
@@ -2211,7 +2239,7 @@ entryMarketEventPayload(EntryAttempt attempt, bool historicalAmbiguousExit) =>
 entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool historicalAmbiguousExit) =>
     int producerSequence = nextEntrySequence()
     string eventId = entryProducerInstanceId + ":" + str.tostring(producerSequence)
-    bool reviewedPromotion = attempt.commonRulesPass and reviewedProducerHashesValid()
+    bool reviewedPromotion = attempt.core.commonRulesPass and reviewedProducerHashesValid()
     string detectorHash = reviewedPromotion ? detectorCodeHash : "UNREVIEWED"
     string settingsHashValue = reviewedPromotion ? settingsHash : "UNREVIEWED"
     "{" +
@@ -2256,89 +2284,84 @@ emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitE
     emitted
 
 recordDirectionalClose(EntryAttempt attempt, RawZone zone) =>
-    bool zoneEngaged = not na(attempt.engagementEpoch)
-    bool directionalClose =
-        barstate.isconfirmed and zoneEngaged and
-        (
-            (zone.demand and close > open and close > zone.top) or
-            (not zone.demand and close < open and close < zone.bottom)
-        )
-    bool triggered = not attempt.closeEmitted and directionalClose
+    bool zoneEngaged = not na(attempt.core.engagementEpoch)
+    bool directionalClose = barstate.isconfirmed and zoneEngaged and ((zone.demand and close > open and close > zone.top) or (not zone.demand and close < open and close < zone.bottom))
+    bool triggered = not attempt.directionalClose.closeEmitted and directionalClose
     if triggered
-        attempt.closeEmitted := true
-        attempt.closeEventEpoch := epochSeconds(time_close)
-        attempt.closeEventSequence := tickSequence
-        attempt.closeEventTicks := priceTicks(close)
-        attempt.closeOpenEpoch := epochSeconds(time)
-        attempt.closeOpenTicks := priceTicks(open)
-        attempt.closeHighTicks := priceTicks(high)
-        attempt.closeLowTicks := priceTicks(low)
-        attempt.closeCloseTicks := priceTicks(close)
-        attempt.closeObservedAtEpoch := entryClockEpoch()
-        if na(attempt.entryTicks)
-            attempt.entryTicks := attempt.closeEventTicks
+        attempt.directionalClose.closeEmitted := true
+        attempt.directionalClose.closeEventEpoch := epochSeconds(time_close)
+        attempt.directionalClose.closeEventSequence := tickSequence
+        attempt.directionalClose.closeEventTicks := priceTicks(close)
+        attempt.directionalClose.closeOpenEpoch := epochSeconds(time)
+        attempt.directionalClose.closeOpenTicks := priceTicks(open)
+        attempt.directionalClose.closeHighTicks := priceTicks(high)
+        attempt.directionalClose.closeLowTicks := priceTicks(low)
+        attempt.directionalClose.closeCloseTicks := priceTicks(close)
+        attempt.directionalClose.closeObservedAtEpoch := entryClockEpoch()
+        if na(attempt.core.entryTicks)
+            attempt.core.entryTicks := attempt.directionalClose.closeEventTicks
     triggered
 
 recordBoc(EntryAttempt attempt, RawZone zone, bool allowNewObservation) =>
     int nowEpoch = entryClockEpoch()
     bool bocTriggered = false
-    if attempt.bocAuditPending and nowEpoch > attempt.bocEventEpoch
-        attempt.bocAuditPending := false
-        attempt.bocCoverageEndEpoch := nowEpoch
-        attempt.bocObservedAtEpoch := nowEpoch
+    if attempt.boc.bocAuditPending and nowEpoch > attempt.boc.bocEventEpoch
+        attempt.boc.bocAuditPending := false
+        attempt.boc.bocCoverageEndEpoch := nowEpoch
+        attempt.boc.bocObservedAtEpoch := nowEpoch
         bocTriggered := true
-    bool longBreak = attempt.demand and close > attempt.referenceHighPrice
-    bool shortBreak = not attempt.demand and close < attempt.referenceLowPrice
+    bool longBreak = attempt.core.demand and close > attempt.core.referenceHighPrice
+    bool shortBreak = not attempt.core.demand and close < attempt.core.referenceLowPrice
     bool brokenNow = longBreak or shortBreak
-    bool continuousCoverage = attempt.bocCoverageReady and attempt.bocLastTickSequence + 1 == tickSequence
-    bool firstCrossObserved = barstate.isrealtime and continuousCoverage and attempt.bocPreviousNonBrokenSide and brokenNow
-    bool priorTickCausal = not na(attempt.bocLastTickEpoch) and nowEpoch > attempt.bocLastTickEpoch
+    bool continuousCoverage = attempt.boc.bocCoverageReady and attempt.boc.bocLastTickSequence + 1 == tickSequence
+    bool firstCrossObserved = barstate.isrealtime and continuousCoverage and attempt.boc.bocPreviousNonBrokenSide and brokenNow
+    bool priorTickCausal = not na(attempt.boc.bocLastTickEpoch) and nowEpoch > attempt.boc.bocLastTickEpoch
     bool exactFirstCross = firstCrossObserved and priorTickCausal
     bool unrepresentableFirstCross = firstCrossObserved and not priorTickCausal
-    bool historicalObservedBreak = not barstate.isrealtime and (attempt.demand ? high > attempt.referenceHighPrice : low < attempt.referenceLowPrice)
+    bool historicalObservedBreak = not barstate.isrealtime and (attempt.core.demand ? high > attempt.core.referenceHighPrice : low < attempt.core.referenceLowPrice)
     bool uncoveredRealtimeBreak = barstate.isrealtime and brokenNow and not firstCrossObserved
-    bool newObservation = allowNewObservation and not attempt.bocEmitted and (exactFirstCross or unrepresentableFirstCross or uncoveredRealtimeBreak or historicalObservedBreak)
+    bool newObservation = allowNewObservation and not attempt.boc.bocEmitted and (exactFirstCross or unrepresentableFirstCross or uncoveredRealtimeBreak or historicalObservedBreak)
     if newObservation
         bool opens15 = minute(time) % 15 == 0
         bool opens30 = minute(time) % 30 == 0
         bool opens60 = minute(time) == 0
         bool htfTimed = opens15 or opens30 or opens60
         string bocTier = htfTimed ? BOC_TIER_HTF : BOC_TIER_DISCRETIONARY
-        attempt.bocEmitted := true
-        attempt.bocEventEpoch := nowEpoch
-        attempt.bocEventSequence := tickSequence
-        attempt.bocEventTicks := priceTicks(close)
-        attempt.bocContextMask := (opens15 ? 1 : 0) + (opens30 ? 2 : 0) + (opens60 ? 4 : 0)
-        attempt.bocTier := bocTier
-        if na(attempt.bocCoverageStartEpoch)
-            attempt.bocCoverageStartEpoch := barstate.isrealtime ? nowEpoch : attempt.referenceOpenEpoch
-        bool coverageIntervalAdvanced = nowEpoch > attempt.bocCoverageStartEpoch
-        attempt.bocTriggerCausal := not unrepresentableFirstCross
-        attempt.bocAuditPending := unrepresentableFirstCross or not coverageIntervalAdvanced
-        attempt.bocCoverageEndEpoch := attempt.bocAuditPending ? na : nowEpoch
-        attempt.bocObservedAtEpoch := attempt.bocAuditPending ? na : nowEpoch
-        attempt.bocFidelity := exactFirstCross ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"
-        attempt.bocProofPlane := barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE
-        attempt.bocReplayability := barstate.isrealtime ? ENTRY_LIVE_REPLAYABILITY : ENTRY_REPLAYABLE
-        attempt.bocCoverageGapDetected := uncoveredRealtimeBreak or not coverageIntervalAdvanced
-        attempt.bocAmbiguityCode := uncoveredRealtimeBreak or unrepresentableFirstCross or not coverageIntervalAdvanced ? "SHADOW_MISSING_INTRABAR_COVERAGE" : "SHADOW_SAME_CHILD_BAR_ORDER"
-        attempt.bocFailureCode := unrepresentableFirstCross ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : uncoveredRealtimeBreak ? "REALTIME_FIRST_CROSS_UNPROVEN" : not coverageIntervalAdvanced ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HISTORICAL_ORDER_UNPROVEN"
-        bocTriggered := not attempt.bocAuditPending
-        if na(attempt.entryTicks)
-            attempt.entryTicks := attempt.bocEventTicks
-    if barstate.isrealtime and not attempt.bocEmitted
-        bool coverageGap = not na(attempt.bocLastTickSequence) and attempt.bocLastTickSequence + 1 != tickSequence
+        attempt.boc.bocEmitted := true
+        attempt.boc.bocEventEpoch := nowEpoch
+        attempt.boc.bocEventSequence := tickSequence
+        attempt.boc.bocEventTicks := priceTicks(close)
+        attempt.boc.bocContextMask := (opens15 ? 1 : 0) + (opens30 ? 2 : 0) + (opens60 ? 4 : 0)
+        attempt.boc.bocTier := bocTier
+        if na(attempt.boc.bocCoverageStartEpoch)
+            attempt.boc.bocCoverageStartEpoch := barstate.isrealtime ? nowEpoch : attempt.core.referenceOpenEpoch
+        bool coverageIntervalAdvanced = nowEpoch > attempt.boc.bocCoverageStartEpoch
+        attempt.boc.bocTriggerCausal := not unrepresentableFirstCross
+        attempt.boc.bocAuditPending := unrepresentableFirstCross or not coverageIntervalAdvanced
+        attempt.boc.bocCoverageEndEpoch := attempt.boc.bocAuditPending ? na : nowEpoch
+        attempt.boc.bocObservedAtEpoch := attempt.boc.bocAuditPending ? na : nowEpoch
+        attempt.boc.bocFidelity := exactFirstCross ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"
+        attempt.boc.bocProofPlane := barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE
+        attempt.boc.bocReplayability := barstate.isrealtime ? ENTRY_LIVE_REPLAYABILITY : ENTRY_REPLAYABLE
+        attempt.boc.bocCoverageGapDetected := uncoveredRealtimeBreak or not coverageIntervalAdvanced
+        attempt.boc.bocAmbiguityCode := uncoveredRealtimeBreak or unrepresentableFirstCross or not coverageIntervalAdvanced ? "SHADOW_MISSING_INTRABAR_COVERAGE" : "SHADOW_SAME_CHILD_BAR_ORDER"
+        attempt.boc.bocFailureCode := unrepresentableFirstCross ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : uncoveredRealtimeBreak ? "REALTIME_FIRST_CROSS_UNPROVEN" : not coverageIntervalAdvanced ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HISTORICAL_ORDER_UNPROVEN"
+        bocTriggered := not attempt.boc.bocAuditPending
+        if na(attempt.core.entryTicks)
+            attempt.core.entryTicks := attempt.boc.bocEventTicks
+    if barstate.isrealtime and not attempt.boc.bocEmitted
+        bool coverageGap = not na(attempt.boc.bocLastTickSequence) and attempt.boc.bocLastTickSequence + 1 != tickSequence
         if coverageGap
-            attempt.bocCoverageGapDetected := true
-            attempt.bocCoverageReady := false
-            attempt.bocCoverageStartEpoch := epochSeconds(timenow)
-        if na(attempt.bocCoverageStartEpoch)
-            attempt.bocCoverageStartEpoch := epochSeconds(timenow)
-        attempt.bocPreviousNonBrokenSide := not brokenNow
-        attempt.bocLastTickSequence := tickSequence
-        attempt.bocLastTickEpoch := epochSeconds(timenow)
-        attempt.bocPreviousTickTicks := priceTicks(close)
-        attempt.bocCoverageReady := true
+            attempt.boc.bocCoverageGapDetected := true
+            attempt.boc.bocCoverageReady := false
+            attempt.boc.bocCoverageStartEpoch := epochSeconds(timenow)
+        if na(attempt.boc.bocCoverageStartEpoch)
+            attempt.boc.bocCoverageStartEpoch := epochSeconds(timenow)
+        attempt.boc.bocPreviousNonBrokenSide := not brokenNow
+        attempt.boc.bocLastTickSequence := tickSequence
+        attempt.boc.bocLastTickEpoch := epochSeconds(timenow)
+        attempt.boc.bocPreviousTickTicks := priceTicks(close)
+        attempt.boc.bocCoverageReady := true
     bocTriggered
 
 captureFlipContact(EntryAttempt attempt, int contextMinutes) =>
@@ -2346,66 +2369,66 @@ captureFlipContact(EntryAttempt attempt, int contextMinutes) =>
     int contactCloseEpoch = barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)
     int contactTicks = priceTicks(close)
     if contextMinutes == 15
-        attempt.htf15ContactSeen := true
-        attempt.htf15ContactOpenEpoch := contactEpoch
-        attempt.htf15ContactCloseEpoch := contactCloseEpoch
-        attempt.htf15ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
-        attempt.htf15ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
-        attempt.htf15ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
-        attempt.htf15ContactCloseTicks := contactTicks
-        attempt.htf15ContactTickEpoch := epochSeconds(timenow)
-        attempt.htf15ContactTickSequence := tickSequence
+        attempt.htf15.htf15ContactSeen := true
+        attempt.htf15.htf15ContactOpenEpoch := contactEpoch
+        attempt.htf15.htf15ContactCloseEpoch := contactCloseEpoch
+        attempt.htf15.htf15ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
+        attempt.htf15.htf15ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
+        attempt.htf15.htf15ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
+        attempt.htf15.htf15ContactCloseTicks := contactTicks
+        attempt.htf15.htf15ContactTickEpoch := epochSeconds(timenow)
+        attempt.htf15.htf15ContactTickSequence := tickSequence
     else if contextMinutes == 30
-        attempt.htf30ContactSeen := true
-        attempt.htf30ContactOpenEpoch := contactEpoch
-        attempt.htf30ContactCloseEpoch := contactCloseEpoch
-        attempt.htf30ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
-        attempt.htf30ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
-        attempt.htf30ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
-        attempt.htf30ContactCloseTicks := contactTicks
-        attempt.htf30ContactTickEpoch := epochSeconds(timenow)
-        attempt.htf30ContactTickSequence := tickSequence
+        attempt.htf30.htf30ContactSeen := true
+        attempt.htf30.htf30ContactOpenEpoch := contactEpoch
+        attempt.htf30.htf30ContactCloseEpoch := contactCloseEpoch
+        attempt.htf30.htf30ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
+        attempt.htf30.htf30ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
+        attempt.htf30.htf30ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
+        attempt.htf30.htf30ContactCloseTicks := contactTicks
+        attempt.htf30.htf30ContactTickEpoch := epochSeconds(timenow)
+        attempt.htf30.htf30ContactTickSequence := tickSequence
     else
-        attempt.htf60ContactSeen := true
-        attempt.htf60ContactOpenEpoch := contactEpoch
-        attempt.htf60ContactCloseEpoch := contactCloseEpoch
-        attempt.htf60ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
-        attempt.htf60ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
-        attempt.htf60ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
-        attempt.htf60ContactCloseTicks := contactTicks
-        attempt.htf60ContactTickEpoch := epochSeconds(timenow)
-        attempt.htf60ContactTickSequence := tickSequence
+        attempt.htf60.htf60ContactSeen := true
+        attempt.htf60.htf60ContactOpenEpoch := contactEpoch
+        attempt.htf60.htf60ContactCloseEpoch := contactCloseEpoch
+        attempt.htf60.htf60ContactOpenTicks := barstate.isrealtime ? contactTicks : priceTicks(open)
+        attempt.htf60.htf60ContactHighTicks := barstate.isrealtime ? contactTicks : priceTicks(high)
+        attempt.htf60.htf60ContactLowTicks := barstate.isrealtime ? contactTicks : priceTicks(low)
+        attempt.htf60.htf60ContactCloseTicks := contactTicks
+        attempt.htf60.htf60ContactTickEpoch := epochSeconds(timenow)
+        attempt.htf60.htf60ContactTickSequence := tickSequence
     true
 
 updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
     if contextMinutes == 15
-        attempt.htf15TriggeredThisTick := false
+        attempt.htf15.htf15TriggeredThisTick := false
     else if contextMinutes == 30
-        attempt.htf30TriggeredThisTick := false
+        attempt.htf30.htf30TriggeredThisTick := false
     else
-        attempt.htf60TriggeredThisTick := false
+        attempt.htf60.htf60TriggeredThisTick := false
     int boundarySeconds = contextMinutes * 60
     int barEpoch = epochSeconds(time)
     bool opensContext = barEpoch % boundarySeconds == 0
-    int anchorEpoch = contextMinutes == 15 ? attempt.htf15AnchorEpoch : contextMinutes == 30 ? attempt.htf30AnchorEpoch : attempt.htf60AnchorEpoch
-    int openTicks = contextMinutes == 15 ? attempt.htf15OpenTicks : contextMinutes == 30 ? attempt.htf30OpenTicks : attempt.htf60OpenTicks
-    bool contactSeen = contextMinutes == 15 ? attempt.htf15ContactSeen : contextMinutes == 30 ? attempt.htf30ContactSeen : attempt.htf60ContactSeen
-    bool destinationBeforeContact = contextMinutes == 15 ? attempt.htf15DestinationBeforeContact : contextMinutes == 30 ? attempt.htf30DestinationBeforeContact : attempt.htf60DestinationBeforeContact
-    int contactOpenEpoch = contextMinutes == 15 ? attempt.htf15ContactOpenEpoch : contextMinutes == 30 ? attempt.htf30ContactOpenEpoch : attempt.htf60ContactOpenEpoch
-    int contactCloseEpoch = contextMinutes == 15 ? attempt.htf15ContactCloseEpoch : contextMinutes == 30 ? attempt.htf30ContactCloseEpoch : attempt.htf60ContactCloseEpoch
-    int contactOpenTicks = contextMinutes == 15 ? attempt.htf15ContactOpenTicks : contextMinutes == 30 ? attempt.htf30ContactOpenTicks : attempt.htf60ContactOpenTicks
-    int contactHighTicks = contextMinutes == 15 ? attempt.htf15ContactHighTicks : contextMinutes == 30 ? attempt.htf30ContactHighTicks : attempt.htf60ContactHighTicks
-    int contactLowTicks = contextMinutes == 15 ? attempt.htf15ContactLowTicks : contextMinutes == 30 ? attempt.htf30ContactLowTicks : attempt.htf60ContactLowTicks
-    int contactCloseTicks = contextMinutes == 15 ? attempt.htf15ContactCloseTicks : contextMinutes == 30 ? attempt.htf30ContactCloseTicks : attempt.htf60ContactCloseTicks
-    int contactTickEpoch = contextMinutes == 15 ? attempt.htf15ContactTickEpoch : contextMinutes == 30 ? attempt.htf30ContactTickEpoch : attempt.htf60ContactTickEpoch
-    int contactTickSequence = contextMinutes == 15 ? attempt.htf15ContactTickSequence : contextMinutes == 30 ? attempt.htf30ContactTickSequence : attempt.htf60ContactTickSequence
-    bool coverageReady = contextMinutes == 15 ? attempt.htf15CoverageReady : contextMinutes == 30 ? attempt.htf30CoverageReady : attempt.htf60CoverageReady
-    bool previousAtOrInsideOpen = contextMinutes == 15 ? attempt.htf15PreviousAtOrInsideOpen : contextMinutes == 30 ? attempt.htf30PreviousAtOrInsideOpen : attempt.htf60PreviousAtOrInsideOpen
-    int lastTickSequence = contextMinutes == 15 ? attempt.htf15LastTickSequence : contextMinutes == 30 ? attempt.htf30LastTickSequence : attempt.htf60LastTickSequence
-    int lastTickEpoch = contextMinutes == 15 ? attempt.htf15LastTickEpoch : contextMinutes == 30 ? attempt.htf30LastTickEpoch : attempt.htf60LastTickEpoch
-    int previousTickTicks = contextMinutes == 15 ? attempt.htf15PreviousTickTicks : contextMinutes == 30 ? attempt.htf30PreviousTickTicks : attempt.htf60PreviousTickTicks
-    int coverageStartEpoch = contextMinutes == 15 ? attempt.htf15CoverageStartEpoch : contextMinutes == 30 ? attempt.htf30CoverageStartEpoch : attempt.htf60CoverageStartEpoch
-    bool coverageGapDetected = contextMinutes == 15 ? attempt.htf15CoverageGapDetected : contextMinutes == 30 ? attempt.htf30CoverageGapDetected : attempt.htf60CoverageGapDetected
+    int anchorEpoch = contextMinutes == 15 ? attempt.htf15.htf15AnchorEpoch : contextMinutes == 30 ? attempt.htf30.htf30AnchorEpoch : attempt.htf60.htf60AnchorEpoch
+    int openTicks = contextMinutes == 15 ? attempt.htf15.htf15OpenTicks : contextMinutes == 30 ? attempt.htf30.htf30OpenTicks : attempt.htf60.htf60OpenTicks
+    bool contactSeen = contextMinutes == 15 ? attempt.htf15.htf15ContactSeen : contextMinutes == 30 ? attempt.htf30.htf30ContactSeen : attempt.htf60.htf60ContactSeen
+    bool destinationBeforeContact = contextMinutes == 15 ? attempt.htf15.htf15DestinationBeforeContact : contextMinutes == 30 ? attempt.htf30.htf30DestinationBeforeContact : attempt.htf60.htf60DestinationBeforeContact
+    int contactOpenEpoch = contextMinutes == 15 ? attempt.htf15.htf15ContactOpenEpoch : contextMinutes == 30 ? attempt.htf30.htf30ContactOpenEpoch : attempt.htf60.htf60ContactOpenEpoch
+    int contactCloseEpoch = contextMinutes == 15 ? attempt.htf15.htf15ContactCloseEpoch : contextMinutes == 30 ? attempt.htf30.htf30ContactCloseEpoch : attempt.htf60.htf60ContactCloseEpoch
+    int contactOpenTicks = contextMinutes == 15 ? attempt.htf15.htf15ContactOpenTicks : contextMinutes == 30 ? attempt.htf30.htf30ContactOpenTicks : attempt.htf60.htf60ContactOpenTicks
+    int contactHighTicks = contextMinutes == 15 ? attempt.htf15.htf15ContactHighTicks : contextMinutes == 30 ? attempt.htf30.htf30ContactHighTicks : attempt.htf60.htf60ContactHighTicks
+    int contactLowTicks = contextMinutes == 15 ? attempt.htf15.htf15ContactLowTicks : contextMinutes == 30 ? attempt.htf30.htf30ContactLowTicks : attempt.htf60.htf60ContactLowTicks
+    int contactCloseTicks = contextMinutes == 15 ? attempt.htf15.htf15ContactCloseTicks : contextMinutes == 30 ? attempt.htf30.htf30ContactCloseTicks : attempt.htf60.htf60ContactCloseTicks
+    int contactTickEpoch = contextMinutes == 15 ? attempt.htf15.htf15ContactTickEpoch : contextMinutes == 30 ? attempt.htf30.htf30ContactTickEpoch : attempt.htf60.htf60ContactTickEpoch
+    int contactTickSequence = contextMinutes == 15 ? attempt.htf15.htf15ContactTickSequence : contextMinutes == 30 ? attempt.htf30.htf30ContactTickSequence : attempt.htf60.htf60ContactTickSequence
+    bool coverageReady = contextMinutes == 15 ? attempt.htf15.htf15CoverageReady : contextMinutes == 30 ? attempt.htf30.htf30CoverageReady : attempt.htf60.htf60CoverageReady
+    bool previousAtOrInsideOpen = contextMinutes == 15 ? attempt.htf15.htf15PreviousAtOrInsideOpen : contextMinutes == 30 ? attempt.htf30.htf30PreviousAtOrInsideOpen : attempt.htf60.htf60PreviousAtOrInsideOpen
+    int lastTickSequence = contextMinutes == 15 ? attempt.htf15.htf15LastTickSequence : contextMinutes == 30 ? attempt.htf30.htf30LastTickSequence : attempt.htf60.htf60LastTickSequence
+    int lastTickEpoch = contextMinutes == 15 ? attempt.htf15.htf15LastTickEpoch : contextMinutes == 30 ? attempt.htf30.htf30LastTickEpoch : attempt.htf60.htf60LastTickEpoch
+    int previousTickTicks = contextMinutes == 15 ? attempt.htf15.htf15PreviousTickTicks : contextMinutes == 30 ? attempt.htf30.htf30PreviousTickTicks : attempt.htf60.htf60PreviousTickTicks
+    int coverageStartEpoch = contextMinutes == 15 ? attempt.htf15.htf15CoverageStartEpoch : contextMinutes == 30 ? attempt.htf30.htf30CoverageStartEpoch : attempt.htf60.htf60CoverageStartEpoch
+    bool coverageGapDetected = contextMinutes == 15 ? attempt.htf15.htf15CoverageGapDetected : contextMinutes == 30 ? attempt.htf30.htf30CoverageGapDetected : attempt.htf60.htf60CoverageGapDetected
     if opensContext and anchorEpoch != barEpoch
         anchorEpoch := barEpoch
         openTicks := priceTicks(open)
@@ -2419,65 +2442,65 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
         coverageStartEpoch := barstate.isrealtime ? epochSeconds(timenow) : barEpoch
         coverageGapDetected := not barstate.isrealtime
         if contextMinutes == 15
-            attempt.htf15AnchorEpoch := anchorEpoch
-            attempt.htf15OpenTicks := openTicks
-            attempt.htf15ContactSeen := false
-            attempt.htf15DestinationBeforeContact := false
-            attempt.htf15ContactOpenEpoch := na
-            attempt.htf15ContactCloseEpoch := na
-            attempt.htf15ContactOpenTicks := na
-            attempt.htf15ContactHighTicks := na
-            attempt.htf15ContactLowTicks := na
-            attempt.htf15ContactCloseTicks := na
-            attempt.htf15ContactTickEpoch := na
-            attempt.htf15ContactTickSequence := na
-            attempt.htf15CoverageReady := false
-            attempt.htf15PreviousAtOrInsideOpen := false
-            attempt.htf15LastTickSequence := na
-            attempt.htf15LastTickEpoch := na
-            attempt.htf15PreviousTickTicks := na
-            attempt.htf15CoverageStartEpoch := coverageStartEpoch
-            attempt.htf15CoverageGapDetected := coverageGapDetected
+            attempt.htf15.htf15AnchorEpoch := anchorEpoch
+            attempt.htf15.htf15OpenTicks := openTicks
+            attempt.htf15.htf15ContactSeen := false
+            attempt.htf15.htf15DestinationBeforeContact := false
+            attempt.htf15.htf15ContactOpenEpoch := na
+            attempt.htf15.htf15ContactCloseEpoch := na
+            attempt.htf15.htf15ContactOpenTicks := na
+            attempt.htf15.htf15ContactHighTicks := na
+            attempt.htf15.htf15ContactLowTicks := na
+            attempt.htf15.htf15ContactCloseTicks := na
+            attempt.htf15.htf15ContactTickEpoch := na
+            attempt.htf15.htf15ContactTickSequence := na
+            attempt.htf15.htf15CoverageReady := false
+            attempt.htf15.htf15PreviousAtOrInsideOpen := false
+            attempt.htf15.htf15LastTickSequence := na
+            attempt.htf15.htf15LastTickEpoch := na
+            attempt.htf15.htf15PreviousTickTicks := na
+            attempt.htf15.htf15CoverageStartEpoch := coverageStartEpoch
+            attempt.htf15.htf15CoverageGapDetected := coverageGapDetected
         else if contextMinutes == 30
-            attempt.htf30AnchorEpoch := anchorEpoch
-            attempt.htf30OpenTicks := openTicks
-            attempt.htf30ContactSeen := false
-            attempt.htf30DestinationBeforeContact := false
-            attempt.htf30ContactOpenEpoch := na
-            attempt.htf30ContactCloseEpoch := na
-            attempt.htf30ContactOpenTicks := na
-            attempt.htf30ContactHighTicks := na
-            attempt.htf30ContactLowTicks := na
-            attempt.htf30ContactCloseTicks := na
-            attempt.htf30ContactTickEpoch := na
-            attempt.htf30ContactTickSequence := na
-            attempt.htf30CoverageReady := false
-            attempt.htf30PreviousAtOrInsideOpen := false
-            attempt.htf30LastTickSequence := na
-            attempt.htf30LastTickEpoch := na
-            attempt.htf30PreviousTickTicks := na
-            attempt.htf30CoverageStartEpoch := coverageStartEpoch
-            attempt.htf30CoverageGapDetected := coverageGapDetected
+            attempt.htf30.htf30AnchorEpoch := anchorEpoch
+            attempt.htf30.htf30OpenTicks := openTicks
+            attempt.htf30.htf30ContactSeen := false
+            attempt.htf30.htf30DestinationBeforeContact := false
+            attempt.htf30.htf30ContactOpenEpoch := na
+            attempt.htf30.htf30ContactCloseEpoch := na
+            attempt.htf30.htf30ContactOpenTicks := na
+            attempt.htf30.htf30ContactHighTicks := na
+            attempt.htf30.htf30ContactLowTicks := na
+            attempt.htf30.htf30ContactCloseTicks := na
+            attempt.htf30.htf30ContactTickEpoch := na
+            attempt.htf30.htf30ContactTickSequence := na
+            attempt.htf30.htf30CoverageReady := false
+            attempt.htf30.htf30PreviousAtOrInsideOpen := false
+            attempt.htf30.htf30LastTickSequence := na
+            attempt.htf30.htf30LastTickEpoch := na
+            attempt.htf30.htf30PreviousTickTicks := na
+            attempt.htf30.htf30CoverageStartEpoch := coverageStartEpoch
+            attempt.htf30.htf30CoverageGapDetected := coverageGapDetected
         else
-            attempt.htf60AnchorEpoch := anchorEpoch
-            attempt.htf60OpenTicks := openTicks
-            attempt.htf60ContactSeen := false
-            attempt.htf60DestinationBeforeContact := false
-            attempt.htf60ContactOpenEpoch := na
-            attempt.htf60ContactCloseEpoch := na
-            attempt.htf60ContactOpenTicks := na
-            attempt.htf60ContactHighTicks := na
-            attempt.htf60ContactLowTicks := na
-            attempt.htf60ContactCloseTicks := na
-            attempt.htf60ContactTickEpoch := na
-            attempt.htf60ContactTickSequence := na
-            attempt.htf60CoverageReady := false
-            attempt.htf60PreviousAtOrInsideOpen := false
-            attempt.htf60LastTickSequence := na
-            attempt.htf60LastTickEpoch := na
-            attempt.htf60PreviousTickTicks := na
-            attempt.htf60CoverageStartEpoch := coverageStartEpoch
-            attempt.htf60CoverageGapDetected := coverageGapDetected
+            attempt.htf60.htf60AnchorEpoch := anchorEpoch
+            attempt.htf60.htf60OpenTicks := openTicks
+            attempt.htf60.htf60ContactSeen := false
+            attempt.htf60.htf60DestinationBeforeContact := false
+            attempt.htf60.htf60ContactOpenEpoch := na
+            attempt.htf60.htf60ContactCloseEpoch := na
+            attempt.htf60.htf60ContactOpenTicks := na
+            attempt.htf60.htf60ContactHighTicks := na
+            attempt.htf60.htf60ContactLowTicks := na
+            attempt.htf60.htf60ContactCloseTicks := na
+            attempt.htf60.htf60ContactTickEpoch := na
+            attempt.htf60.htf60ContactTickSequence := na
+            attempt.htf60.htf60CoverageReady := false
+            attempt.htf60.htf60PreviousAtOrInsideOpen := false
+            attempt.htf60.htf60LastTickSequence := na
+            attempt.htf60.htf60LastTickEpoch := na
+            attempt.htf60.htf60PreviousTickTicks := na
+            attempt.htf60.htf60CoverageStartEpoch := coverageStartEpoch
+            attempt.htf60.htf60CoverageGapDetected := coverageGapDetected
         contactOpenEpoch := na
         contactCloseEpoch := na
         contactOpenTicks := na
@@ -2488,18 +2511,18 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
         contactTickSequence := na
     bool activeContext = not na(anchorEpoch) and barEpoch < anchorEpoch + boundarySeconds
     bool zoneContact = activeContext and (barstate.isrealtime ? close <= zone.top and close >= zone.bottom : low <= zone.top and high >= zone.bottom)
-    bool destinationSeen = activeContext and (attempt.demand ? (barstate.isrealtime ? close > openTicks * syminfo.mintick : high > openTicks * syminfo.mintick) : (barstate.isrealtime ? close < openTicks * syminfo.mintick : low < openTicks * syminfo.mintick))
+    bool destinationSeen = activeContext and (attempt.core.demand ? (barstate.isrealtime ? close > openTicks * syminfo.mintick : high > openTicks * syminfo.mintick) : (barstate.isrealtime ? close < openTicks * syminfo.mintick : low < openTicks * syminfo.mintick))
     bool continuousCoverage = coverageReady and lastTickSequence + 1 == tickSequence
     int nowEpoch = entryClockEpoch()
     bool contactWasSeen = contactSeen
     if activeContext and not contactSeen and destinationSeen
         destinationBeforeContact := true
         if contextMinutes == 15
-            attempt.htf15DestinationBeforeContact := true
+            attempt.htf15.htf15DestinationBeforeContact := true
         else if contextMinutes == 30
-            attempt.htf30DestinationBeforeContact := true
+            attempt.htf30.htf30DestinationBeforeContact := true
         else
-            attempt.htf60DestinationBeforeContact := true
+            attempt.htf60.htf60DestinationBeforeContact := true
     if activeContext and zoneContact and not contactSeen
         captureFlipContact(attempt, contextMinutes)
         contactSeen := true
@@ -2519,79 +2542,79 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
             contactHighTicks := math.max(previousTickTicks, priceTicks(close))
             contactLowTicks := math.min(previousTickTicks, priceTicks(close))
             if contextMinutes == 15
-                attempt.htf15ContactOpenEpoch := contactOpenEpoch
-                attempt.htf15ContactCloseEpoch := contactCloseEpoch
-                attempt.htf15ContactOpenTicks := contactOpenTicks
-                attempt.htf15ContactHighTicks := contactHighTicks
-                attempt.htf15ContactLowTicks := contactLowTicks
+                attempt.htf15.htf15ContactOpenEpoch := contactOpenEpoch
+                attempt.htf15.htf15ContactCloseEpoch := contactCloseEpoch
+                attempt.htf15.htf15ContactOpenTicks := contactOpenTicks
+                attempt.htf15.htf15ContactHighTicks := contactHighTicks
+                attempt.htf15.htf15ContactLowTicks := contactLowTicks
             else if contextMinutes == 30
-                attempt.htf30ContactOpenEpoch := contactOpenEpoch
-                attempt.htf30ContactCloseEpoch := contactCloseEpoch
-                attempt.htf30ContactOpenTicks := contactOpenTicks
-                attempt.htf30ContactHighTicks := contactHighTicks
-                attempt.htf30ContactLowTicks := contactLowTicks
+                attempt.htf30.htf30ContactOpenEpoch := contactOpenEpoch
+                attempt.htf30.htf30ContactCloseEpoch := contactCloseEpoch
+                attempt.htf30.htf30ContactOpenTicks := contactOpenTicks
+                attempt.htf30.htf30ContactHighTicks := contactHighTicks
+                attempt.htf30.htf30ContactLowTicks := contactLowTicks
             else
-                attempt.htf60ContactOpenEpoch := contactOpenEpoch
-                attempt.htf60ContactCloseEpoch := contactCloseEpoch
-                attempt.htf60ContactOpenTicks := contactOpenTicks
-                attempt.htf60ContactHighTicks := contactHighTicks
-                attempt.htf60ContactLowTicks := contactLowTicks
+                attempt.htf60.htf60ContactOpenEpoch := contactOpenEpoch
+                attempt.htf60.htf60ContactCloseEpoch := contactCloseEpoch
+                attempt.htf60.htf60ContactOpenTicks := contactOpenTicks
+                attempt.htf60.htf60ContactHighTicks := contactHighTicks
+                attempt.htf60.htf60ContactLowTicks := contactLowTicks
         else if barstate.isrealtime
             coverageGapDetected := true
             if contextMinutes == 15
-                attempt.htf15CoverageGapDetected := true
+                attempt.htf15.htf15CoverageGapDetected := true
             else if contextMinutes == 30
-                attempt.htf30CoverageGapDetected := true
+                attempt.htf30.htf30CoverageGapDetected := true
             else
-                attempt.htf60CoverageGapDetected := true
+                attempt.htf60.htf60CoverageGapDetected := true
     bool laterThanContact = not na(contactTickEpoch) and not na(contactTickSequence) and tickSequence > contactTickSequence and nowEpoch > contactTickEpoch
-    bool currentAtOrInsideOpen = attempt.demand ? close <= openTicks * syminfo.mintick : close >= openTicks * syminfo.mintick
+    bool currentAtOrInsideOpen = attempt.core.demand ? close <= openTicks * syminfo.mintick : close >= openTicks * syminfo.mintick
     bool sameChildExactRecross = barstate.isrealtime and contactSeen and contactTickEpoch >= barEpoch and contactTickEpoch < epochSeconds(time_close) and laterThanContact and continuousCoverage and not coverageGapDetected and previousAtOrInsideOpen and destinationSeen
     bool sameAtomicContactAndDestination = barstate.isrealtime and contactSeen and destinationSeen and not laterThanContact
     if sameAtomicContactAndDestination
         destinationBeforeContact := true
         if contextMinutes == 15
-            attempt.htf15DestinationBeforeContact := true
+            attempt.htf15.htf15DestinationBeforeContact := true
         else if contextMinutes == 30
-            attempt.htf30DestinationBeforeContact := true
+            attempt.htf30.htf30DestinationBeforeContact := true
         else
-            attempt.htf60DestinationBeforeContact := true
+            attempt.htf60.htf60DestinationBeforeContact := true
     if contactSeen and barstate.isrealtime and not sameChildExactRecross and laterThanContact
         contactHighTicks := math.max(contactHighTicks, priceTicks(close))
         contactLowTicks := math.min(contactLowTicks, priceTicks(close))
         contactCloseTicks := priceTicks(close)
         contactCloseEpoch := nowEpoch
         if contextMinutes == 15
-            attempt.htf15ContactHighTicks := contactHighTicks
-            attempt.htf15ContactLowTicks := contactLowTicks
-            attempt.htf15ContactCloseTicks := contactCloseTicks
-            attempt.htf15ContactCloseEpoch := contactCloseEpoch
+            attempt.htf15.htf15ContactHighTicks := contactHighTicks
+            attempt.htf15.htf15ContactLowTicks := contactLowTicks
+            attempt.htf15.htf15ContactCloseTicks := contactCloseTicks
+            attempt.htf15.htf15ContactCloseEpoch := contactCloseEpoch
         else if contextMinutes == 30
-            attempt.htf30ContactHighTicks := contactHighTicks
-            attempt.htf30ContactLowTicks := contactLowTicks
-            attempt.htf30ContactCloseTicks := contactCloseTicks
-            attempt.htf30ContactCloseEpoch := contactCloseEpoch
+            attempt.htf30.htf30ContactHighTicks := contactHighTicks
+            attempt.htf30.htf30ContactLowTicks := contactLowTicks
+            attempt.htf30.htf30ContactCloseTicks := contactCloseTicks
+            attempt.htf30.htf30ContactCloseEpoch := contactCloseEpoch
         else
-            attempt.htf60ContactHighTicks := contactHighTicks
-            attempt.htf60ContactLowTicks := contactLowTicks
-            attempt.htf60ContactCloseTicks := contactCloseTicks
-            attempt.htf60ContactCloseEpoch := contactCloseEpoch
+            attempt.htf60.htf60ContactHighTicks := contactHighTicks
+            attempt.htf60.htf60ContactLowTicks := contactLowTicks
+            attempt.htf60.htf60ContactCloseTicks := contactCloseTicks
+            attempt.htf60.htf60ContactCloseEpoch := contactCloseEpoch
     bool contactCandleComplete = contactWasSeen and barEpoch >= contactCloseEpoch
     bool exactFirstRecross = barstate.isrealtime and continuousCoverage and previousAtOrInsideOpen and destinationSeen
     bool historicalRecross = not barstate.isrealtime and activeContext and contactCandleComplete and not destinationBeforeContact and destinationSeen
-    bool flipTriggered = not attempt.flipEmitted and (contactCandleComplete or sameChildExactRecross) and not destinationBeforeContact and (exactFirstRecross or historicalRecross)
+    bool flipTriggered = not attempt.flip.flipEmitted and (contactCandleComplete or sameChildExactRecross) and not destinationBeforeContact and (exactFirstRecross or historicalRecross)
     if flipTriggered
         bool epochAdvanced = not na(lastTickEpoch) and epochSeconds(timenow) > lastTickEpoch
         bool triggerExact = exactFirstRecross and epochAdvanced and not coverageGapDetected
         if contextMinutes == 15
-            attempt.htf15TriggeredThisTick := true
-            attempt.htf15TriggerExact := triggerExact
+            attempt.htf15.htf15TriggeredThisTick := true
+            attempt.htf15.htf15TriggerExact := triggerExact
         else if contextMinutes == 30
-            attempt.htf30TriggeredThisTick := true
-            attempt.htf30TriggerExact := triggerExact
+            attempt.htf30.htf30TriggeredThisTick := true
+            attempt.htf30.htf30TriggerExact := triggerExact
         else
-            attempt.htf60TriggeredThisTick := true
-            attempt.htf60TriggerExact := triggerExact
+            attempt.htf60.htf60TriggeredThisTick := true
+            attempt.htf60.htf60TriggerExact := triggerExact
     if barstate.isrealtime and activeContext and not flipTriggered
         bool coverageGap = not na(lastTickSequence) and lastTickSequence + 1 != tickSequence
         if coverageGap
@@ -2606,129 +2629,123 @@ updateFlipContext(EntryAttempt attempt, RawZone zone, int contextMinutes) =>
         previousTickTicks := priceTicks(close)
         coverageReady := true
         if contextMinutes == 15
-            attempt.htf15CoverageReady := coverageReady
-            attempt.htf15PreviousAtOrInsideOpen := previousAtOrInsideOpen
-            attempt.htf15LastTickSequence := lastTickSequence
-            attempt.htf15LastTickEpoch := lastTickEpoch
-            attempt.htf15PreviousTickTicks := previousTickTicks
-            attempt.htf15CoverageStartEpoch := coverageStartEpoch
-            attempt.htf15CoverageGapDetected := coverageGapDetected
+            attempt.htf15.htf15CoverageReady := coverageReady
+            attempt.htf15.htf15PreviousAtOrInsideOpen := previousAtOrInsideOpen
+            attempt.htf15.htf15LastTickSequence := lastTickSequence
+            attempt.htf15.htf15LastTickEpoch := lastTickEpoch
+            attempt.htf15.htf15PreviousTickTicks := previousTickTicks
+            attempt.htf15.htf15CoverageStartEpoch := coverageStartEpoch
+            attempt.htf15.htf15CoverageGapDetected := coverageGapDetected
         else if contextMinutes == 30
-            attempt.htf30CoverageReady := coverageReady
-            attempt.htf30PreviousAtOrInsideOpen := previousAtOrInsideOpen
-            attempt.htf30LastTickSequence := lastTickSequence
-            attempt.htf30LastTickEpoch := lastTickEpoch
-            attempt.htf30PreviousTickTicks := previousTickTicks
-            attempt.htf30CoverageStartEpoch := coverageStartEpoch
-            attempt.htf30CoverageGapDetected := coverageGapDetected
+            attempt.htf30.htf30CoverageReady := coverageReady
+            attempt.htf30.htf30PreviousAtOrInsideOpen := previousAtOrInsideOpen
+            attempt.htf30.htf30LastTickSequence := lastTickSequence
+            attempt.htf30.htf30LastTickEpoch := lastTickEpoch
+            attempt.htf30.htf30PreviousTickTicks := previousTickTicks
+            attempt.htf30.htf30CoverageStartEpoch := coverageStartEpoch
+            attempt.htf30.htf30CoverageGapDetected := coverageGapDetected
         else
-            attempt.htf60CoverageReady := coverageReady
-            attempt.htf60PreviousAtOrInsideOpen := previousAtOrInsideOpen
-            attempt.htf60LastTickSequence := lastTickSequence
-            attempt.htf60LastTickEpoch := lastTickEpoch
-            attempt.htf60PreviousTickTicks := previousTickTicks
-            attempt.htf60CoverageStartEpoch := coverageStartEpoch
-            attempt.htf60CoverageGapDetected := coverageGapDetected
+            attempt.htf60.htf60CoverageReady := coverageReady
+            attempt.htf60.htf60PreviousAtOrInsideOpen := previousAtOrInsideOpen
+            attempt.htf60.htf60LastTickSequence := lastTickSequence
+            attempt.htf60.htf60LastTickEpoch := lastTickEpoch
+            attempt.htf60.htf60PreviousTickTicks := previousTickTicks
+            attempt.htf60.htf60CoverageStartEpoch := coverageStartEpoch
+            attempt.htf60.htf60CoverageGapDetected := coverageGapDetected
     flipTriggered
 
 finalizeFlipCandidate(EntryAttempt attempt) =>
     int nowEpoch = entryClockEpoch()
     bool triggered = false
-    if attempt.flipAuditPending and nowEpoch > attempt.flipEventEpoch
-        attempt.flipAuditPending := false
-        attempt.flipCoverageEndEpoch := nowEpoch
-        attempt.flipObservedAtEpoch := nowEpoch
+    if attempt.flip.flipAuditPending and nowEpoch > attempt.flip.flipEventEpoch
+        attempt.flip.flipAuditPending := false
+        attempt.flip.flipCoverageEndEpoch := nowEpoch
+        attempt.flip.flipObservedAtEpoch := nowEpoch
         triggered := true
-    int mask = (attempt.htf15TriggeredThisTick ? 1 : 0) + (attempt.htf30TriggeredThisTick ? 2 : 0) + (attempt.htf60TriggeredThisTick ? 4 : 0)
-    bool newObservation = not attempt.flipEmitted and mask > 0
+    int mask = (attempt.htf15.htf15TriggeredThisTick ? 1 : 0) + (attempt.htf30.htf30TriggeredThisTick ? 2 : 0) + (attempt.htf60.htf60TriggeredThisTick ? 4 : 0)
+    bool newObservation = not attempt.flip.flipEmitted and mask > 0
     if newObservation
-        int firstContext = attempt.htf15TriggeredThisTick ? 15 : attempt.htf30TriggeredThisTick ? 30 : 60
-        int anchorEpoch = firstContext == 15 ? attempt.htf15AnchorEpoch : firstContext == 30 ? attempt.htf30AnchorEpoch : attempt.htf60AnchorEpoch
-        int openTicks = firstContext == 15 ? attempt.htf15OpenTicks : firstContext == 30 ? attempt.htf30OpenTicks : attempt.htf60OpenTicks
-        int contactOpenEpoch = firstContext == 15 ? attempt.htf15ContactOpenEpoch : firstContext == 30 ? attempt.htf30ContactOpenEpoch : attempt.htf60ContactOpenEpoch
-        int contactCloseEpoch = firstContext == 15 ? attempt.htf15ContactCloseEpoch : firstContext == 30 ? attempt.htf30ContactCloseEpoch : attempt.htf60ContactCloseEpoch
-        int contactOpenTicks = firstContext == 15 ? attempt.htf15ContactOpenTicks : firstContext == 30 ? attempt.htf30ContactOpenTicks : attempt.htf60ContactOpenTicks
-        int contactHighTicks = firstContext == 15 ? attempt.htf15ContactHighTicks : firstContext == 30 ? attempt.htf30ContactHighTicks : attempt.htf60ContactHighTicks
-        int contactLowTicks = firstContext == 15 ? attempt.htf15ContactLowTicks : firstContext == 30 ? attempt.htf30ContactLowTicks : attempt.htf60ContactLowTicks
-        int contactCloseTicks = firstContext == 15 ? attempt.htf15ContactCloseTicks : firstContext == 30 ? attempt.htf30ContactCloseTicks : attempt.htf60ContactCloseTicks
-        int coverageStartEpoch = firstContext == 15 ? attempt.htf15CoverageStartEpoch : firstContext == 30 ? attempt.htf30CoverageStartEpoch : attempt.htf60CoverageStartEpoch
-        int previousTickEpoch = firstContext == 15 ? attempt.htf15LastTickEpoch : firstContext == 30 ? attempt.htf30LastTickEpoch : attempt.htf60LastTickEpoch
-        int previousTickTicks = firstContext == 15 ? attempt.htf15PreviousTickTicks : firstContext == 30 ? attempt.htf30PreviousTickTicks : attempt.htf60PreviousTickTicks
-        bool exact = firstContext == 15 ? attempt.htf15TriggerExact : firstContext == 30 ? attempt.htf30TriggerExact : attempt.htf60TriggerExact
-        bool compatible15 = not attempt.htf15TriggeredThisTick or attempt.htf15AnchorEpoch == anchorEpoch and attempt.htf15OpenTicks == openTicks and attempt.htf15ContactOpenEpoch == contactOpenEpoch and attempt.htf15ContactCloseEpoch == contactCloseEpoch and attempt.htf15ContactOpenTicks == contactOpenTicks and attempt.htf15ContactHighTicks == contactHighTicks and attempt.htf15ContactLowTicks == contactLowTicks and attempt.htf15ContactCloseTicks == contactCloseTicks and attempt.htf15CoverageStartEpoch == coverageStartEpoch and attempt.htf15LastTickEpoch == previousTickEpoch and attempt.htf15PreviousTickTicks == previousTickTicks
-        bool compatible30 = not attempt.htf30TriggeredThisTick or attempt.htf30AnchorEpoch == anchorEpoch and attempt.htf30OpenTicks == openTicks and attempt.htf30ContactOpenEpoch == contactOpenEpoch and attempt.htf30ContactCloseEpoch == contactCloseEpoch and attempt.htf30ContactOpenTicks == contactOpenTicks and attempt.htf30ContactHighTicks == contactHighTicks and attempt.htf30ContactLowTicks == contactLowTicks and attempt.htf30ContactCloseTicks == contactCloseTicks and attempt.htf30CoverageStartEpoch == coverageStartEpoch and attempt.htf30LastTickEpoch == previousTickEpoch and attempt.htf30PreviousTickTicks == previousTickTicks
-        bool compatible60 = not attempt.htf60TriggeredThisTick or attempt.htf60AnchorEpoch == anchorEpoch and attempt.htf60OpenTicks == openTicks and attempt.htf60ContactOpenEpoch == contactOpenEpoch and attempt.htf60ContactCloseEpoch == contactCloseEpoch and attempt.htf60ContactOpenTicks == contactOpenTicks and attempt.htf60ContactHighTicks == contactHighTicks and attempt.htf60ContactLowTicks == contactLowTicks and attempt.htf60ContactCloseTicks == contactCloseTicks and attempt.htf60CoverageStartEpoch == coverageStartEpoch and attempt.htf60LastTickEpoch == previousTickEpoch and attempt.htf60PreviousTickTicks == previousTickTicks
+        int firstContext = attempt.htf15.htf15TriggeredThisTick ? 15 : attempt.htf30.htf30TriggeredThisTick ? 30 : 60
+        int anchorEpoch = firstContext == 15 ? attempt.htf15.htf15AnchorEpoch : firstContext == 30 ? attempt.htf30.htf30AnchorEpoch : attempt.htf60.htf60AnchorEpoch
+        int openTicks = firstContext == 15 ? attempt.htf15.htf15OpenTicks : firstContext == 30 ? attempt.htf30.htf30OpenTicks : attempt.htf60.htf60OpenTicks
+        int contactOpenEpoch = firstContext == 15 ? attempt.htf15.htf15ContactOpenEpoch : firstContext == 30 ? attempt.htf30.htf30ContactOpenEpoch : attempt.htf60.htf60ContactOpenEpoch
+        int contactCloseEpoch = firstContext == 15 ? attempt.htf15.htf15ContactCloseEpoch : firstContext == 30 ? attempt.htf30.htf30ContactCloseEpoch : attempt.htf60.htf60ContactCloseEpoch
+        int contactOpenTicks = firstContext == 15 ? attempt.htf15.htf15ContactOpenTicks : firstContext == 30 ? attempt.htf30.htf30ContactOpenTicks : attempt.htf60.htf60ContactOpenTicks
+        int contactHighTicks = firstContext == 15 ? attempt.htf15.htf15ContactHighTicks : firstContext == 30 ? attempt.htf30.htf30ContactHighTicks : attempt.htf60.htf60ContactHighTicks
+        int contactLowTicks = firstContext == 15 ? attempt.htf15.htf15ContactLowTicks : firstContext == 30 ? attempt.htf30.htf30ContactLowTicks : attempt.htf60.htf60ContactLowTicks
+        int contactCloseTicks = firstContext == 15 ? attempt.htf15.htf15ContactCloseTicks : firstContext == 30 ? attempt.htf30.htf30ContactCloseTicks : attempt.htf60.htf60ContactCloseTicks
+        int coverageStartEpoch = firstContext == 15 ? attempt.htf15.htf15CoverageStartEpoch : firstContext == 30 ? attempt.htf30.htf30CoverageStartEpoch : attempt.htf60.htf60CoverageStartEpoch
+        int previousTickEpoch = firstContext == 15 ? attempt.htf15.htf15LastTickEpoch : firstContext == 30 ? attempt.htf30.htf30LastTickEpoch : attempt.htf60.htf60LastTickEpoch
+        int previousTickTicks = firstContext == 15 ? attempt.htf15.htf15PreviousTickTicks : firstContext == 30 ? attempt.htf30.htf30PreviousTickTicks : attempt.htf60.htf60PreviousTickTicks
+        bool exact = firstContext == 15 ? attempt.htf15.htf15TriggerExact : firstContext == 30 ? attempt.htf30.htf30TriggerExact : attempt.htf60.htf60TriggerExact
+        bool compatible15 = not attempt.htf15.htf15TriggeredThisTick or attempt.htf15.htf15AnchorEpoch == anchorEpoch and attempt.htf15.htf15OpenTicks == openTicks and attempt.htf15.htf15ContactOpenEpoch == contactOpenEpoch and attempt.htf15.htf15ContactCloseEpoch == contactCloseEpoch and attempt.htf15.htf15ContactOpenTicks == contactOpenTicks and attempt.htf15.htf15ContactHighTicks == contactHighTicks and attempt.htf15.htf15ContactLowTicks == contactLowTicks and attempt.htf15.htf15ContactCloseTicks == contactCloseTicks and attempt.htf15.htf15CoverageStartEpoch == coverageStartEpoch and attempt.htf15.htf15LastTickEpoch == previousTickEpoch and attempt.htf15.htf15PreviousTickTicks == previousTickTicks
+        bool compatible30 = not attempt.htf30.htf30TriggeredThisTick or attempt.htf30.htf30AnchorEpoch == anchorEpoch and attempt.htf30.htf30OpenTicks == openTicks and attempt.htf30.htf30ContactOpenEpoch == contactOpenEpoch and attempt.htf30.htf30ContactCloseEpoch == contactCloseEpoch and attempt.htf30.htf30ContactOpenTicks == contactOpenTicks and attempt.htf30.htf30ContactHighTicks == contactHighTicks and attempt.htf30.htf30ContactLowTicks == contactLowTicks and attempt.htf30.htf30ContactCloseTicks == contactCloseTicks and attempt.htf30.htf30CoverageStartEpoch == coverageStartEpoch and attempt.htf30.htf30LastTickEpoch == previousTickEpoch and attempt.htf30.htf30PreviousTickTicks == previousTickTicks
+        bool compatible60 = not attempt.htf60.htf60TriggeredThisTick or attempt.htf60.htf60AnchorEpoch == anchorEpoch and attempt.htf60.htf60OpenTicks == openTicks and attempt.htf60.htf60ContactOpenEpoch == contactOpenEpoch and attempt.htf60.htf60ContactCloseEpoch == contactCloseEpoch and attempt.htf60.htf60ContactOpenTicks == contactOpenTicks and attempt.htf60.htf60ContactHighTicks == contactHighTicks and attempt.htf60.htf60ContactLowTicks == contactLowTicks and attempt.htf60.htf60ContactCloseTicks == contactCloseTicks and attempt.htf60.htf60CoverageStartEpoch == coverageStartEpoch and attempt.htf60.htf60LastTickEpoch == previousTickEpoch and attempt.htf60.htf60PreviousTickTicks == previousTickTicks
         bool compatible = compatible15 and compatible30 and compatible60
-        bool allExact = (not attempt.htf15TriggeredThisTick or attempt.htf15TriggerExact) and (not attempt.htf30TriggeredThisTick or attempt.htf30TriggerExact) and (not attempt.htf60TriggeredThisTick or attempt.htf60TriggerExact)
-        bool selectedCoverageGap = (attempt.htf15TriggeredThisTick and attempt.htf15CoverageGapDetected) or (attempt.htf30TriggeredThisTick and attempt.htf30CoverageGapDetected) or (attempt.htf60TriggeredThisTick and attempt.htf60CoverageGapDetected)
-        attempt.flipEmitted := true
-        attempt.flipEventEpoch := nowEpoch
-        attempt.flipEventSequence := tickSequence
-        attempt.flipEventTicks := priceTicks(close)
-        attempt.flipContextMinutes := firstContext
-        attempt.flipContextMask := mask
-        attempt.flipAnchorEpoch := anchorEpoch
-        attempt.flipOpenTicks := openTicks
+        bool allExact = (not attempt.htf15.htf15TriggeredThisTick or attempt.htf15.htf15TriggerExact) and (not attempt.htf30.htf30TriggeredThisTick or attempt.htf30.htf30TriggerExact) and (not attempt.htf60.htf60TriggeredThisTick or attempt.htf60.htf60TriggerExact)
+        bool selectedCoverageGap = (attempt.htf15.htf15TriggeredThisTick and attempt.htf15.htf15CoverageGapDetected) or (attempt.htf30.htf30TriggeredThisTick and attempt.htf30.htf30CoverageGapDetected) or (attempt.htf60.htf60TriggeredThisTick and attempt.htf60.htf60CoverageGapDetected)
+        attempt.flip.flipEmitted := true
+        attempt.flip.flipEventEpoch := nowEpoch
+        attempt.flip.flipEventSequence := tickSequence
+        attempt.flip.flipEventTicks := priceTicks(close)
+        attempt.flip.flipContextMinutes := firstContext
+        attempt.flip.flipContextMask := mask
+        attempt.flip.flipAnchorEpoch := anchorEpoch
+        attempt.flip.flipOpenTicks := openTicks
         bool triggerCausal = barstate.isrealtime ? not na(previousTickEpoch) and nowEpoch > previousTickEpoch : nowEpoch > coverageStartEpoch
         int recrossOpenEpoch = barstate.isrealtime ? previousTickEpoch : epochSeconds(time)
         bool lifecycleCausal = triggerCausal and not na(contactOpenEpoch) and not na(contactCloseEpoch) and not na(recrossOpenEpoch) and contactOpenEpoch < contactCloseEpoch and contactCloseEpoch <= recrossOpenEpoch and recrossOpenEpoch < nowEpoch
-        attempt.flipTriggerCausal := triggerCausal
-        attempt.flipLifecycleCausal := lifecycleCausal
-        attempt.flipAuditPending := not triggerCausal
-        attempt.flipFidelity := compatible and exact and allExact and triggerCausal and lifecycleCausal ? "EXACT" : "UNRESOLVED"
-        attempt.flipProofPlane := barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE
-        attempt.flipReplayability := barstate.isrealtime ? ENTRY_LIVE_REPLAYABILITY : ENTRY_REPLAYABLE
-        attempt.flipCoverageStartEpoch := coverageStartEpoch
-        attempt.flipCoverageEndEpoch := triggerCausal ? nowEpoch : na
-        attempt.flipObservedAtEpoch := triggerCausal ? nowEpoch : na
-        attempt.flipCoverageGapDetected := selectedCoverageGap
-        attempt.flipFullLifecycleOrdered := lifecycleCausal
-        attempt.flipAmbiguityCode := not triggerCausal or selectedCoverageGap ? "SHADOW_MISSING_INTRABAR_COVERAGE" : not barstate.isrealtime ? "SHADOW_SAME_CHILD_BAR_ORDER" : "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE"
-        attempt.flipFailureCode := not triggerCausal ? "HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE" : not compatible ? "HTF_FLIP_INCOMPATIBLE_CONTEXTS" : selectedCoverageGap ? "HTF_FLIP_MISSING_INTRABAR_COVERAGE" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HTF_FLIP_LIFECYCLE_UNRESOLVED"
-        attempt.flipContactOpenEpoch := contactOpenEpoch
-        attempt.flipContactCloseEpoch := contactCloseEpoch
-        attempt.flipContactOpenTicks := contactOpenTicks
-        attempt.flipContactHighTicks := contactHighTicks
-        attempt.flipContactLowTicks := contactLowTicks
-        attempt.flipContactCloseTicks := contactCloseTicks
-        attempt.flipRecrossOpenEpoch := recrossOpenEpoch
-        attempt.flipRecrossCloseEpoch := attempt.flipEventEpoch
-        attempt.flipRecrossOpenTicks := barstate.isrealtime ? previousTickTicks : priceTicks(open)
-        attempt.flipRecrossHighTicks := barstate.isrealtime ? math.max(previousTickTicks, priceTicks(close)) : priceTicks(high)
-        attempt.flipRecrossLowTicks := barstate.isrealtime ? math.min(previousTickTicks, priceTicks(close)) : priceTicks(low)
-        attempt.flipRecrossCloseTicks := priceTicks(close)
-        if na(attempt.entryTicks)
-            attempt.entryTicks := attempt.flipEventTicks
-        triggered := not attempt.flipAuditPending
+        attempt.flip.flipTriggerCausal := triggerCausal
+        attempt.flip.flipLifecycleCausal := lifecycleCausal
+        attempt.flip.flipAuditPending := not triggerCausal
+        attempt.flip.flipFidelity := compatible and exact and allExact and triggerCausal and lifecycleCausal ? "EXACT" : "UNRESOLVED"
+        attempt.flip.flipProofPlane := barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE
+        attempt.flip.flipReplayability := barstate.isrealtime ? ENTRY_LIVE_REPLAYABILITY : ENTRY_REPLAYABLE
+        attempt.flip.flipCoverageStartEpoch := coverageStartEpoch
+        attempt.flip.flipCoverageEndEpoch := triggerCausal ? nowEpoch : na
+        attempt.flip.flipObservedAtEpoch := triggerCausal ? nowEpoch : na
+        attempt.flip.flipCoverageGapDetected := selectedCoverageGap
+        attempt.flip.flipFullLifecycleOrdered := lifecycleCausal
+        attempt.flip.flipAmbiguityCode := not triggerCausal or selectedCoverageGap ? "SHADOW_MISSING_INTRABAR_COVERAGE" : not barstate.isrealtime ? "SHADOW_SAME_CHILD_BAR_ORDER" : "SHADOW_REALTIME_ONLY_NOT_REPLAYABLE"
+        attempt.flip.flipFailureCode := not triggerCausal ? "HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE" : not compatible ? "HTF_FLIP_INCOMPATIBLE_CONTEXTS" : selectedCoverageGap ? "HTF_FLIP_MISSING_INTRABAR_COVERAGE" : not barstate.isrealtime ? "HISTORICAL_ORDER_UNPROVEN" : "HTF_FLIP_LIFECYCLE_UNRESOLVED"
+        attempt.flip.flipContactOpenEpoch := contactOpenEpoch
+        attempt.flip.flipContactCloseEpoch := contactCloseEpoch
+        attempt.flip.flipContactOpenTicks := contactOpenTicks
+        attempt.flip.flipContactHighTicks := contactHighTicks
+        attempt.flip.flipContactLowTicks := contactLowTicks
+        attempt.flip.flipContactCloseTicks := contactCloseTicks
+        attempt.flip.flipRecrossOpenEpoch := recrossOpenEpoch
+        attempt.flip.flipRecrossCloseEpoch := attempt.flip.flipEventEpoch
+        attempt.flip.flipRecrossOpenTicks := barstate.isrealtime ? previousTickTicks : priceTicks(open)
+        attempt.flip.flipRecrossHighTicks := barstate.isrealtime ? math.max(previousTickTicks, priceTicks(close)) : priceTicks(high)
+        attempt.flip.flipRecrossLowTicks := barstate.isrealtime ? math.min(previousTickTicks, priceTicks(close)) : priceTicks(low)
+        attempt.flip.flipRecrossCloseTicks := priceTicks(close)
+        if na(attempt.core.entryTicks)
+            attempt.core.entryTicks := attempt.flip.flipEventTicks
+        triggered := not attempt.flip.flipAuditPending
     triggered
 
 monitorAttemptExit(EntryAttempt attempt, RawZone zone) =>
     bool emitted = false
-    if not na(attempt.entryTicks) and not attempt.exitTerminal and entryBundleReadyToEmit(attempt)
-        int stopPriceTicks = not na(attempt.stopTicks) ? attempt.stopTicks : attempt.demand ? attempt.entryTicks - entryStopTicks : attempt.entryTicks + entryStopTicks
-        int targetPriceTicks = not na(attempt.targetTicks) ? attempt.targetTicks : attempt.demand ? attempt.entryTicks + entryTargetTicks : attempt.entryTicks - entryTargetTicks
+    if not na(attempt.core.entryTicks) and not attempt.core.exitTerminal and entryBundleReadyToEmit(attempt)
+        int stopPriceTicks = not na(attempt.core.stopTicks) ? attempt.core.stopTicks : attempt.core.demand ? attempt.core.entryTicks - entryStopTicks : attempt.core.entryTicks + entryStopTicks
+        int targetPriceTicks = not na(attempt.core.targetTicks) ? attempt.core.targetTicks : attempt.core.demand ? attempt.core.entryTicks + entryTargetTicks : attempt.core.entryTicks - entryTargetTicks
         float stopPrice = stopPriceTicks * syminfo.mintick
         float targetPrice = targetPriceTicks * syminfo.mintick
-        bool stopHit =
-            attempt.demand ?
-                (barstate.isrealtime ? close <= stopPrice : low <= stopPrice) :
-                (barstate.isrealtime ? close >= stopPrice : high >= stopPrice)
-        bool targetHit =
-            attempt.demand ?
-                (barstate.isrealtime ? close >= targetPrice : high >= targetPrice) :
-                (barstate.isrealtime ? close <= targetPrice : low <= targetPrice)
+        bool stopHit = attempt.core.demand ? (barstate.isrealtime ? close <= stopPrice : low <= stopPrice) : (barstate.isrealtime ? close >= stopPrice : high >= stopPrice)
+        bool targetHit = attempt.core.demand ? (barstate.isrealtime ? close >= targetPrice : high >= targetPrice) : (barstate.isrealtime ? close <= targetPrice : low <= targetPrice)
         bool historicalAmbiguous = not barstate.isrealtime and stopHit and targetHit
-        bool newStop = stopHit and not targetHit and not attempt.stopEventEmitted and not attempt.targetEventEmitted
-        bool newTarget = targetHit and not stopHit and not attempt.stopEventEmitted and not attempt.targetEventEmitted
+        bool newStop = stopHit and not targetHit and not attempt.core.stopEventEmitted and not attempt.core.targetEventEmitted
+        bool newTarget = targetHit and not stopHit and not attempt.core.stopEventEmitted and not attempt.core.targetEventEmitted
         if historicalAmbiguous or newStop or newTarget
             string reason = historicalAmbiguous ? "AMBIGUOUS_SAME_BAR_EXIT" : newStop ? "STOP_LOSS" : "TARGET"
             int eventTicks = historicalAmbiguous ? priceTicks(close) : newStop ? stopPriceTicks : targetPriceTicks
-            string eventId = attempt.setupId + ":exit:" + reason + ":" + str.tostring(tickSequence)
-            string exitEvent = "[{\"event_id\":" + jsonString(eventId) + ",\"setup_id\":" + jsonString(attempt.setupId) + ",\"exit_reason\":" + jsonString(reason) + ",\"epoch\":" + str.tostring(barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)) + ",\"sequence\":" + str.tostring(tickSequence) + ",\"price_ticks\":" + str.tostring(eventTicks) + "}]"
-            attempt.stopEventEmitted := newStop
-            attempt.targetEventEmitted := newTarget
-            attempt.ambiguousExitEmitted := historicalAmbiguous
-            attempt.exitTerminal := true
+            string eventId = attempt.core.setupId + ":exit:" + reason + ":" + str.tostring(tickSequence)
+            string exitEvent = "[{\"event_id\":" + jsonString(eventId) + ",\"setup_id\":" + jsonString(attempt.core.setupId) + ",\"exit_reason\":" + jsonString(reason) + ",\"epoch\":" + str.tostring(barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)) + ",\"sequence\":" + str.tostring(tickSequence) + ",\"price_ticks\":" + str.tostring(eventTicks) + "}]"
+            attempt.core.stopEventEmitted := newStop
+            attempt.core.targetEventEmitted := newTarget
+            attempt.core.ambiguousExitEmitted := historicalAmbiguous
+            attempt.core.exitTerminal := true
             emitted := emitEntryPayload(attempt, zone, barstate.isrealtime, exitEvent, historicalAmbiguous)
     emitted
 
@@ -2760,7 +2777,7 @@ zoneHasActiveAttempt(int zoneId) =>
     int attemptIndex = entryAttemptIndex(zoneId)
     if not na(attemptIndex)
         EntryAttempt attempt = array.get(entryAttempts, attemptIndex)
-        protectedAttempt := not attempt.exitTerminal
+        protectedAttempt := not attempt.core.exitTerminal
     protectedAttempt
 
 evictOldestUnprotectedZone(array<RawZone> zoneItems, array<EntryAttempt> attempts) =>
@@ -3034,7 +3051,7 @@ if isFiveMinute and validationReady and entryZoneCount > 0
         int attemptIndex = ensureEntryAttempt(zone)
         if not na(attemptIndex)
             EntryAttempt attempt = array.get(entryAttempts, attemptIndex)
-            bool candidateObservationOpen = not attempt.invalidatedBeforeEntry and zone.state != STATE_INVALIDATED and zone.setupState == SETUP_ARMED
+            bool candidateObservationOpen = not attempt.core.invalidatedBeforeEntry and zone.state != STATE_INVALIDATED and zone.setupState == SETUP_ARMED
             bool bocTriggered = false
             bool flipTriggered = false
             bool closeTriggered = false
@@ -3048,12 +3065,12 @@ if isFiveMinute and validationReady and entryZoneCount > 0
             bool candidateChanged = bocTriggered or flipTriggered or closeTriggered
             bool bundleReady = entryBundleReadyToEmit(attempt)
             if candidateChanged and bundleReady
-                if not attempt.paperDecisionEmitted and entryHasPaperEligibleSelection(attempt)
+                if not attempt.core.paperDecisionEmitted and entryHasPaperEligibleSelection(attempt)
                     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
-                    attempt.paperDecisionEmitted := true
-                    attempt.entryTicks := selectedTicks
-                    attempt.stopTicks := zone.demand ? selectedTicks - entryStopTicks : selectedTicks + entryStopTicks
-                    attempt.targetTicks := zone.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
+                    attempt.core.paperDecisionEmitted := true
+                    attempt.core.entryTicks := selectedTicks
+                    attempt.core.stopTicks := zone.demand ? selectedTicks - entryStopTicks : selectedTicks + entryStopTicks
+                    attempt.core.targetTicks := zone.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
                 bool intrabarCandidate = barstate.isrealtime and not closeTriggered
                 emitEntryPayload(attempt, zone, intrabarCandidate, "[]", false)
             if bundleReady

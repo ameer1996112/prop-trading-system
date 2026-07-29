@@ -72,15 +72,20 @@ def test_pine_v3_captures_immutable_boc_reference_and_independent_candidates() -
         "bool paperDecisionEmitted",
     ):
         assert field in pine
-    assert "bool longBreak = attempt.demand and close > attempt.referenceHighPrice" in pine
-    assert "bool shortBreak = not attempt.demand and close < attempt.referenceLowPrice" in pine
-    assert "attempt.bocEmitted := true" in pine
-    assert "attempt.flipEmitted := true" in pine
-    assert "attempt.paperDecisionEmitted := true" in pine
+    assert (
+        "bool longBreak = attempt.core.demand and close > attempt.core.referenceHighPrice" in pine
+    )
+    assert (
+        "bool shortBreak = not attempt.core.demand and close < attempt.core.referenceLowPrice"
+        in pine
+    )
+    assert "attempt.boc.bocEmitted := true" in pine
+    assert "attempt.flip.flipEmitted := true" in pine
+    assert "attempt.core.paperDecisionEmitted := true" in pine
     assert "entryObservedEpoch(attempt, model)" in pine
     assert "entryEvaluationEpoch(attempt)" in pine
     assert (
-        "bool candidateObservationOpen = not attempt.invalidatedBeforeEntry "
+        "bool candidateObservationOpen = not attempt.core.invalidatedBeforeEntry "
         "and zone.state != STATE_INVALIDATED "
         "and zone.setupState == SETUP_ARMED" in pine
     )
@@ -106,7 +111,7 @@ def test_pine_v3_guards_realtime_evidence_and_reviewed_hashes() -> None:
         "string flipReplayability",
     ):
         assert field in pine
-    assert 'attempt.flipFidelity == "EXACT"' in pine
+    assert 'attempt.flip.flipFidelity == "EXACT"' in pine
 
 
 def test_pine_v3_serializes_complete_sorted_common_rules() -> None:
@@ -149,8 +154,8 @@ def test_pine_v3_serializes_complete_sorted_common_rules() -> None:
         "ruleZonePreEntryCloseOutside",
     ):
         assert f"bool {field}" in pine
-        assert f"str.tostring(attempt.{field})" in pine
-    assert "attempt.commonRulesPass := attempt.ruleLiqActualExtremeSwept and" in pine
+        assert f"str.tostring(attempt.core.{field})" in pine
+    assert "attempt.core.commonRulesPass := attempt.core.ruleLiqActualExtremeSwept and" in pine
 
 
 def test_pine_v3_tracks_15_30_60_flip_lifecycles_separately() -> None:
@@ -179,10 +184,10 @@ def test_pine_v3_tracks_15_30_60_flip_lifecycles_separately() -> None:
     assert "updateFlipContext(attempt, zone, 60)" in pine
     assert "math.max(epochSeconds(timenow), barEpoch + 1)" not in pine
     assert "finalizeFlipCandidate(attempt)" in pine
-    assert "attempt.flipContextMask" in pine
-    assert "attempt.htf15TriggeredThisTick := false" in pine
-    assert "attempt.htf30TriggeredThisTick := false" in pine
-    assert "attempt.htf60TriggeredThisTick := false" in pine
+    assert "attempt.flip.flipContextMask" in pine
+    assert "attempt.htf15.htf15TriggeredThisTick := false" in pine
+    assert "attempt.htf30.htf30TriggeredThisTick := false" in pine
+    assert "attempt.htf60.htf60TriggeredThisTick := false" in pine
     assert pine.rindex("updateFlipContext(attempt, zone, 60)") < pine.rindex(
         "flipTriggered := finalizeFlipCandidate(attempt)"
     )
@@ -211,31 +216,35 @@ def test_pine_v3_exact_intrabar_evidence_requires_continuous_first_cross_coverag
         assert field in pine
     record_boc = section(pine, "recordBoc(", "captureFlipContact(")
     assert (
-        "bool continuousCoverage = attempt.bocCoverageReady "
-        "and attempt.bocLastTickSequence + 1 == tickSequence" in record_boc
+        "bool continuousCoverage = attempt.boc.bocCoverageReady "
+        "and attempt.boc.bocLastTickSequence + 1 == tickSequence" in record_boc
     )
     assert (
         "bool firstCrossObserved = barstate.isrealtime "
         "and continuousCoverage "
-        "and attempt.bocPreviousNonBrokenSide and brokenNow" in record_boc
+        "and attempt.boc.bocPreviousNonBrokenSide and brokenNow" in record_boc
     )
     assert (
-        "bool priorTickCausal = not na(attempt.bocLastTickEpoch) "
-        "and nowEpoch > attempt.bocLastTickEpoch" in record_boc
+        "bool priorTickCausal = not na(attempt.boc.bocLastTickEpoch) "
+        "and nowEpoch > attempt.boc.bocLastTickEpoch" in record_boc
     )
     assert "bool exactFirstCross = firstCrossObserved and priorTickCausal" in record_boc
     assert (
         "bool unrepresentableFirstCross = firstCrossObserved and not priorTickCausal" in record_boc
     )
     assert "int nowEpoch = entryClockEpoch()" in record_boc
-    assert "attempt.bocEventEpoch := nowEpoch" in record_boc
-    assert assigned_expression(record_boc, "attempt.bocFidelity") == (
+    assert "attempt.boc.bocEventEpoch := nowEpoch" in record_boc
+    assert assigned_expression(record_boc, "attempt.boc.bocFidelity") == (
         'exactFirstCross ? (htfTimed ? "EXACT" : "DISCRETIONARY") : "UNRESOLVED"'
     )
-    assert assigned_expression(record_boc, "attempt.bocLastTickEpoch") == "epochSeconds(timenow)"
-    assert assigned_expression(record_boc, "attempt.bocPreviousTickTicks") == "priceTicks(close)"
-    assert "attempt.bocCoverageStartEpoch" not in assigned_expression(
-        record_boc, "attempt.bocTriggerCausal"
+    assert (
+        assigned_expression(record_boc, "attempt.boc.bocLastTickEpoch") == "epochSeconds(timenow)"
+    )
+    assert (
+        assigned_expression(record_boc, "attempt.boc.bocPreviousTickTicks") == "priceTicks(close)"
+    )
+    assert "attempt.boc.bocCoverageStartEpoch" not in assigned_expression(
+        record_boc, "attempt.boc.bocTriggerCausal"
     )
     assert "SHADOW_MISSING_INTRABAR_COVERAGE" in pine
 
@@ -258,12 +267,12 @@ def test_pine_v3_defers_same_second_audits_and_serializes_nullable_triggers() ->
         assert field in pine
     assert "nullableEntryInt(bool present, int value)" in pine
     assert "nullableOrderedCandlePayload(bool present" in pine
-    assert "attempt.bocAuditPending and nowEpoch > attempt.bocEventEpoch" in pine
-    assert "attempt.flipAuditPending and nowEpoch > attempt.flipEventEpoch" in pine
+    assert "attempt.boc.bocAuditPending and nowEpoch > attempt.boc.bocEventEpoch" in pine
+    assert "attempt.flip.flipAuditPending and nowEpoch > attempt.flip.flipEventEpoch" in pine
     assert '"REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE"' in pine
     assert '"HTF_FLIP_CAUSAL_EPOCH_UNREPRESENTABLE"' in pine
-    assert "attempt.flipCoverageGapDetected := selectedCoverageGap" in pine
-    assert 'not compatible or attempt.flipFidelity != "EXACT"' not in pine
+    assert "attempt.flip.flipCoverageGapDetected := selectedCoverageGap" in pine
+    assert 'not compatible or attempt.flip.flipFidelity != "EXACT"' not in pine
 
 
 def test_pine_v3_uses_event_clock_not_wall_clock_for_history() -> None:
@@ -274,8 +283,8 @@ def test_pine_v3_uses_event_clock_not_wall_clock_for_history() -> None:
     evaluation = pine[pine.index("entryEvaluationEpoch(") : pine.index("entryCandidatePayload(")]
     assert "entryClockEpoch()" in evaluation
     assert "epochSeconds(timenow)" not in evaluation
-    assert "attempt.bocObservedAtEpoch" in evaluation
-    assert "attempt.flipObservedAtEpoch" in evaluation
+    assert "attempt.boc.bocObservedAtEpoch" in evaluation
+    assert "attempt.flip.flipObservedAtEpoch" in evaluation
 
 
 def test_pine_v3_emits_authoritative_bounded_event_bundles() -> None:
@@ -328,7 +337,7 @@ def test_pine_v3_emits_generic_exits_and_fails_closed_on_historical_ambiguity() 
     assert "barstate.isrealtime ? close <= stopPrice" in pine
     assert "barstate.isrealtime ? close >= targetPrice" in pine
     assert 'string reason = historicalAmbiguous ? "AMBIGUOUS_SAME_BAR_EXIT"' in pine
-    assert "attempt.exitTerminal := true" in pine
+    assert "attempt.core.exitTerminal := true" in pine
     assert "monitorAttemptExit(attempt, zone)" in pine
     assert "else\n                monitorAttemptExit" not in pine
     assert pine.rindex(
@@ -343,14 +352,15 @@ def test_pine_v3_freezes_setup_facts_and_protects_open_attempts_from_eviction() 
     assert "bool demand" in pine
     assert "int zoneTopTicks" in pine
     assert "int zoneBottomTicks" in pine
-    assert "attempt.invalidatedBeforeEntry := zone.state == STATE_INVALIDATED" in pine
+    assert "attempt.core.invalidatedBeforeEntry := zone.state == STATE_INVALIDATED" in pine
     assert (
-        '"\\"invalidated_before_entry\\":" + str.tostring(attempt.invalidatedBeforeEntry)' in pine
+        '"\\"invalidated_before_entry\\":" + str.tostring(attempt.core.invalidatedBeforeEntry)'
+        in pine
     )
     assert "zoneHasActiveAttempt(oldest.id)" in pine
-    assert "protectedAttempt := not attempt.exitTerminal" in pine
+    assert "protectedAttempt := not attempt.core.exitTerminal" in pine
     assert "retireOldestNonEconomicAttempt" not in pine
-    assert "attempt.exitTerminal := true" not in section(
+    assert "attempt.core.exitTerminal := true" not in section(
         pine,
         "evictOldestUnprotectedZone(",
         "if barstate.isfirst",
@@ -375,10 +385,10 @@ def test_pine_v3_retention_pressure_keeps_waiting_models_observable() -> None:
     assert "retireOldestNonEconomicAttempt" not in retention
     assert "break" in retention
     assert "entryRetentionBlocked := true" in retention
-    assert "attempt.bocEmitted" not in retention
-    assert "attempt.closeEmitted" not in retention
-    assert "attempt.flipEmitted" not in retention
-    assert "attempt.exitTerminal" not in retention
+    assert "attempt.boc.bocEmitted" not in retention
+    assert "attempt.directionalClose.closeEmitted" not in retention
+    assert "attempt.flip.flipEmitted" not in retention
+    assert "attempt.core.exitTerminal" not in retention
 
 
 def test_pine_v3_materializes_engagement_protection_before_zone_trimming() -> None:
@@ -406,13 +416,13 @@ def test_pine_v3_flip_crossing_price_and_fixture_are_field_exact() -> None:
     parity = PARITY.read_text()
     finalize = section(pine, "finalizeFlipCandidate(", "monitorAttemptExit(")
 
-    assert assigned_expression(finalize, "attempt.flipEventTicks") == "priceTicks(close)"
-    assert assigned_expression(finalize, "attempt.flipOpenTicks") == "openTicks"
-    assert assigned_expression(finalize, "attempt.flipFidelity") == (
+    assert assigned_expression(finalize, "attempt.flip.flipEventTicks") == "priceTicks(close)"
+    assert assigned_expression(finalize, "attempt.flip.flipOpenTicks") == "openTicks"
+    assert assigned_expression(finalize, "attempt.flip.flipFidelity") == (
         "compatible and exact and allExact and triggerCausal and lifecycleCausal "
         '? "EXACT" : "UNRESOLVED"'
     )
-    assert assigned_expression(finalize, "attempt.flipProofPlane") == (
+    assert assigned_expression(finalize, "attempt.flip.flipProofPlane") == (
         "barstate.isrealtime ? ENTRY_REALTIME_PLANE : ENTRY_CONFIRMED_PLANE"
     )
 
@@ -430,10 +440,10 @@ def test_pine_v3_static_branches_match_nullable_and_historical_fixture_clocks() 
     clock = section(pine, "entryClockEpoch()", "entryObservedEpoch(")
 
     assert (
-        "attempt.bocAuditPending := unrepresentableFirstCross or not coverageIntervalAdvanced"
+        "attempt.boc.bocAuditPending := unrepresentableFirstCross or not coverageIntervalAdvanced"
         in record_boc
     )
-    assert assigned_expression(record_boc, "attempt.bocTriggerCausal") == (
+    assert assigned_expression(record_boc, "attempt.boc.bocTriggerCausal") == (
         "not unrepresentableFirstCross"
     )
     assert 'unrepresentableFirstCross ? "REALTIME_TRIGGER_EPOCH_UNREPRESENTABLE"' in record_boc
