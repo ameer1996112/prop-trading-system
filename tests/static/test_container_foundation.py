@@ -51,3 +51,17 @@ def test_container_build_startup_and_cleanup_are_explicitly_bounded() -> None:
     ]
     assert "scripts/database_smoke.py" in smoke
     assert "temporary registry" not in smoke
+
+
+def test_container_smoke_secret_is_readable_by_rootless_backend() -> None:
+    smoke = Path("scripts/container_smoke.sh").read_text()
+    create_secret = "printf '%s\\n' 'ephemeral-phase0-smoke-password' > \"$secret_file\""
+    make_container_readable = 'chmod 0444 "$secret_file"'
+
+    assert "umask 077" in smoke
+    assert create_secret in smoke
+    assert make_container_readable in smoke
+    assert smoke.index(create_secret) < smoke.index(make_container_readable)
+    assert smoke.index(make_container_readable) < smoke.index(
+        'export POSTGRES_PASSWORD_FILE="$secret_file"'
+    )

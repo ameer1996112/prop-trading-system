@@ -12,6 +12,7 @@ observation_value='authfixture'
 
 umask 077
 printf '%s\n' 'ephemeral-phase0-smoke-password' > "$secret_file"
+chmod 0444 "$secret_file"
 export POSTGRES_PASSWORD_FILE="$secret_file"
 export PHASE0_API_PORT="$api_port"
 export PHASE0_CONSOLE_PORT="$console_port"
