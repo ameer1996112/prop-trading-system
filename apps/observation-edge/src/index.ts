@@ -115,6 +115,7 @@ import {
   EntryV3StoreConflict,
 } from "./rd-entry-store-v3";
 import {
+  LIST_ENTRY_V3_COHORT_METRICS_SQL,
   LIST_ENTRY_V3_DECISION_CANDIDATES_SQL,
   LIST_ENTRY_V3_DECISION_EVIDENCE_SQL,
   LIST_ENTRY_V3_DECISION_MEMBERS_SQL,
@@ -123,6 +124,10 @@ import {
   LIST_ENTRY_V3_DECISION_SHADOW_SQL,
   LIST_ENTRY_V3_DECISIONS_SQL,
 } from "./rd-entry-queries-v3";
+import {
+  validateCohortMetricRow,
+  type LiquidityCohortMetricRow,
+} from "./rd-entry-cohort-metrics";
 import {
   validateEntryCandidateV3,
   validateEntryEvaluationV3,
@@ -3618,6 +3623,60 @@ async function listPaperSimulationSummary(
   }
 }
 
+interface StoredLiquidityCohortMetricRow {
+  readonly liquidity_cohort: unknown;
+  readonly one_candle_enabled: unknown;
+  readonly entry_model: unknown;
+  readonly symbol: unknown;
+  readonly feed: unknown;
+  readonly trades: unknown;
+  readonly wins: unknown;
+  readonly losses: unknown;
+  readonly resolved: unknown;
+  readonly win_rate_bps: unknown;
+  readonly ambiguous: unknown;
+  readonly open: unknown;
+}
+
+function cohortMetricView(
+  row: StoredLiquidityCohortMetricRow,
+): LiquidityCohortMetricRow {
+  if (row.one_candle_enabled !== 0 && row.one_candle_enabled !== 1) {
+    throw new StorageUnavailableError();
+  }
+  return validateCohortMetricRow({
+    ...row,
+    one_candle_enabled: row.one_candle_enabled === 1,
+  });
+}
+
+async function listEntryCohortMetrics(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const authorizationError = await requirePaperAuthorization(request, env);
+  if (authorizationError !== null) {
+    return authorizationError;
+  }
+  try {
+    const result = await env.DB
+      .prepare(LIST_ENTRY_V3_COHORT_METRICS_SQL)
+      .all<StoredLiquidityCohortMetricRow>();
+    const items = result.results.map(cohortMetricView);
+    return jsonResponse({
+      schema_version: "rd-entry-cohort-metrics/v1",
+      mode: "PAPER_SIMULATION_ONLY",
+      items,
+    });
+  } catch {
+    return errorResponse(
+      503,
+      "ENTRY_COHORT_METRICS_UNAVAILABLE",
+      "Entry cohort metrics storage is unavailable",
+    );
+  }
+}
+
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/health/live") {
@@ -3686,6 +3745,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
     }
     return listRdEntryDecisions(request, env);
+  }
+  if (url.pathname === "/api/v1/rd-entry-cohort-metrics") {
+    if (request.method !== "GET") {
+      return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
+    }
+    return listEntryCohortMetrics(request, env);
   }
   if (url.pathname === "/api/v1/paper-readiness") {
     if (request.method === "GET") {

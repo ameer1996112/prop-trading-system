@@ -392,3 +392,91 @@ WHERE
 ORDER BY member.selection_id, shadow.candidate_id
 LIMIT ?
 `;
+
+export const LIST_ENTRY_V3_COHORT_METRICS_SQL = `
+WITH outcome_rows AS (
+  SELECT
+    selection.liquidity_cohort,
+    selection.one_candle_enabled,
+    candidate.model AS entry_model,
+    event.symbol,
+    receipt.feed,
+    CASE
+      WHEN settlement.settlement_id IS NULL THEN 'OPEN'
+      WHEN settlement.exit_reason = 'STOP' THEN 'STOPPED'
+      WHEN settlement.exit_reason = 'TARGET' THEN 'TARGET_HIT'
+      ELSE 'AMBIGUOUS'
+    END AS state
+  FROM observation_entry_v3_paper_links AS link
+  JOIN observation_entry_v3_selections AS selection
+    ON selection.selection_id = link.selection_id
+  JOIN observation_entry_v3_candidates AS candidate
+    ON candidate.candidate_id = selection.canonical_candidate_id
+  JOIN observation_entry_v3_events AS event
+    ON event.event_id = selection.event_id
+  JOIN observation_receipts AS receipt
+    ON receipt.receipt_id = event.receipt_id
+  LEFT JOIN paper_trade_settlements AS settlement
+    ON settlement.intent_id = link.intent_id
+  WHERE selection.liquidity_cohort = 'TWO_PLUS_CANDLES'
+
+  UNION ALL
+
+  SELECT
+    shadow.liquidity_cohort,
+    shadow.one_candle_enabled,
+    candidate.model AS entry_model,
+    event.symbol,
+    receipt.feed,
+    shadow.state
+  FROM observation_entry_v3_shadow_positions AS shadow
+  JOIN observation_entry_v3_candidates AS candidate
+    ON candidate.candidate_id = shadow.candidate_id
+  JOIN observation_entry_v3_events AS event
+    ON event.event_id = candidate.event_id
+  JOIN observation_receipts AS receipt
+    ON receipt.receipt_id = event.receipt_id
+  WHERE shadow.liquidity_cohort = 'ONE_CANDLE'
+)
+SELECT
+  liquidity_cohort,
+  one_candle_enabled,
+  entry_model,
+  symbol,
+  feed,
+  COUNT(*) AS trades,
+  SUM(CASE WHEN state = 'TARGET_HIT' THEN 1 ELSE 0 END) AS wins,
+  SUM(CASE WHEN state = 'STOPPED' THEN 1 ELSE 0 END) AS losses,
+  SUM(CASE WHEN state IN ('STOPPED', 'TARGET_HIT') THEN 1 ELSE 0 END)
+    AS resolved,
+  CASE
+    WHEN SUM(
+      CASE WHEN state IN ('STOPPED', 'TARGET_HIT') THEN 1 ELSE 0 END
+    ) = 0
+    THEN NULL
+    ELSE CAST(
+      ROUND(
+        10000.0 * SUM(CASE WHEN state = 'TARGET_HIT' THEN 1 ELSE 0 END)
+        / SUM(
+          CASE WHEN state IN ('STOPPED', 'TARGET_HIT') THEN 1 ELSE 0 END
+        )
+      )
+      AS INTEGER
+    )
+  END AS win_rate_bps,
+  SUM(CASE WHEN state = 'AMBIGUOUS' THEN 1 ELSE 0 END) AS ambiguous,
+  SUM(CASE WHEN state = 'OPEN' THEN 1 ELSE 0 END) AS open
+FROM outcome_rows
+GROUP BY
+  liquidity_cohort,
+  one_candle_enabled,
+  entry_model,
+  symbol,
+  feed
+ORDER BY
+  liquidity_cohort,
+  one_candle_enabled,
+  entry_model,
+  symbol,
+  feed
+`;

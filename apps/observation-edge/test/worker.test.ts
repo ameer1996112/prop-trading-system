@@ -1010,6 +1010,26 @@ class FailingD1 {
   }
 }
 
+class StaticCohortMetricsD1 {
+  constructor(private readonly rows: readonly Record<string, unknown>[]) {}
+
+  prepare(): {
+    all(): Promise<{
+      readonly success: true;
+      readonly results: readonly Record<string, unknown>[];
+      readonly meta: Record<string, never>;
+    }>;
+  } {
+    return {
+      all: async () => ({
+        success: true,
+        results: this.rows,
+        meta: {},
+      }),
+    };
+  }
+}
+
 async function sha256(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest(
     "SHA-256",
@@ -1021,7 +1041,7 @@ async function sha256(value: string): Promise<string> {
 }
 
 async function environment(
-  database: FakeD1 | FailingD1 = new FakeD1(),
+  database: FakeD1 | FailingD1 | StaticCohortMetricsD1 = new FakeD1(),
   overrides: Partial<Env> = {},
 ): Promise<Env> {
   return {
@@ -2123,6 +2143,137 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe("observation edge Worker", () => {
+  it("authenticates the GET-only liquidity cohort metrics route", async () => {
+    const env = await environment(new FakeD1(), {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+
+    const unauthorized = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-cohort-metrics`),
+      env,
+    );
+    const wrongMethod = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-cohort-metrics`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+
+    expect(unauthorized.status).toBe(401);
+    expect(wrongMethod.status).toBe(405);
+  });
+
+  it("reports paper and experimental shadow outcomes in separate cohorts", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+    });
+    const experimental = experimentalShadowFixture(
+      database,
+      "discretionary_boc_shadow",
+      "BOC",
+    );
+    insertExperimentalShadow(database, experimental);
+
+    const entry = entryV3WorkerPayload();
+    expect((await handleRequest(postBody(entry), env)).status).toBe(202);
+    const stop = entryV3WorkerExitPayload(
+      entry,
+      "worker-v3:cohort-stop",
+      "STOP_LOSS",
+      2,
+    );
+    expect((await handleRequest(postBody(stop), env)).status).toBe(202);
+
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-cohort-metrics`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await body(response)).toEqual({
+      schema_version: "rd-entry-cohort-metrics/v1",
+      mode: "PAPER_SIMULATION_ONLY",
+      items: [
+        {
+          liquidity_cohort: "ONE_CANDLE",
+          one_candle_enabled: true,
+          entry_model: "BOC",
+          symbol: "EURUSD",
+          feed: "OANDA",
+          trades: 1,
+          wins: 0,
+          losses: 0,
+          resolved: 0,
+          win_rate_bps: null,
+          ambiguous: 0,
+          open: 1,
+        },
+        {
+          liquidity_cohort: "TWO_PLUS_CANDLES",
+          one_candle_enabled: false,
+          entry_model: "BOC",
+          symbol: "EURUSD",
+          feed: "OANDA",
+          trades: 1,
+          wins: 0,
+          losses: 1,
+          resolved: 1,
+          win_rate_bps: 0,
+          ambiguous: 0,
+          open: 0,
+        },
+      ],
+    });
+  });
+
+  it("fails liquidity cohort metrics closed for inconsistent aggregate rows", async () => {
+    const env = await environment(
+      new StaticCohortMetricsD1([
+        {
+          liquidity_cohort: "ONE_CANDLE",
+          one_candle_enabled: 1,
+          entry_model: "DIR_CLOSE",
+          symbol: "XPTUSD",
+          feed: "OANDA",
+          trades: 5,
+          wins: 2,
+          losses: 1,
+          resolved: 4,
+          win_rate_bps: 5000,
+          ambiguous: 1,
+          open: 0,
+        },
+      ]),
+      {
+        PAPER_LEDGER_ENABLED: "true",
+        PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      },
+    );
+
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-cohort-metrics`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await body(response)).toMatchObject({
+      error: { code: "ENTRY_COHORT_METRICS_UNAVAILABLE" },
+    });
+  });
+
   it("returns a protected, bounded v3 decision ledger with all competing models", async () => {
     const database = new FakeD1();
     const env = await environment(database, {
