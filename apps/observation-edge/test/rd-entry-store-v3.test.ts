@@ -1044,6 +1044,68 @@ describe("RD entry v3 persistence", () => {
     },
   );
 
+  it("selects the earliest matched one-candle trigger after blocked candidates", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = await oneCandlePayloadFor(
+      "close_fallback_after_blocked_aggressive_models",
+    );
+    payload.producer_sequence = 1;
+    payload.is_realtime = true;
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+
+    expect(result.inserted).toBe(true);
+    expect(result.paperIntentIds).toHaveLength(0);
+    expect(
+      database.database
+        .prepare(
+          `SELECT candidate.model,
+                  candidate.state AS candidate_state,
+                  shadow.state AS shadow_state
+           FROM observation_entry_v3_shadow_positions AS shadow
+           JOIN observation_entry_v3_candidates AS candidate
+             ON candidate.candidate_id = shadow.candidate_id`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        model: "DIR_CLOSE",
+        candidate_state: "MATCHED",
+        shadow_state: "OPEN",
+      },
+    ]);
+  });
+
+  it("stores a blocked-only one-candle receipt without opening shadow or paper", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = await oneCandlePayloadFor(
+      "realtime_claim_not_realtime",
+    );
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(payload),
+      await payloadDigest(payload),
+    );
+
+    expect(result.inserted).toBe(true);
+    expect(result.paperIntentIds).toHaveLength(0);
+    expect(
+      database.database
+        .prepare("SELECT * FROM observation_entry_v3_shadow_positions")
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      database.database
+        .prepare("SELECT * FROM paper_trade_intents")
+        .all(),
+    ).toHaveLength(0);
+  });
+
   it("does not open a one-candle shadow for a setup already linked to paper", async () => {
     const database = new SqliteD1();
     installPaperAccount(database);
