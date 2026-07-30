@@ -551,7 +551,7 @@ def test_pine_v3_producer_proposal_is_diagnostic_and_reason_accurate() -> None:
     assert "string fidelity = canonicalUnknown" in selection
 
 
-def test_pine_v3_one_candle_selection_is_shadow_only_without_canonical_pointers() -> None:
+def test_pine_v3_one_candle_selection_has_canonical_terminal_precedence() -> None:
     pine = source()
     selection = section(pine, "entrySelectionPayload(", "entrySelectedFacts(")
 
@@ -559,18 +559,29 @@ def test_pine_v3_one_candle_selection_is_shadow_only_without_canonical_pointers(
         "bool oneCandleExperiment = "
         "attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE"
     ) in selection
-    assert (
-        "bool oneCandleActionable = oneCandleExperiment and "
-        "anyCandidateEmitted and not attempt.core.invalidatedBeforeEntry"
-    ) in selection
     one_candle_override = section(selection, "if oneCandleExperiment", "string coModels")
-    assert 'action := oneCandleActionable ? "SHADOW_ONLY" : "NONE"' in one_candle_override
     assert (
-        'reason := anyCandidateEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE"'
+        "if attempt.core.invalidatedBeforeEntry\n"
+        '            reason := "SETUP_INVALIDATED"\n'
+        '            action := "NONE"\n'
+        "        else if not anyCandidateEmitted\n"
+        '            reason := "NO_CANDIDATE"\n'
+        '            action := "NONE"\n'
+        "        else\n"
+        '            reason := "NO_EXACT_CANDIDATE"\n'
+        '            action := "SHADOW_ONLY"'
     ) in one_candle_override
     for field in ("candidateId", "evidenceId", "model", "fidelity"):
         assert f'{field} := "null"' in one_candle_override
     assert "PAPER_ELIGIBLE" not in one_candle_override
+    co_trigger_override = section(selection, "string coModels", '"{" +')
+    assert (
+        "if oneCandleExperiment\n"
+        '        coModels := "[]"'
+    ) in co_trigger_override
+    assert (
+        '"\\"candidate_ids_considered\\":" + entryCandidateIds(attempt)'
+    ) in selection
     assert (
         'string commonFidelity = oneCandleLiquidity ? '
         '(commonRulesPass ? "DISCRETIONARY" : "UNRESOLVED")'

@@ -2143,7 +2143,6 @@ entrySelectionPayload(EntryAttempt attempt) =>
     bool canonicalUnknown = sameEventCount > 1 and not priceConflict
     bool anyCandidateEmitted = attempt.boc.bocEmitted or attempt.directionalClose.closeEmitted or attempt.flip.flipEmitted
     bool oneCandleExperiment = attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE
-    bool oneCandleActionable = oneCandleExperiment and anyCandidateEmitted and not attempt.core.invalidatedBeforeEntry
     string reason = exactCount == 0 ? (attempt.boc.bocEmitted or attempt.directionalClose.closeEmitted or attempt.flip.flipEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE") :
      priceConflict ? "CO_TRIGGER_PRICE_CONFLICT" :
      sameEventCount > 1 ? "CO_TRIGGER_SAME_EVENT" :
@@ -2155,13 +2154,22 @@ entrySelectionPayload(EntryAttempt attempt) =>
     string model = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(selectedModel)
     string fidelity = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : "\"EXACT\""
     if oneCandleExperiment
-        reason := anyCandidateEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE"
-        action := oneCandleActionable ? "SHADOW_ONLY" : "NONE"
         candidateId := "null"
         evidenceId := "null"
         model := "null"
         fidelity := "null"
+        if attempt.core.invalidatedBeforeEntry
+            reason := "SETUP_INVALIDATED"
+            action := "NONE"
+        else if not anyCandidateEmitted
+            reason := "NO_CANDIDATE"
+            action := "NONE"
+        else
+            reason := "NO_EXACT_CANDIDATE"
+            action := "SHADOW_ONLY"
     string coModels = sameEventCount > 1 and not priceConflict ? (bocSameEvent and closeSameEvent and flipSameEvent ? "[\"BOC\",\"DIR_CLOSE\",\"HTF_FLIP\"]" : bocSameEvent and closeSameEvent ? "[\"BOC\",\"DIR_CLOSE\"]" : bocSameEvent and flipSameEvent ? "[\"BOC\",\"HTF_FLIP\"]" : "[\"DIR_CLOSE\",\"HTF_FLIP\"]") : "[]"
+    if oneCandleExperiment
+        coModels := "[]"
     "{" +
      "\"selection_id\":\"EDGE_DERIVED\"," +
      "\"setup_id\":" + jsonString(attempt.core.setupId) + "," +
