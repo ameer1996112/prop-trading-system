@@ -1168,6 +1168,64 @@ describe("RD entry v3 persistence", () => {
     ).toHaveLength(0);
   });
 
+  it("does not apply experimental ownership to a legacy two-plus shadow", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const fallbackPayload = payloadFor("strict_long_boc_only");
+    const fallback = await appendEntryV3Observation(
+      env(database, { RD_ENTRY_PAPER_RISK_BPS: "0" }),
+      await observation(fallbackPayload),
+      await payloadDigest(fallbackPayload),
+    );
+
+    expect(fallback.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PAPER_CONFIGURATION_UNAVAILABLE",
+    });
+    expect(
+      database.database
+        .prepare(
+          `SELECT liquidity_cohort, one_candle_enabled
+           FROM observation_entry_v3_shadow_positions`,
+        )
+        .get(),
+    ).toEqual({
+      liquidity_cohort: "TWO_PLUS_CANDLES",
+      one_candle_enabled: 0,
+    });
+
+    const normalPayload = payloadFor("strict_long_boc_only");
+    normalPayload.producer_instance_id =
+      "pine-v3-store-paper-after-two-plus-shadow";
+    normalPayload.event_id =
+      "pine-v3-store-paper-after-two-plus-shadow:entry";
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(normalPayload),
+      await payloadDigest(normalPayload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "PAPER_ELIGIBLE",
+      effectiveActionReason: null,
+    });
+    expect(
+      database.database
+        .prepare("SELECT * FROM paper_trade_intents")
+        .all(),
+    ).toHaveLength(1);
+    expect(
+      database.database
+        .prepare("SELECT * FROM observation_entry_v3_paper_links")
+        .all(),
+    ).toHaveLength(1);
+    expect(
+      database.database
+        .prepare("SELECT * FROM observation_entry_v3_shadow_positions")
+        .all(),
+    ).toHaveLength(1);
+  });
+
   it("does not route a one-candle exit into an existing normal paper link", async () => {
     const database = new SqliteD1();
     installPaperAccount(database);
