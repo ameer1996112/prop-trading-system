@@ -238,6 +238,20 @@ WHEN NOT EXISTS (
               AND selection.effective_action_reason =
                   'PAPER_CONFIGURATION_UNAVAILABLE'
           )
+          OR (
+              selection.liquidity_cohort = 'ONE_CANDLE'
+              AND selection.one_candle_enabled = 1
+              AND selection.policy_action = 'SHADOW_ONLY'
+              AND selection.action = 'SHADOW_ONLY'
+              AND selection.evaluated_at_epoch = NEW.evaluated_at_epoch
+              AND EXISTS (
+                  SELECT 1
+                  FROM observation_entry_v3_selection_members AS member
+                  WHERE member.selection_id = selection.selection_id
+                    AND member.object_kind = 'CANDIDATE'
+                    AND member.object_id = candidate.candidate_id
+              )
+          )
       )
 )
 BEGIN
