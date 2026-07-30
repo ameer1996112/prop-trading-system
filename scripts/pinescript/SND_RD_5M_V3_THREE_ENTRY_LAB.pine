@@ -2141,6 +2141,9 @@ entrySelectionPayload(EntryAttempt attempt) =>
     bool priceConflict = (bocSameEvent and attempt.boc.bocEventTicks != selectedTicks) or (closeSameEvent and attempt.directionalClose.closeEventTicks != selectedTicks) or (flipSameEvent and attempt.flip.flipEventTicks != selectedTicks)
     bool blockedAggressive = closeExact and (attempt.boc.bocEmitted and not bocExact or attempt.flip.flipEmitted and not flipExact)
     bool canonicalUnknown = sameEventCount > 1 and not priceConflict
+    bool anyCandidateEmitted = attempt.boc.bocEmitted or attempt.directionalClose.closeEmitted or attempt.flip.flipEmitted
+    bool oneCandleExperiment = attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE
+    bool oneCandleActionable = oneCandleExperiment and anyCandidateEmitted and not attempt.core.invalidatedBeforeEntry
     string reason = exactCount == 0 ? (attempt.boc.bocEmitted or attempt.directionalClose.closeEmitted or attempt.flip.flipEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE") :
      priceConflict ? "CO_TRIGGER_PRICE_CONFLICT" :
      sameEventCount > 1 ? "CO_TRIGGER_SAME_EVENT" :
@@ -2151,6 +2154,13 @@ entrySelectionPayload(EntryAttempt attempt) =>
     string evidenceId = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(entryEvidenceId(selectedModel))
     string model = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : jsonString(selectedModel)
     string fidelity = canonicalUnknown or str.length(selectedModel) == 0 or priceConflict ? "null" : "\"EXACT\""
+    if oneCandleExperiment
+        reason := anyCandidateEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE"
+        action := oneCandleActionable ? "SHADOW_ONLY" : "NONE"
+        candidateId := "null"
+        evidenceId := "null"
+        model := "null"
+        fidelity := "null"
     string coModels = sameEventCount > 1 and not priceConflict ? (bocSameEvent and closeSameEvent and flipSameEvent ? "[\"BOC\",\"DIR_CLOSE\",\"HTF_FLIP\"]" : bocSameEvent and closeSameEvent ? "[\"BOC\",\"DIR_CLOSE\"]" : bocSameEvent and flipSameEvent ? "[\"BOC\",\"HTF_FLIP\"]" : "[\"DIR_CLOSE\",\"HTF_FLIP\"]") : "[]"
     "{" +
      "\"selection_id\":\"EDGE_DERIVED\"," +

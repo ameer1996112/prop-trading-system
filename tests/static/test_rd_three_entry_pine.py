@@ -551,6 +551,32 @@ def test_pine_v3_producer_proposal_is_diagnostic_and_reason_accurate() -> None:
     assert "string fidelity = canonicalUnknown" in selection
 
 
+def test_pine_v3_one_candle_selection_is_shadow_only_without_canonical_pointers() -> None:
+    pine = source()
+    selection = section(pine, "entrySelectionPayload(", "entrySelectedFacts(")
+
+    assert (
+        "bool oneCandleExperiment = "
+        "attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE"
+    ) in selection
+    assert (
+        "bool oneCandleActionable = oneCandleExperiment and "
+        "anyCandidateEmitted and not attempt.core.invalidatedBeforeEntry"
+    ) in selection
+    one_candle_override = section(selection, "if oneCandleExperiment", "string coModels")
+    assert 'action := oneCandleActionable ? "SHADOW_ONLY" : "NONE"' in one_candle_override
+    assert (
+        'reason := anyCandidateEmitted ? "NO_EXACT_CANDIDATE" : "NO_CANDIDATE"'
+    ) in one_candle_override
+    for field in ("candidateId", "evidenceId", "model", "fidelity"):
+        assert f'{field} := "null"' in one_candle_override
+    assert "PAPER_ELIGIBLE" not in one_candle_override
+    assert (
+        'string commonFidelity = oneCandleLiquidity ? '
+        '(commonRulesPass ? "DISCRETIONARY" : "UNRESOLVED")'
+    ) in pine
+
+
 def test_pine_v3_serializer_has_task3_nullable_evidence_keys() -> None:
     pine = source()
     evidence = pine[pine.index("entryEvidencePayload(") : pine.index("entryCandidatesPayload(")]
