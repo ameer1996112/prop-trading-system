@@ -456,6 +456,7 @@ function experimentalOneCandlePair(
   }
   const pairs = bundle.evaluation.candidates.flatMap(
     (candidate, candidateIndex) => {
+      if (candidate.state !== "MATCHED") return [];
       const evidence = bundle.evaluation.evidence.find(
         (item) => item.candidate_id === candidate.candidate_id,
       );
