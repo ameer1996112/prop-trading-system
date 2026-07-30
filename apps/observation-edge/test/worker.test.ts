@@ -2047,6 +2047,8 @@ describe("observation edge Worker", () => {
       policy_action: "PAPER_ELIGIBLE",
       action: "SHADOW_ONLY",
       effective_action_reason: "PROMOTION_IDENTITY_MISMATCH",
+      liquidity_cohort: "TWO_PLUS_CANDLES",
+      one_candle_enabled: false,
     });
     expect(
       (items[0]?.candidates as Array<Record<string, unknown>>).map(
@@ -2125,6 +2127,110 @@ describe("observation edge Worker", () => {
       mode: "PAPER_ONLY",
       count: 0,
       items: [],
+    });
+  });
+
+  it("fails the decision ledger closed for a malformed stored selection cohort", async () => {
+    const database = new FakeD1();
+    seedEntryV3Decision(database, "strict_long_boc_only");
+    database.sqlite.exec(
+      `DROP TRIGGER observation_entry_v3_selections_no_update;
+       DROP TRIGGER observation_entry_v3_selections_liquidity_cohort_update_guard;
+       UPDATE observation_entry_v3_selections
+       SET liquidity_cohort = 'ONE_CANDLE', one_candle_enabled = 0;`,
+    );
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    expect(await body(response)).toMatchObject({
+      error: { code: "ENTRY_DECISIONS_UNAVAILABLE" },
+    });
+  });
+
+  it("returns matching shadow cohort facts and fails closed after stored drift", async () => {
+    const database = new FakeD1();
+    seedEntryV3Decision(database, "discretionary_boc_shadow");
+    const candidate = database.sqlite
+      .prepare(
+        `SELECT candidate_id, setup_id, direction
+         FROM observation_entry_v3_candidates
+         WHERE model = 'BOC'`,
+      )
+      .get() as {
+      candidate_id: string;
+      setup_id: string;
+      direction: "LONG" | "SHORT";
+    };
+    const evidence = database.sqlite
+      .prepare(
+        `SELECT observed_trigger_epoch, trigger_sequence, observed_trigger_ticks
+         FROM observation_entry_v3_evidence
+         WHERE candidate_id = ?`,
+      )
+      .get(candidate.candidate_id) as {
+      observed_trigger_epoch: number;
+      trigger_sequence: number;
+      observed_trigger_ticks: number;
+    };
+    database.sqlite
+      .prepare(
+        `INSERT INTO observation_entry_v3_shadow_positions (
+          candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
+          trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
+          target_ticks, state, exit_event_id, outcome_r_millis,
+          liquidity_cohort, one_candle_enabled, created_at, terminal_at
+        ) VALUES (?, ?, 'INITIAL', ?, ?, ?, 2400, ?, 101, 151, 'OPEN',
+          NULL, NULL, 'TWO_PLUS_CANDLES', 0, '2026-07-30T00:00:00Z', NULL)`,
+      )
+      .run(
+        candidate.candidate_id,
+        candidate.setup_id,
+        candidate.direction,
+        evidence.observed_trigger_epoch,
+        evidence.trigger_sequence,
+        evidence.observed_trigger_ticks,
+      );
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+    const request = () =>
+      new Request(`${BASE_URL}/api/v1/rd-entry-decisions?limit=20`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      });
+    const validResponse = await handleRequest(request(), env);
+    const validReport = await body(validResponse);
+
+    expect(validResponse.status).toBe(200);
+    expect(
+      (validReport.items as Array<Record<string, unknown>>)[0]?.shadow_outcome,
+    ).toMatchObject({
+      liquidity_cohort: "TWO_PLUS_CANDLES",
+      one_candle_enabled: false,
+      state: "OPEN",
+    });
+
+    database.sqlite.exec(
+      `DROP TRIGGER observation_entry_v3_shadow_positions_state_guard;
+       DROP TRIGGER observation_entry_v3_shadow_positions_liquidity_cohort_update_guard;
+       UPDATE observation_entry_v3_shadow_positions
+       SET liquidity_cohort = 'ONE_CANDLE', one_candle_enabled = 1;`,
+    );
+    const malformedResponse = await handleRequest(request(), env);
+
+    expect(malformedResponse.status).toBe(503);
+    expect(await body(malformedResponse)).toMatchObject({
+      error: { code: "ENTRY_DECISIONS_UNAVAILABLE" },
     });
   });
 
@@ -2685,6 +2791,54 @@ describe("observation edge Worker", () => {
     ).toThrow();
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     database.close();
+  });
+
+  it("rejects a shadow position whose cohort differs from its authorized selection", () => {
+    const database = new FakeD1();
+    seedEntryV3Decision(database, "discretionary_boc_shadow");
+    const candidate = database.sqlite
+      .prepare(
+        `SELECT candidate_id, setup_id, direction
+         FROM observation_entry_v3_candidates
+         WHERE model = 'BOC'`,
+      )
+      .get() as {
+      candidate_id: string;
+      setup_id: string;
+      direction: "LONG" | "SHORT";
+    };
+    const evidence = database.sqlite
+      .prepare(
+        `SELECT observed_trigger_epoch, trigger_sequence, observed_trigger_ticks
+         FROM observation_entry_v3_evidence
+         WHERE candidate_id = ?`,
+      )
+      .get(candidate.candidate_id) as {
+      observed_trigger_epoch: number;
+      trigger_sequence: number;
+      observed_trigger_ticks: number;
+    };
+
+    expect(() =>
+      database.sqlite
+        .prepare(
+          `INSERT INTO observation_entry_v3_shadow_positions (
+            candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
+            trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
+            target_ticks, state, exit_event_id, outcome_r_millis,
+            liquidity_cohort, one_candle_enabled, created_at, terminal_at
+          ) VALUES (?, ?, 'INITIAL', ?, ?, ?, 2400, ?, 101, 151, 'OPEN',
+            NULL, NULL, 'ONE_CANDLE', 1, '2026-07-30T00:00:00Z', NULL)`,
+        )
+        .run(
+          candidate.candidate_id,
+          candidate.setup_id,
+          candidate.direction,
+          evidence.observed_trigger_epoch,
+          evidence.trigger_sequence,
+          evidence.observed_trigger_ticks,
+        ),
+    ).toThrow(/v3 shadow position authorization rejected/u);
   });
 
   it("routes bounded v3 audit responses and returns explicit conflicts", async () => {

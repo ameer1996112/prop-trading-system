@@ -187,6 +187,22 @@ function validateStoredLiquidityCohort(
   }
 }
 
+function validateStoredShadowCohort(
+  shadow: StoredShadowPositionV3,
+  bundle: ValidatedEntryV3Bundle,
+): void {
+  validateStoredLiquidityCohort(
+    shadow.liquidity_cohort,
+    shadow.one_candle_enabled,
+  );
+  if (
+    shadow.liquidity_cohort !== bundle.setup.liquidity_cohort ||
+    (shadow.one_candle_enabled === 1) !== bundle.setup.one_candle_enabled
+  ) {
+    throw new TypeError("stored v3 shadow cohort mismatch");
+  }
+}
+
 export interface EntryV3StoredEvaluation {
   readonly evaluation: EntryEvaluationV3;
   readonly effectiveAction: SelectionActionV3;
@@ -1087,13 +1103,20 @@ async function appendEntryV3ObservationAttempt(
       effectiveActionReason === "PAPER_CONFIGURATION_UNAVAILABLE"
         ? selectedShadowPair(bundle)
         : null);
+    const existingShadow =
+      observation.eventRole === "ENTRY_DECISION" && shadowPair !== null
+        ? await env.DB
+            .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
+            .bind(bundle.setup.setup_id, ATTEMPT_KIND)
+            .first<StoredShadowPositionV3>()
+        : null;
+    if (existingShadow !== null) {
+      validateStoredShadowCohort(existingShadow, bundle);
+    }
     if (
       observation.eventRole === "ENTRY_DECISION" &&
       shadowPair !== null &&
-      (await env.DB
-        .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
-        .bind(bundle.setup.setup_id, ATTEMPT_KIND)
-        .first<StoredShadowPositionV3>()) === null
+      existingShadow === null
     ) {
       const candidate = bundle.evaluation.candidates[shadowPair.candidateIndex]!;
       entryAuthorizationStatements.push(
@@ -1124,6 +1147,9 @@ async function appendEntryV3ObservationAttempt(
         .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
         .bind(bundle.setup.setup_id, ATTEMPT_KIND)
         .first<StoredShadowPositionV3>();
+      if (shadow !== null) {
+        validateStoredShadowCohort(shadow, bundle);
+      }
       for (const exit of exits) {
         if (link !== null) {
           const settled = await env.DB

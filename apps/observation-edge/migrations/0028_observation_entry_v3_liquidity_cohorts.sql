@@ -216,26 +216,27 @@ WHEN NOT EXISTS (
     FROM observation_entry_v3_candidates AS candidate
     JOIN observation_entry_v3_events AS event
         ON event.event_id = candidate.event_id
+    JOIN observation_entry_v3_selections AS selection
+        ON selection.event_id = candidate.event_id
+        AND selection.setup_id = candidate.setup_id
+        AND selection.attempt_kind = NEW.attempt_kind
     WHERE candidate.candidate_id = NEW.candidate_id
       AND candidate.setup_id = NEW.setup_id
       AND candidate.state = 'MATCHED'
       AND event.event_role = 'ENTRY_DECISION'
+      AND selection.liquidity_cohort = NEW.liquidity_cohort
+      AND selection.one_candle_enabled = NEW.one_candle_enabled
       AND (
           (
               candidate.model = 'BOC'
               AND candidate.boc_tier = 'DISCRETIONARY_5M'
           )
-          OR EXISTS (
-              SELECT 1
-              FROM observation_entry_v3_selections AS selection
-              WHERE selection.event_id = candidate.event_id
-                AND selection.setup_id = candidate.setup_id
-                AND selection.attempt_kind = NEW.attempt_kind
-                AND selection.canonical_candidate_id = candidate.candidate_id
-                AND selection.policy_action = 'PAPER_ELIGIBLE'
-                AND selection.action = 'SHADOW_ONLY'
-                AND selection.effective_action_reason =
-                    'PAPER_CONFIGURATION_UNAVAILABLE'
+          OR (
+              selection.canonical_candidate_id = candidate.candidate_id
+              AND selection.policy_action = 'PAPER_ELIGIBLE'
+              AND selection.action = 'SHADOW_ONLY'
+              AND selection.effective_action_reason =
+                  'PAPER_CONFIGURATION_UNAVAILABLE'
           )
       )
 )
