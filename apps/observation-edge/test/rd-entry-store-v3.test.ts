@@ -1115,6 +1115,142 @@ describe("RD entry v3 persistence", () => {
     ).toHaveLength(0);
   });
 
+  it("keeps one-candle shadow ownership when a later normal decision is paper-eligible", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const oneCandlePayload = await oneCandlePayloadFor(
+      "strict_long_boc_only",
+    );
+    await appendEntryV3Observation(
+      env(database),
+      await observation(oneCandlePayload),
+      await payloadDigest(oneCandlePayload),
+    );
+
+    const normalPayload = payloadFor("strict_long_boc_only");
+    normalPayload.producer_instance_id =
+      "pine-v3-store-paper-after-one-candle";
+    normalPayload.event_id =
+      "pine-v3-store-paper-after-one-candle:entry";
+    const validatedNormal = await observation(normalPayload);
+    const digest = await payloadDigest(normalPayload);
+    const first = await appendEntryV3Observation(
+      env(database),
+      validatedNormal,
+      digest,
+    );
+    const replay = await appendEntryV3Observation(
+      env(database),
+      validatedNormal,
+      digest,
+    );
+
+    expect(first.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "NOT_SELECTED_ALREADY_OPEN",
+    });
+    expect(replay.inserted).toBe(false);
+    expect(replay.evaluations).toEqual(first.evaluations);
+    expect(
+      database.database
+        .prepare("SELECT * FROM observation_entry_v3_shadow_positions")
+        .all(),
+    ).toHaveLength(1);
+    expect(
+      database.database
+        .prepare("SELECT * FROM paper_trade_intents")
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      database.database
+        .prepare("SELECT * FROM observation_entry_v3_paper_links")
+        .all(),
+    ).toHaveLength(0);
+  });
+
+  it("does not route a one-candle exit into an existing normal paper link", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const normalEntry = payloadFor("strict_long_boc_only");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(normalEntry),
+      await payloadDigest(normalEntry),
+    );
+
+    const oneCandle = await oneCandlePayloadFor("strict_long_boc_only");
+    const oneCandleExit = realtimeExitPayload(
+      oneCandle,
+      "pine-v3-store:one-candle-cannot-settle-paper",
+      "TARGET",
+    );
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(oneCandleExit),
+      await payloadDigest(oneCandleExit),
+    );
+
+    expect(result.paperIntentIds).toHaveLength(0);
+    expect(
+      database.database
+        .prepare("SELECT * FROM paper_trade_intents")
+        .all(),
+    ).toHaveLength(1);
+    expect(
+      database.database
+        .prepare("SELECT * FROM paper_trade_settlements")
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      database.database
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM observation_entry_v3_exit_applications
+           WHERE target_kind = 'PAPER'`,
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("does not route a normal exit into an existing one-candle shadow", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const oneCandleEntry = await oneCandlePayloadFor(
+      "strict_long_boc_only",
+    );
+    await appendEntryV3Observation(
+      env(database),
+      await observation(oneCandleEntry),
+      await payloadDigest(oneCandleEntry),
+    );
+
+    const normalExit = realtimeExitPayload(
+      payloadFor("strict_long_boc_only"),
+      "pine-v3-store:normal-cannot-settle-one-candle",
+      "TARGET",
+    );
+    await expect(
+      appendEntryV3Observation(
+        env(database),
+        await observation(normalExit),
+        await payloadDigest(normalExit),
+      ),
+    ).rejects.toThrow(/stored v3 shadow cohort/u);
+    expect(
+      database.database
+        .prepare(
+          `SELECT state, outcome_r_millis
+           FROM observation_entry_v3_shadow_positions`,
+        )
+        .get(),
+    ).toEqual({ state: "OPEN", outcome_r_millis: null });
+    expect(
+      database.database
+        .prepare("SELECT * FROM paper_trade_settlements")
+        .all(),
+    ).toHaveLength(0);
+  });
+
   it("rejects a stored decision whose cohort no longer matches the validated setup", async () => {
     const database = new SqliteD1();
     installPaperAccount(database);

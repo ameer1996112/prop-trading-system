@@ -879,6 +879,16 @@ async function appendEntryV3ObservationAttempt(
     }),
   );
   const existingLinks = new Map(links);
+  const shadows = await Promise.all(
+    observation.entryBundles.map(async (bundle) => {
+      const shadow = await env.DB
+        .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
+        .bind(bundle.setup.setup_id, ATTEMPT_KIND)
+        .first<StoredShadowPositionV3>();
+      return [bundle.setup.setup_id, shadow] as const;
+    }),
+  );
+  const existingShadows = new Map(shadows);
   const preparedPaperIntents = new Map<
     string,
     {
@@ -897,6 +907,7 @@ async function appendEntryV3ObservationAttempt(
       if (
         bundle.evaluation.selection.action !== "PAPER_ELIGIBLE" ||
         existingLinks.get(bundle.setup.setup_id) !== null ||
+        existingShadows.get(bundle.setup.setup_id) !== null ||
         evidence === null ||
         evidence.observed_trigger_epoch === null ||
         evidence.observed_trigger_ticks === null
@@ -1015,7 +1026,8 @@ async function appendEntryV3ObservationAttempt(
         effectiveActionReason = "PROMOTION_IDENTITY_MISMATCH";
       } else if (
         observation.eventRole !== "ENTRY_DECISION" ||
-        existingLink !== null
+        existingLink !== null ||
+        existingShadows.get(bundle.setup.setup_id) !== null
       ) {
         effectiveAction = "SHADOW_ONLY";
         effectiveActionReason = "NOT_SELECTED_ALREADY_OPEN";
@@ -1188,7 +1200,10 @@ async function appendEntryV3ObservationAttempt(
       const exits = observation.exitEvents.filter(
         (item) => item.setup_id === bundle.setup.setup_id,
       );
-      const link = existingLink;
+      const link =
+        bundle.setup.liquidity_cohort === "ONE_CANDLE"
+          ? null
+          : existingLink;
       const shadow = await env.DB
         .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
         .bind(bundle.setup.setup_id, ATTEMPT_KIND)
