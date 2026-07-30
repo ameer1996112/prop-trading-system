@@ -9,6 +9,7 @@ import {
   type EntryEvaluationV3,
   type EntryModelV3,
   type EntrySelectionV3,
+  type LiquidityCohortV3,
   type SelectionActionV3,
   type SelectionReasonV3,
 } from "./rd-entry-domain-v3";
@@ -183,6 +184,7 @@ export async function arbitrateEntryCandidatesV3(
   revision: number,
   evaluatedAtEpoch: number,
   openedSelection: EntrySelectionV3 | null = null,
+  liquidityCohort: LiquidityCohortV3 = "TWO_PLUS_CANDLES",
 ): Promise<EntrySelectionV3> {
   if (
     typeof setupId !== "string" ||
@@ -196,12 +198,15 @@ export async function arbitrateEntryCandidatesV3(
     candidates.some(
       (candidate) => candidate.observed_at_epoch > evaluatedAtEpoch,
     ) ||
-    evidence.some((item) => item.observed_at_epoch > evaluatedAtEpoch)
+    evidence.some((item) => item.observed_at_epoch > evaluatedAtEpoch) ||
+    (liquidityCohort !== "ONE_CANDLE" &&
+      liquidityCohort !== "TWO_PLUS_CANDLES")
   ) {
     throw new TypeError("invalid v3 arbitration request");
   }
   if (openedSelection !== null) {
     if (
+      liquidityCohort === "ONE_CANDLE" ||
       openedSelection.setup_id !== setupId ||
       openedSelection.action !== "PAPER_ELIGIBLE" ||
       openedSelection.evaluated_at_epoch > evaluatedAtEpoch
@@ -290,6 +295,17 @@ export async function arbitrateEntryCandidatesV3(
       "SHADOW_ONLY",
     );
   }
+  if (liquidityCohort === "ONE_CANDLE") {
+    return selection(
+      setupId,
+      revision,
+      evaluatedAtEpoch,
+      candidateIds,
+      null,
+      "NO_EXACT_CANDIDATE",
+      "SHADOW_ONLY",
+    );
+  }
   const firstEvent = eventKey(eligible[0]!.evidence);
   const earliest = eligible.filter((pair) => {
     const key = eventKey(pair.evidence);
@@ -363,6 +379,8 @@ async function evaluateWithoutOpenedSeed(
       zone_engaged_epoch: input.zone_engaged_epoch,
       invalidated_before_entry: input.setup_invalidated,
       common_fidelity: input.common_fidelity,
+      liquidity_cohort: input.liquidity_cohort ?? "TWO_PLUS_CANDLES",
+      one_candle_enabled: input.one_candle_enabled ?? false,
     },
     boc_proof: input.boc_proof,
     directional_close: input.directional_close,
@@ -380,6 +398,8 @@ async function evaluateWithoutOpenedSeed(
       input.setup_invalidated,
       input.revision,
       input.evaluated_at_epoch,
+      null,
+      input.liquidity_cohort ?? "TWO_PLUS_CANDLES",
     ),
   };
   validateEntryEvaluationV3(result);

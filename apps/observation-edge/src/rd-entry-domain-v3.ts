@@ -25,6 +25,9 @@ export type CandidateFidelityV3 =
   | "CALIBRATED"
   | "DISCRETIONARY"
   | "UNRESOLVED";
+export type LiquidityCohortV3 =
+  | "ONE_CANDLE"
+  | "TWO_PLUS_CANDLES";
 export type ProofPlaneV3 =
   | "CONFIRMED_5M"
   | "LOWER_TIMEFRAME_REPLAY"
@@ -99,6 +102,8 @@ export interface SetupEntryFactsV3 {
   readonly zone_engaged_epoch: number | null;
   readonly invalidated_before_entry: boolean;
   readonly common_fidelity: CandidateFidelityV3;
+  readonly liquidity_cohort: LiquidityCohortV3;
+  readonly one_candle_enabled: boolean;
 }
 
 export interface EntryMatchRequestV3 {
@@ -186,6 +191,8 @@ export interface EntryArbitrationInputV3 {
   readonly zone_bottom_ticks: number;
   readonly zone_engaged_epoch: number | null;
   readonly common_fidelity: CandidateFidelityV3;
+  readonly liquidity_cohort?: LiquidityCohortV3;
+  readonly one_candle_enabled?: boolean;
   readonly setup_invalidated: boolean;
   readonly boc_proof: BocProofV3 | null;
   readonly directional_close: boolean;
@@ -202,6 +209,22 @@ export interface EntryArbitrationInputV3 {
     readonly revision: number;
     readonly evaluated_at_epoch: number;
   } | null;
+}
+
+export function validateLiquidityCohortV3(
+  setup: SetupEntryFactsV3,
+): void {
+  if (
+    (setup.liquidity_cohort !== "ONE_CANDLE" &&
+      setup.liquidity_cohort !== "TWO_PLUS_CANDLES") ||
+    typeof setup.one_candle_enabled !== "boolean" ||
+    (setup.liquidity_cohort === "ONE_CANDLE" &&
+      (!setup.one_candle_enabled || setup.common_fidelity === "EXACT")) ||
+    (setup.liquidity_cohort === "TWO_PLUS_CANDLES" &&
+      setup.common_fidelity === "DISCRETIONARY")
+  ) {
+    throw new TypeError("invalid liquidity cohort");
+  }
 }
 
 export const SOURCE_CLAIMS_V3 = {
@@ -514,29 +537,39 @@ export function validateEntryArbitrationInputV3(
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
     fail("entry arbitration input must be an object");
   }
-  exactRuntimeKeys(
-    input,
-    [
-      "setup_id",
-      "direction",
-      "zone_top_ticks",
-      "zone_bottom_ticks",
-      "zone_engaged_epoch",
-      "common_fidelity",
-      "setup_invalidated",
-      "boc_proof",
-      "directional_close",
-      "confirmed_bar",
-      "close_trigger_sequence",
-      "htf_flip_proof",
-      "observed_at_epoch",
-      "policy_version",
-      "revision",
-      "evaluated_at_epoch",
-      "opened_selection_seed",
-    ],
-    "entry arbitration input",
-  );
+  const legacyKeys = [
+    "setup_id",
+    "direction",
+    "zone_top_ticks",
+    "zone_bottom_ticks",
+    "zone_engaged_epoch",
+    "common_fidelity",
+    "setup_invalidated",
+    "boc_proof",
+    "directional_close",
+    "confirmed_bar",
+    "close_trigger_sequence",
+    "htf_flip_proof",
+    "observed_at_epoch",
+    "policy_version",
+    "revision",
+    "evaluated_at_epoch",
+    "opened_selection_seed",
+  ] as const;
+  const cohortKeys = [
+    ...legacyKeys,
+    "liquidity_cohort",
+    "one_candle_enabled",
+  ] as const;
+  const inputKeys = Object.keys(input).sort().join("\u0000");
+  if (
+    inputKeys !== [...legacyKeys].sort().join("\u0000") &&
+    inputKeys !== [...cohortKeys].sort().join("\u0000")
+  ) {
+    fail("entry arbitration input has unsupported keys");
+  }
+  const liquidityCohort = input.liquidity_cohort ?? "TWO_PLUS_CANDLES";
+  const oneCandleEnabled = input.one_candle_enabled ?? false;
   if (
     typeof input.setup_id !== "string" ||
     input.setup_id.length === 0 ||
@@ -557,6 +590,17 @@ export function validateEntryArbitrationInputV3(
   if (input.zone_engaged_epoch !== null) {
     safeInteger(input.zone_engaged_epoch, "zone_engaged_epoch", 0);
   }
+  validateLiquidityCohortV3({
+    setup_id: input.setup_id,
+    direction: input.direction,
+    zone_top_ticks: input.zone_top_ticks,
+    zone_bottom_ticks: input.zone_bottom_ticks,
+    zone_engaged_epoch: input.zone_engaged_epoch,
+    invalidated_before_entry: input.setup_invalidated,
+    common_fidelity: input.common_fidelity,
+    liquidity_cohort: liquidityCohort,
+    one_candle_enabled: oneCandleEnabled,
+  });
   safeInteger(input.close_trigger_sequence, "close_trigger_sequence", 0);
   safeInteger(input.observed_at_epoch, "observed_at_epoch", 0);
   safeInteger(input.revision, "revision", 0);
@@ -583,6 +627,9 @@ export function validateEntryArbitrationInputV3(
     validateFlipProofV3(input.htf_flip_proof, input.observed_at_epoch);
   }
   if (input.opened_selection_seed !== null) {
+    if (liquidityCohort === "ONE_CANDLE") {
+      fail("one-candle setup cannot have an opened selection");
+    }
     const seed = input.opened_selection_seed;
     exactRuntimeKeys(
       seed,

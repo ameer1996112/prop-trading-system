@@ -305,6 +305,56 @@ function payloadEnvelope(
 }
 
 describe("RD Pine v3 independent raw payload parity", () => {
+  it("canonicalizes a Pine-shaped V3.1 one-candle setup to shadow-only", async () => {
+    const setupId = "setup-one-candle";
+    const payload = payloadEnvelope(
+      setupId,
+      [bocCandidate(setupId, "MATCHED")],
+      [exactBocEvidence(setupId)],
+      {
+        selection_id: "EDGE_DERIVED",
+        setup_id: setupId,
+        policy_version: "rd-entry-arbitration-v3",
+        revision: 5,
+        candidate_ids_considered: ["EDGE_DERIVED:BOC"],
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+        canonical_model: null,
+        reason: "NO_EXACT_CANDIDATE",
+        fidelity: null,
+        action: "SHADOW_ONLY",
+        co_triggered_models: [],
+        evaluated_at_epoch: 2702,
+      },
+      { commonFidelity: "EXACT" },
+    );
+    payload.schema_version = "3.1";
+    payload.strategy_version = "3.1.0-contract3";
+    payload.rule_contract_version = "3.1.0";
+    const bundle = (
+      payload.setups as Array<Record<string, unknown>>
+    )[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    setup.liquidity_cohort = "ONE_CANDLE";
+    setup.one_candle_enabled = true;
+    setup.common_fidelity = "DISCRETIONARY";
+    const rules = setup.common_rule_results as Array<Record<string, unknown>>;
+    rules.find(
+      (item) => item.rule_id === "LIQ_NORMAL_TWO_OPPOSITE_CANDLES",
+    )!.passed = false;
+    rules.find((item) => item.rule_id === "LIQ_INTERNAL_REBREAK")!.passed =
+      false;
+
+    const parsed = await validateEntryV3Payload(strict(payload), reviewedHashes);
+
+    expect(parsed.entryBundles[0]!.setup.liquidity_cohort).toBe("ONE_CANDLE");
+    expect(parsed.entryBundles[0]!.evaluation.selection).toMatchObject({
+      reason: "NO_EXACT_CANDIDATE",
+      action: "SHADOW_ONLY",
+      canonical_candidate_id: null,
+    });
+  });
+
   it("passes the complete Pine alert envelope through ingress validation", async () => {
     const setupId = "setup-pine-envelope";
     const payload = payloadEnvelope(
