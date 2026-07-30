@@ -22,7 +22,12 @@ import {
   loadEntryDecisions,
   type EntryDecisionSnapshot,
 } from "../lib/entry-decisions";
+import {
+  loadEntryCohortMetrics,
+  type EntryCohortMetricsSnapshot,
+} from "../lib/entry-cohort-metrics";
 import { EntryDecisionPanel } from "./EntryDecisionPanel";
+import { LiquidityCohortPanel } from "./LiquidityCohortPanel";
 
 function money(
   amountMinor: number,
@@ -501,6 +506,7 @@ export function PaperSimulationPanel() {
     simulation: PaperSimulationSnapshot;
     readiness: PaperReadinessSnapshot;
     decisions: EntryDecisionSnapshot;
+    cohortMetrics: EntryCohortMetricsSnapshot;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [mutating, setMutating] = useState(false);
@@ -520,12 +526,13 @@ export function PaperSimulationPanel() {
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const [coreResult, decisionResult] = await Promise.allSettled([
+      const [coreResult, decisionResult, cohortResult] = await Promise.allSettled([
         Promise.all([
           loadPaperSimulationSummary(presentedCredential, controller.signal),
           loadPaperReadiness(presentedCredential, controller.signal),
         ]),
         loadEntryDecisions(presentedCredential, controller.signal),
+        loadEntryCohortMetrics(presentedCredential, controller.signal),
       ]);
       if (controller.signal.aborted || version !== sessionVersion.current) return;
       const decisions =
@@ -536,15 +543,30 @@ export function PaperSimulationPanel() {
               items: [],
               message: "Entry decisions are unavailable or malformed.",
             };
+      const cohortMetrics =
+        cohortResult.status === "fulfilled"
+          ? cohortResult.value
+          : {
+              state: "ERROR" as const,
+              items: [],
+              message: "Liquidity cohort metrics are unavailable or malformed.",
+            };
       if (coreResult.status === "rejected") {
         setProtectedData((current) =>
-          current === null ? null : { ...current, decisions },
+          current === null
+            ? null
+            : { ...current, cohortMetrics, decisions },
         );
         throw coreResult.reason;
       }
       const [simulation, readiness] = coreResult.value;
       sessionCredential.current = presentedCredential;
-      setProtectedData({ decisions, readiness, simulation });
+      setProtectedData({
+        cohortMetrics,
+        decisions,
+        readiness,
+        simulation,
+      });
     } catch (cause) {
       if (controller.signal.aborted || version !== sessionVersion.current) return;
       setError(cause instanceof Error ? cause.message : "Paper simulator is unavailable.");
@@ -743,6 +765,8 @@ export function PaperSimulationPanel() {
             readiness={protectedData.readiness}
             simulation={protectedData.simulation}
           />
+
+          <LiquidityCohortPanel snapshot={protectedData.cohortMetrics} />
 
           <EntryDecisionPanel initialSnapshot={protectedData.decisions} />
 
