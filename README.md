@@ -95,6 +95,17 @@ console. No route can send, modify, or close an external order. The static conso
 paper-admin credential in memory only while the operator panel is unlocked; refresh or Lock
 removes it from the UI.
 
+Contract 3.1 adds a default-off one-candle liquidity experiment. The strict profile keeps
+**Enable one-candle liquidity** disabled and emits only `TWO_PLUS_CANDLES`; the experiment profile
+enables it and may emit `ONE_CANDLE` or `TWO_PLUS_CANDLES`. A `ONE_CANDLE` setup is always
+`SHADOW_ONLY`: it can populate the broker-free outcome simulator but cannot create a paper intent,
+reach a live account, or reach a broker. Strict and experiment alerts require separate reviewed
+settings hashes. TradingView snapshots the script and inputs when an alert is created, so changing
+the flag requires recreating the alert. Cohort outcomes are available from the authenticated
+`GET /api/v1/rd-entry-cohort-metrics` endpoint; win rate is
+`wins / (wins + losses)`, with open and ambiguous outcomes excluded and the resolved sample size
+reported. The exact rollout and evidence requirements are in the contract-v3 release runbook.
+
 The one proof command is:
 
 ```sh
