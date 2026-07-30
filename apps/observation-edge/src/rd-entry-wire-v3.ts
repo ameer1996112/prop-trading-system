@@ -1009,12 +1009,6 @@ async function parseBundle(
     ? parseEdgeDerivedSelectionSeed(result.selection_proposal, candidateModels)
     : parseSelection(result.selection_proposal);
   if (selectionSeed.setup_id !== setup.facts.setup_id) fail();
-  if (
-    setup.facts.liquidity_cohort === "ONE_CANDLE" &&
-    object(result.selection_proposal).action !== "SHADOW_ONLY"
-  ) {
-    fail("ENTRY_V3_ONE_CANDLE_PAPER_ACTION");
-  }
   const canonicalSelection = await arbitrateEntryCandidatesV3(
     setup.facts.setup_id,
     candidates,
@@ -1025,6 +1019,23 @@ async function parseBundle(
     null,
     setup.facts.liquidity_cohort,
   );
+  const producerSelection = object(result.selection_proposal);
+  const truthfulOneCandleNone =
+    producerSelection.action === "NONE" &&
+    canonicalSelection.action === "NONE" &&
+    (canonicalSelection.reason === "SETUP_INVALIDATED" ||
+      canonicalSelection.reason === "NO_CANDIDATE") &&
+    producerSelection.reason === canonicalSelection.reason;
+  const truthfulOneCandleShadow =
+    producerSelection.action === "SHADOW_ONLY" &&
+    canonicalSelection.action === "SHADOW_ONLY";
+  if (
+    setup.facts.liquidity_cohort === "ONE_CANDLE" &&
+    !truthfulOneCandleNone &&
+    !truthfulOneCandleShadow
+  ) {
+    fail("ENTRY_V3_ONE_CANDLE_PAPER_ACTION");
+  }
   if (
     !usesEdgeDerivedIdentity &&
     canonicalJson(canonicalSelection) !== canonicalJson(selectionSeed)

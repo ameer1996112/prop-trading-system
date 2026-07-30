@@ -425,9 +425,7 @@ function rule(
   ).find((item) => item.rule_id === ruleId)!;
 }
 
-function oneCandlePayload(): Record<string, unknown> {
-  const value = payload();
-  useEdgeDerivedReferences(value);
+function tagOneCandlePayload(value: Record<string, unknown>): void {
   value.schema_version = "3.1";
   value.strategy_version = "3.1.0-contract3";
   value.rule_contract_version = "3.1.0";
@@ -438,6 +436,12 @@ function oneCandlePayload(): Record<string, unknown> {
   rule(value, "LIQ_NORMAL_TWO_OPPOSITE_CANDLES").passed = false;
   rule(value, "LIQ_ONE_CANDLE_EXCEPTION").passed = true;
   rule(value, "LIQ_INTERNAL_REBREAK").passed = false;
+}
+
+function oneCandlePayload(): Record<string, unknown> {
+  const value = payload();
+  useEdgeDerivedReferences(value);
+  tagOneCandlePayload(value);
   const selection = selectionOf(value);
   selection.canonical_candidate_id = null;
   selection.canonical_evidence_id = null;
@@ -446,6 +450,36 @@ function oneCandlePayload(): Record<string, unknown> {
   selection.fidelity = null;
   selection.action = "SHADOW_ONLY";
   selection.co_triggered_models = [];
+  return value;
+}
+
+async function concreteOneCandleNonePayload(
+  reason: "SETUP_INVALIDATED" | "NO_CANDIDATE",
+): Promise<Record<string, unknown>> {
+  const value = payload();
+  tagOneCandlePayload(value);
+  const bundle = (
+    value.setups as Array<Record<string, unknown>>
+  )[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  const selection = bundle.selection_proposal as Record<string, unknown>;
+  if (reason === "SETUP_INVALIDATED") {
+    setup.invalidated_before_entry = true;
+  } else {
+    bundle.candidates = [];
+    bundle.evidence = [];
+    selection.candidate_ids_considered = [];
+  }
+  selection.canonical_candidate_id = null;
+  selection.canonical_evidence_id = null;
+  selection.canonical_model = null;
+  selection.reason = reason;
+  selection.fidelity = null;
+  selection.action = "NONE";
+  selection.co_triggered_models = [];
+  selection.selection_id = await selectionIdV3(
+    selection as unknown as EntrySelectionV3,
+  );
   return value;
 }
 
@@ -552,6 +586,29 @@ describe("RD entry v3 wire", () => {
       "SHADOW_ONLY",
     );
   });
+
+  it.each([
+    ["invalidated", "SETUP_INVALIDATED"],
+    ["zero-candidate", "NO_CANDIDATE"],
+  ] as const)(
+    "accepts a concrete-identity %s one-candle payload as NONE",
+    async (_name, reason) => {
+      const value = await concreteOneCandleNonePayload(reason);
+      expect(JSON.stringify(value)).not.toContain("EDGE_DERIVED");
+
+      const result = await validateEntryV3Payload(
+        strict(value),
+        reviewedHashes,
+      );
+
+      expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
+        action: "NONE",
+        reason,
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+      });
+    },
+  );
 
   it.each([
     ["disabled flag", (setup: Record<string, unknown>) => {
