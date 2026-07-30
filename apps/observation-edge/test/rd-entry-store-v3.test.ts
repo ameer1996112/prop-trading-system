@@ -825,6 +825,60 @@ describe("RD entry v3 persistence", () => {
     ).toEqual({ count: 0 });
   });
 
+  it("tracks a reviewed DIR_CLOSE through target when paper configuration is unavailable", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const paperUnavailable = env(database, {
+      RD_ENTRY_PAPER_RISK_BPS: "0",
+    });
+    const entryPayload = payloadFor(
+      "close_fallback_after_blocked_aggressive_models",
+    );
+    entryPayload.is_realtime = true;
+    entryPayload.producer_sequence = 1;
+    const entry = await appendEntryV3Observation(
+      paperUnavailable,
+      await observation(entryPayload),
+      await payloadDigest(entryPayload),
+    );
+
+    expect(entry.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "PAPER_CONFIGURATION_UNAVAILABLE",
+    });
+
+    const exitPayload = realtimeExitPayload(
+      entryPayload,
+      "pine-v3-store:paper-unavailable-dir-close-target",
+      "TARGET",
+    );
+    await appendEntryV3Observation(
+      paperUnavailable,
+      await observation(exitPayload),
+      await payloadDigest(exitPayload),
+    );
+
+    expect(
+      database.database
+        .prepare(
+          `SELECT candidate.model, shadow.state, shadow.outcome_r_millis
+           FROM observation_entry_v3_shadow_positions AS shadow
+           JOIN observation_entry_v3_candidates AS candidate
+             ON candidate.candidate_id = shadow.candidate_id`,
+        )
+        .get(),
+    ).toEqual({
+      model: "DIR_CLOSE",
+      state: "TARGET_HIT",
+      outcome_r_millis: 4000,
+    });
+    expect(
+      database.database
+        .prepare("SELECT COUNT(*) AS count FROM paper_trade_allocations")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
   it("settles one linked intent from a strictly later exact exit", async () => {
     const database = new SqliteD1();
     installPaperAccount(database);

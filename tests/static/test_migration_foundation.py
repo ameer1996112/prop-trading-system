@@ -63,13 +63,14 @@ def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None
     assert "observation_entry_v3_event_dispositions_no_delete" in migration
 
 
-def test_rd_rollout_tracks_every_edge_migration_through_0026() -> None:
+def test_rd_rollout_tracks_every_edge_migration_through_0027() -> None:
     migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
-    assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 27)]
+    assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 28)]
 
     runbook = Path("docs/runbooks/rd-three-entry-paper-rollout.md").read_text(encoding="utf-8")
-    assert "D1 is migrated through 0026;" in runbook
+    assert "D1 is migrated through 0027;" in runbook
     assert (
-        "Do not delete migration 0024, migration 0025, migration 0026, or historical paper intents."
+        "Do not delete migration 0024, migration 0025, migration 0026, "
+        "migration 0027, or historical paper intents."
     ) in runbook
-    assert "D1 is migrated through 0025;" not in runbook
+    assert "D1 is migrated through 0026;" not in runbook

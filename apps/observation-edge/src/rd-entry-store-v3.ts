@@ -398,6 +398,29 @@ function discretionaryBocPair(bundle: ValidatedEntryV3Bundle): {
     : { candidateIndex, evidence };
 }
 
+function selectedShadowPair(bundle: ValidatedEntryV3Bundle): {
+  readonly candidateIndex: number;
+  readonly evidence: EntryCandidateEvidenceV3;
+} | null {
+  const candidateId =
+    bundle.evaluation.selection.canonical_candidate_id;
+  const evidence = selectedEvidence(bundle);
+  if (
+    candidateId === null ||
+    evidence === null ||
+    evidence.observed_trigger_epoch === null ||
+    evidence.observed_trigger_ticks === null
+  ) {
+    return null;
+  }
+  const candidateIndex = bundle.evaluation.candidates.findIndex(
+    (candidate) =>
+      candidate.candidate_id === candidateId &&
+      candidate.state === "MATCHED",
+  );
+  return candidateIndex < 0 ? null : { candidateIndex, evidence };
+}
+
 function parityFor(bundle: ValidatedEntryV3Bundle): {
   readonly status: "MATCH" | "MISMATCH" | "NOT_PROVIDED";
   readonly reason: ParityMismatchReason;
@@ -1009,7 +1032,12 @@ async function appendEntryV3ObservationAttempt(
       );
     }
 
-    const shadowPair = discretionaryBocPair(bundle);
+    const shadowPair =
+      discretionaryBocPair(bundle) ??
+      (identityMatches &&
+      effectiveActionReason === "PAPER_CONFIGURATION_UNAVAILABLE"
+        ? selectedShadowPair(bundle)
+        : null);
     if (
       observation.eventRole === "ENTRY_DECISION" &&
       shadowPair !== null &&

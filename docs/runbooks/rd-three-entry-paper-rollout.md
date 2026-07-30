@@ -66,10 +66,10 @@ Build the two production artifacts again and retain their output paths:
 
 Do not continue if the working tree differs from the reviewed commit.
 
-## 2. Apply D1 migrations through 0026
+## 2. Apply D1 migrations through 0027
 
 After explicit deployment approval, apply every pending migration through
-`0026_observation_entry_v3_attempt_order.sql`:
+`0027_observation_entry_v3_paper_fallback_shadow.sql`:
 
 ```sh
 (cd apps/observation-edge && npm run db:migrate:remote)
@@ -247,7 +247,7 @@ after the DIR_CLOSE/replay effective-value gate and the remaining smoke sequence
 The rollout is accepted only when all of the following are recorded:
 
 - local `make verify-observation` passed at the deployed commit;
-- D1 is migrated through 0026;
+- D1 is migrated through 0027;
 - detector and settings digests match across source, edge, and Pine;
 - the paper account and risk configuration are reviewed;
 - Pine compiled, was added to the five-minute chart, and produced an actual realtime event;
@@ -260,7 +260,7 @@ The rollout is accepted only when all of the following are recorded:
 1. Disable the TradingView v3 alert.
 2. Leave version 3 rows immutable.
 3. Redeploy the previous edge/console release if necessary.
-4. Do not delete migration 0024, migration 0025, migration 0026, or historical paper intents.
+4. Do not delete migration 0024, migration 0025, migration 0026, migration 0027, or historical paper intents.
 
 Keep the reviewed hashes and failed smoke evidence for diagnosis. Rollback does not authorize
 editing or deleting audit facts.
