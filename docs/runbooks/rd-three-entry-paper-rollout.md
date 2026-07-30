@@ -116,18 +116,22 @@ EXPERIMENT:
   one-candle economic action = SHADOW_ONLY
 ```
 
-The experiment flag does not authorize paper or live trading. A `ONE_CANDLE` setup remains
-`SHADOW_ONLY` regardless of model, symbol, or any other setting and cannot create a paper intent.
-No broker/live execution path exists.
+The experiment flag does not authorize paper or live trading. `ONE_CANDLE` is never
+`PAPER_ELIGIBLE`: an actionable selection is `SHADOW_ONLY`, while an invalidated or candidate-less
+selection remains `NONE`. Neither result can create a paper intent. No broker/live execution path
+exists.
 
 For each exact ticker ID, preserve distinct owner-reviewed canonical settings JSON and SHA-256
 digests for `STRICT` and `EXPERIMENT`; never reuse one profile's settings hash for the other.
 Include a profile identifier in the reviewer-owned record even though only the digest is sent.
-Create separate alerts for the two profiles and bind each alert to the corresponding reviewed
-hash. For a multi-pair rollout, compute both profile digests separately for every approved ticker.
-Create an owner-only JSON file outside the repository with the reviewed secret bindings. Do not
-put any value on a command line or in shell history. The preferred multi-pair file has this exact
-shape, with the placeholders replaced locally by only the hashes for alerts being activated:
+Runtime supports only one `ticker_id` to reviewed-settings-hash binding, so only one profile may be
+active for a ticker at a time. Do not run simultaneous `STRICT` and `EXPERIMENT` alerts for the
+same ticker. Separate tickers may use different active profiles. For a multi-pair rollout, retain
+both reviewed profile digests for every approved ticker outside runtime, then bind only the one
+currently active digest for each ticker. Create an owner-only JSON file outside the repository
+with the reviewed secret bindings. Do not put any value on a command line or in shell history. The
+preferred multi-pair file has this exact shape, with each placeholder replaced locally by the
+single active profile hash for that ticker:
 
 ```json
 {
@@ -219,23 +223,26 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
 6. Keep diagnostics and legacy setup export disabled.
 7. Keep **Emit contract-v3 entry events** disabled until the signed DIR_CLOSE and replay gate in
    step 7 passes.
-8. Select either the reviewed `STRICT` or `EXPERIMENT` profile exactly. For `STRICT`, leave
-   **Enable one-candle liquidity** off. For `EXPERIMENT`, turn it on and use its distinct reviewed
-   settings hash.
-9. Create a separate alert for each approved symbol/profile combination with condition
-   **Any alert() function call**, the stable v3 observation webhook, and no separately composed
-   message body. Do not repurpose a strict alert as an experiment alert.
+8. Select the ticker's one active reviewed profile exactly. For `STRICT`, leave
+   **Enable one-candle liquidity** off. For `EXPERIMENT`, turn it on. Confirm that the ticker's
+   runtime settings-hash binding is the digest for that selected profile.
+9. Create one alert for the ticker's active profile with condition **Any alert() function call**,
+   the stable v3 observation webhook, and no separately composed message body. Never keep strict
+   and experiment alerts active simultaneously for the same ticker.
 
 Every `alert()` call automatically serializes the exact outer
 `{"credential":...,"payload":...}` Worker envelope. Do not paste a message template into the
 TradingView alert dialog. The 35,000-character producer limit applies to that complete envelope,
 including the safely serialized credential, and an oversized envelope is not sent.
 
-TradingView stores a snapshot of the script and all inputs in the alert. Toggling
-**Enable one-candle liquidity**, changing its reviewed settings hash, or making any other source or
-input change does not update an existing alert: stop and recreate that alert. Pine compile,
-add-to-chart, input-snapshot review, alert recreation, and live-tick behavior are manual release
-checks and must be recorded as pending until an operator actually completes them.
+TradingView stores a snapshot of the script and all inputs in the alert. To switch one ticker from
+`STRICT` to `EXPERIMENT` or back: disable and delete its old alert; update that ticker's runtime
+reviewed-hash binding to the new profile hash; recreate the alert with matching saved source and
+inputs; then verify its stored receipt. Toggling **Enable one-candle liquidity**, changing its
+reviewed settings hash, or making any other source or input change does not update an existing
+alert. Pine compile, add-to-chart, input-snapshot review, alert recreation, and live-tick behavior
+are manual release checks and must be recorded as pending until an operator actually completes
+them.
 
 ## 7. Signed smoke sequence
 
@@ -295,8 +302,11 @@ Open and ambiguous outcomes are excluded from the win-rate denominator. Always r
 the `resolved` count with the rate; `win_rate_bps` is `null` when `resolved` is zero. Do not compare
 rates without their resolved sample sizes.
 
-After deployment, update the saved Pine source and create `EXPERIMENT` alerts only for the
-explicitly approved markets. Before claiming the experiment is collecting outcomes:
+After deployment, update the saved Pine source and activate the `EXPERIMENT` profile only for
+explicitly approved markets. For each ticker being switched, disable/delete its old alert, replace
+that ticker's active reviewed-hash binding with the experiment profile hash, and recreate one alert
+from the matching saved source and input snapshot. Before claiming the experiment is collecting
+outcomes:
 
 1. Confirm TradingView shows a successful 2xx webhook delivery for the recreated experiment alert.
 2. Confirm the corresponding receipt is stored by the observation service.
@@ -314,8 +324,9 @@ explicitly approved markets. Before claiming the experiment is collecting outcom
 
 4. Query authenticated `GET /api/v1/rd-entry-cohort-metrics` and require the first
    `liquidity_cohort: "ONE_CANDLE"` row for that approved symbol.
-5. Confirm the one-candle decision is `SHADOW_ONLY`, no paper intent was created, and no broker or
-   live execution surface exists.
+5. Confirm `ONE_CANDLE` was never `PAPER_ELIGIBLE`: an actionable decision is `SHADOW_ONLY`, while
+   an invalidated or candidate-less decision is `NONE`. Confirm no paper intent was created and no
+   broker or live execution surface exists.
 
 A delivered TradingView alert alone is insufficient. Until both stored 2xx receipt proof and the
 first `ONE_CANDLE` metrics row exist, report the experiment as **not yet collecting outcomes**.
@@ -330,11 +341,13 @@ The rollout is accepted only when all of the following are recorded:
 - the paper account and risk configuration are reviewed;
 - Pine compiled, was added to the five-minute chart, and produced an actual realtime event;
 - all signed smoke outcomes match the sequence above;
-- the console shows all three models and one selected paper position at most; and
-- strict and experiment alerts use distinct reviewed settings hashes and reviewed input snapshots;
+- the console shows all three models and one selected paper position at most;
+- strict and experiment profiles have distinct reviewed hashes and input snapshots, with only one
+  profile active per ticker;
 - a stored 2xx experiment receipt and first `ONE_CANDLE` cohort-metrics row are recorded before
   collection is claimed;
-- every one-candle setup remains `SHADOW_ONLY` with no paper intent; and
+- `ONE_CANDLE` is never `PAPER_ELIGIBLE`; actionable selections are `SHADOW_ONLY` and invalidated
+  or candidate-less selections are `NONE`, with no paper intent; and
 - broker/live execution remains disabled.
 
 ## Rollback
