@@ -203,6 +203,20 @@ function validateStoredShadowCohort(
   }
 }
 
+function isExperimentalOneCandleShadow(
+  shadow: StoredShadowPositionV3 | null,
+): boolean {
+  if (shadow === null) return false;
+  validateStoredLiquidityCohort(
+    shadow.liquidity_cohort,
+    shadow.one_candle_enabled,
+  );
+  return (
+    shadow.liquidity_cohort === "ONE_CANDLE" &&
+    shadow.one_candle_enabled === 1
+  );
+}
+
 export interface EntryV3StoredEvaluation {
   readonly evaluation: EntryEvaluationV3;
   readonly effectiveAction: SelectionActionV3;
@@ -888,7 +902,12 @@ async function appendEntryV3ObservationAttempt(
       return [bundle.setup.setup_id, shadow] as const;
     }),
   );
-  const existingShadows = new Map(shadows);
+  const experimentalShadowOwners = new Map(
+    shadows.map(([setupId, shadow]) => [
+      setupId,
+      isExperimentalOneCandleShadow(shadow),
+    ]),
+  );
   const preparedPaperIntents = new Map<
     string,
     {
@@ -907,7 +926,7 @@ async function appendEntryV3ObservationAttempt(
       if (
         bundle.evaluation.selection.action !== "PAPER_ELIGIBLE" ||
         existingLinks.get(bundle.setup.setup_id) !== null ||
-        existingShadows.get(bundle.setup.setup_id) !== null ||
+        experimentalShadowOwners.get(bundle.setup.setup_id) === true ||
         evidence === null ||
         evidence.observed_trigger_epoch === null ||
         evidence.observed_trigger_ticks === null
@@ -1027,7 +1046,7 @@ async function appendEntryV3ObservationAttempt(
       } else if (
         observation.eventRole !== "ENTRY_DECISION" ||
         existingLink !== null ||
-        existingShadows.get(bundle.setup.setup_id) !== null
+        experimentalShadowOwners.get(bundle.setup.setup_id) === true
       ) {
         effectiveAction = "SHADOW_ONLY";
         effectiveActionReason = "NOT_SELECTED_ALREADY_OPEN";
