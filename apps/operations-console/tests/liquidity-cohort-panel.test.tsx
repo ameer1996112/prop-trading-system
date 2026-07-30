@@ -112,6 +112,12 @@ describe("LiquidityCohortPanel", () => {
     expect(
       within(panel).getByRole("heading", { name: "Liquidity experiment" }),
     ).toBeInTheDocument();
+    expect(
+      within(panel).getByText("COHORT OUTCOMES · PAPER SIMULATION ONLY"),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).queryByText("SHADOW COMPARISON · PAPER SIMULATION ONLY"),
+    ).not.toBeInTheDocument();
     expect(within(panel).getByText("ONE CANDLE")).toBeInTheDocument();
     expect(within(panel).getByText("TWO PLUS CANDLES")).toBeInTheDocument();
     expect(within(panel).getByText("66.67%")).toBeInTheDocument();

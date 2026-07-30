@@ -29,7 +29,7 @@ export function LiquidityCohortPanel({
     >
       <header>
         <div>
-          <span>SHADOW COMPARISON · PAPER SIMULATION ONLY</span>
+          <span>COHORT OUTCOMES · PAPER SIMULATION ONLY</span>
           <h3 id="liquidity-experiment-heading">Liquidity experiment</h3>
         </div>
         <p>Compare outcomes without changing paper-trade eligibility.</p>
