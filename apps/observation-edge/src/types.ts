@@ -16,13 +16,15 @@ export type ObservationSchemaVersion =
   | "1.1"
   | "1.2"
   | "2.0"
-  | "3.0";
+  | "3.0"
+  | "3.1";
 export type StrategyVersion =
   | "1.0.0-phase1"
   | "1.1.0-paper1"
   | "1.2.0-contract1"
   | "2.0.0-contract2"
-  | "3.0.0-contract3";
+  | "3.0.0-contract3"
+  | "3.1.0-contract3";
 
 export interface ReceiptMetadata {
   readonly idempotencyKey: string;
