@@ -228,11 +228,13 @@ WHEN NOT EXISTS (
       AND selection.one_candle_enabled = NEW.one_candle_enabled
       AND (
           (
-              candidate.model = 'BOC'
+              selection.liquidity_cohort = 'TWO_PLUS_CANDLES'
+              AND candidate.model = 'BOC'
               AND candidate.boc_tier = 'DISCRETIONARY_5M'
           )
           OR (
-              selection.canonical_candidate_id = candidate.candidate_id
+              selection.liquidity_cohort = 'TWO_PLUS_CANDLES'
+              AND selection.canonical_candidate_id = candidate.candidate_id
               AND selection.policy_action = 'PAPER_ELIGIBLE'
               AND selection.action = 'SHADOW_ONLY'
               AND selection.effective_action_reason =

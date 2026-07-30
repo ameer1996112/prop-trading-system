@@ -3029,6 +3029,105 @@ describe("observation edge Worker", () => {
     ).toThrow(/v3 shadow position authorization rejected/u);
   });
 
+  it("does not let one-candle discretionary BOC bypass action, membership, or revision guards", () => {
+    const expectRejected = (
+      prepare: (
+        database: FakeD1,
+        fixture: ExperimentalShadowFixture,
+      ) => void,
+      overrides: Parameters<typeof insertExperimentalShadow>[2] = {},
+    ): void => {
+      const database = new FakeD1();
+      const fixture = experimentalShadowFixture(
+        database,
+        "discretionary_boc_shadow",
+        "BOC",
+      );
+      prepare(database, fixture);
+      expect(() =>
+        insertExperimentalShadow(database, fixture, overrides),
+      ).toThrow(/v3 shadow position authorization rejected/u);
+    };
+
+    expectRejected((database) => {
+      database.sqlite.exec(
+        `UPDATE observation_entry_v3_selections
+         SET policy_action = 'PAPER_ELIGIBLE',
+             action = 'SHADOW_ONLY',
+             effective_action_reason = 'PROMOTION_IDENTITY_MISMATCH'`,
+      );
+    });
+    expectRejected(
+      (database, fixture) => {
+        database.sqlite.exec(
+          "DROP TRIGGER observation_entry_v3_selection_members_no_delete",
+        );
+        database.sqlite
+          .prepare(
+            `DELETE FROM observation_entry_v3_selection_members
+             WHERE object_kind = 'CANDIDATE' AND object_id = ?`,
+          )
+          .run(fixture.candidateId);
+      },
+    );
+    expectRejected(
+      () => undefined,
+      { evaluatedAtEpoch: 2401 },
+    );
+  });
+
+  it("preserves legacy two-plus discretionary BOC shadow authorization", () => {
+    const database = new FakeD1();
+    seedEntryV3Decision(database, "discretionary_boc_shadow");
+    const candidate = database.sqlite
+      .prepare(
+        `SELECT candidate_id, setup_id, direction
+         FROM observation_entry_v3_candidates
+         WHERE model = 'BOC' AND state = 'MATCHED'`,
+      )
+      .get() as {
+      candidate_id: string;
+      setup_id: string;
+      direction: "LONG" | "SHORT";
+    };
+    const evidence = database.sqlite
+      .prepare(
+        `SELECT observed_trigger_epoch, trigger_sequence, observed_trigger_ticks
+         FROM observation_entry_v3_evidence
+         WHERE candidate_id = ?`,
+      )
+      .get(candidate.candidate_id) as {
+      observed_trigger_epoch: number;
+      trigger_sequence: number;
+      observed_trigger_ticks: number;
+    };
+    const selection = database.sqlite
+      .prepare(
+        `SELECT evaluated_at_epoch
+         FROM observation_entry_v3_selections`,
+      )
+      .get() as { evaluated_at_epoch: number };
+
+    expect(() =>
+      insertExperimentalShadow(
+        database,
+        {
+          candidateId: candidate.candidate_id,
+          setupId: candidate.setup_id,
+          direction: candidate.direction,
+          triggerEpoch: evidence.observed_trigger_epoch,
+          triggerSequence: evidence.trigger_sequence,
+          entryTicks: evidence.observed_trigger_ticks,
+          evaluatedAtEpoch: selection.evaluated_at_epoch,
+        },
+        {
+          liquidityCohort: "TWO_PLUS_CANDLES",
+          oneCandleEnabled: 0,
+        },
+      ),
+    ).not.toThrow();
+  });
+
   it("routes bounded v3 audit responses and returns explicit conflicts", async () => {
     const database = new FakeD1();
     const env = await environment(database, {
