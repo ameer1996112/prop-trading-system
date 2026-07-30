@@ -31,6 +31,21 @@ def test_pine_v3_declares_the_closed_three_model_contract() -> None:
     assert 'const string ENTRY_RULE_CONTRACT_VERSION = "3.0.0"' in pine
 
 
+def test_pine_v3_liquidity_lines_stop_at_the_first_sweep_bar() -> None:
+    pine = source()
+    endpoint = section(pine, "liquidityDrawingRightBar(", "liquidityDistanceToZone(")
+    zone_drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
+    raw_audit_drawing = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
+
+    assert (
+        "not na(zone.liquiditySweptBar) "
+        "? zone.liquiditySweptBar "
+        ": zoneRightBar(zone)"
+    ) in endpoint
+    assert "int liquidityRightBar = liquidityDrawingRightBar(zone)" in zone_drawing
+    assert "int rightBar = liquidityDrawingRightBar(ownerZone)" in raw_audit_drawing
+
+
 def test_pine_v3_user_defined_types_have_unique_fields() -> None:
     current_type = None
     fields: dict[str, set[str]] = {}

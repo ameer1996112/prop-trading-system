@@ -646,6 +646,9 @@ zoneBorderWidth(RawZone zone) =>
 zoneRightBar(RawZone zone) =>
     zone.state == STATE_FRESH ? bar_index + projectionBars : zone.stateBar
 
+liquidityDrawingRightBar(RawZone zone) =>
+    not na(zone.liquiditySweptBar) ? zone.liquiditySweptBar : zoneRightBar(zone)
+
 liquidityDistanceToZone(RawZone zone, LiquidityLevel level) =>
     zone.demand ? level.nearExtreme - zone.top : zone.bottom - level.nearExtreme
 
@@ -725,7 +728,7 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
 
     bool zoneLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityAnchor) and not na(zone.liquidityAnchorBar) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar)
     if zoneLiquidityVisible
-        int liquidityRightBar = zoneRightBar(zone)
+        int liquidityRightBar = liquidityDrawingRightBar(zone)
         int liquidityLeftBar = math.max(zone.originBar, zone.liquidityExtremeBar)
         int ownExtremeLeftBar = math.max(zone.originBar, zone.liquidityAnchorBar)
         bool liquidityTaken = not na(zone.liquiditySweptBar)
@@ -818,7 +821,7 @@ updateLiquidityDrawings(array<LiquidityLevel> levels, array<int> drawnIndexes, a
                 LiquidityLevel level = array.get(levels, candidateIndex)
                 RawZone ownerZone = array.get(allZones, array.get(selectedZoneIndexes, selectedOffset))
                 bool primary = liquidityIsPrimary(candidateIndex, allZones)
-                int rightBar = zoneRightBar(ownerZone)
+                int rightBar = liquidityDrawingRightBar(ownerZone)
                 int liquidityLeftBar = math.max(ownerZone.originBar, level.nearExtremeBar)
                 int ownExtremeLeftBar = math.max(ownerZone.originBar, level.anchorBar)
                 color lineColor = premiumVisuals ? color.new(color.gray, level.taken ? 40 : 18) : level.taken ? liquiditySweptColor : liquidityPendingColor
