@@ -9,9 +9,11 @@ const string ENTRY_MODEL_CLOSE = "DIR_CLOSE"
 const string ENTRY_MODEL_FLIP = "HTF_FLIP"
 const string BOC_TIER_HTF = "HTF_TIMED"
 const string BOC_TIER_DISCRETIONARY = "DISCRETIONARY_5M"
-const string ENTRY_SCHEMA_VERSION = "3.0"
-const string ENTRY_STRATEGY_VERSION = "3.0.0-contract3"
-const string ENTRY_RULE_CONTRACT_VERSION = "3.0.0"
+const string LIQUIDITY_COHORT_ONE = "ONE_CANDLE"
+const string LIQUIDITY_COHORT_TWO_PLUS = "TWO_PLUS_CANDLES"
+const string ENTRY_SCHEMA_VERSION = "3.1"
+const string ENTRY_STRATEGY_VERSION = "3.1.0-contract3"
+const string ENTRY_RULE_CONTRACT_VERSION = "3.1.0"
 const string ENTRY_EXECUTION_MODE = "PAPER_ONLY"
 const string ENTRY_POLICY_VERSION = "rd-entry-arbitration-v3"
 const string ENTRY_STRATEGY_ID = "rd_liquidity_sd_5m_v1"
@@ -92,6 +94,7 @@ showLiquidityLines = input.bool(true, "Show liquidity lines", group = "Display")
 showLiquidityProofLines = input.bool(false, "Show liquidity proof lines", group = "Display")
 showStatusPanel = input.bool(false, "Show status panel", group = "Display")
 liquidityPivotStrength = input.int(2, "Liquidity pivot strength", minval = 1, maxval = 10, group = "Liquidity")
+enableOneCandleLiquidity = input.bool(false, "Enable one-candle liquidity", group = "Liquidity")
 showLabels = input.bool(false, "Show diagnostic labels", group = "Diagnostics")
 emitDiagnostics = input.bool(false, "Emit non-executable diagnostic alerts", group = "Diagnostics")
 const bool exportSetupEvents = false
@@ -142,6 +145,9 @@ setupContractDigestLabel(string value) =>
     result := str.length(result) < 8 ? result + ".digest" : result
     str.substring(result, 0, math.min(str.length(result), 128))
 
+minimumLiquidityOppositeCandles() =>
+    enableOneCandleLiquidity ? 1 : 2
+
 var int setupExportProducerStartedAt = timenow
 var string setupExportProducerTagSafe = setupContractIdentifier(setupExportProducerTag)
 var string setupExportProducerInstanceId = str.substring(setupExportProducerTagSafe, 0, math.min(str.length(setupExportProducerTagSafe), 120)) + ":" + str.tostring(setupExportProducerStartedAt)
@@ -171,6 +177,7 @@ type LiquidityLevel
     int nearExtremeBar
     int formedBar
     int oppositeCandleCount
+    string cohort
     bool taken
     int takenBar
     line liquidityLine
@@ -212,6 +219,7 @@ type RawZone
     int liquidityTakenBar
     int liquiditySweptBar
     int liquidityOppositeCandleCount
+    string liquidityCohort
     float liquidityDistance
     float liquidityDistanceGuidanceMax
     string liquidityDistanceFidelity
@@ -244,6 +252,7 @@ type EntryCore
     int zoneId
     string setupId
     bool demand
+    string liquidityCohort
     int zoneTopTicks
     int zoneBottomTicks
     bool invalidatedBeforeEntry
@@ -555,6 +564,7 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
     zone.liquidityTakenBar := na
     zone.liquiditySweptBar := na
     zone.liquidityOppositeCandleCount := 0
+    zone.liquidityCohort := ""
     zone.liquidityDistance := na
     zone.liquidityDistanceGuidanceMax := na
     zone.liquidityDistanceFidelity := "UNRESOLVED"
@@ -996,7 +1006,7 @@ confirmedLiquidityPivot(bool demand, int strength) =>
                     break
     if confirmed
         [oppositeCandleCount, _, _] = liquidityLegProof(demand, strength)
-        confirmed := oppositeCandleCount >= 2
+        confirmed := oppositeCandleCount >= minimumLiquidityOppositeCandles()
     confirmed
 
 appendConfirmedLiquidityPivot(bool demand, int strength, array<LiquidityLevel> levels, array<int> createdIndexes) =>
@@ -1010,6 +1020,8 @@ appendConfirmedLiquidityPivot(bool demand, int strength, array<LiquidityLevel> l
     level.nearExtremeBar := pivotBar
     level.formedBar := pivotBar
     level.oppositeCandleCount := oppositeCandleCount
+    level.cohort := ""
+    level.cohort := oppositeCandleCount == 1 ? LIQUIDITY_COHORT_ONE : LIQUIDITY_COHORT_TWO_PLUS
     level.taken := false
     level.takenBar := na
     level.liquidityLine := na
@@ -1106,6 +1118,7 @@ refreshZoneLiquidity(RawZone zone, array<LiquidityLevel> levels, array<int> crea
             zone.liquidityTakenBar := primaryTakenBar
             zone.liquiditySweptBar := primarySweptBar
             zone.liquidityOppositeCandleCount := primary.oppositeCandleCount
+            zone.liquidityCohort := primary.cohort
             zone.liquidityDistance := liquidityDistanceToZone(zone, primary)
             zone.liquidityDistanceGuidanceMax := liquidityGuidanceMaxPrice()
             zone.liquidityDistanceFidelity := liquidityDistanceFidelity()
@@ -1694,6 +1707,8 @@ newEntryAttempt(RawZone zone) =>
     attempt.core.zoneId := zone.id
     attempt.core.setupId := entrySetupId(zone)
     attempt.core.demand := zone.demand
+    attempt.core.liquidityCohort := ""
+    attempt.core.liquidityCohort := zone.liquidityCohort
     attempt.core.zoneTopTicks := priceTicks(zone.top)
     attempt.core.zoneBottomTicks := priceTicks(zone.bottom)
     attempt.core.invalidatedBeforeEntry := zone.state == STATE_INVALIDATED
@@ -1714,11 +1729,9 @@ newEntryAttempt(RawZone zone) =>
     attempt.core.ruleLiqActualExtremeSwept := liquidityAvailable and liquiditySwept
     attempt.core.ruleLiqDistanceInfluencesZone := not na(zone.liquidityDistance) and zone.liquidityDistance > 0 and not na(zone.liquidityDistanceGuidanceMax) and zone.liquidityDistance <= zone.liquidityDistanceGuidanceMax
     attempt.core.ruleLiqEventOrder := engagementOrdered
-    attempt.core.ruleLiqInternalRebreak := oppositeCandleCount >= 2 and sequenceOrdered
+    attempt.core.ruleLiqInternalRebreak := sequenceOrdered
     attempt.core.ruleLiqNormalTwoOppositeCandles := oppositeCandleCount >= 2
-    // The one-candle exception is discretionary. It is only vacuously true
-    // when the normal two-candle proof already exists.
-    attempt.core.ruleLiqOneCandleException := oppositeCandleCount >= 2
+    attempt.core.ruleLiqOneCandleException := attempt.core.ruleLiqNormalTwoOppositeCandles or (enableOneCandleLiquidity and oppositeCandleCount == 1)
     attempt.core.ruleLiqOwnExtremeSameLeg := liquidityAvailable and zone.liquidityAnchorBar <= zone.liquidityExtremeBar
     attempt.core.ruleLiqReplacementAfterStaleMove := na(zone.pendingLiquidityPrimaryIndex)
     attempt.core.ruleLiqStrictOwnExtremeBreak := ownExtremeBroken and zone.liquidityFormedBar < zone.liquidityTakenBar
@@ -1731,7 +1744,6 @@ newEntryAttempt(RawZone zone) =>
       attempt.core.ruleLiqDistanceInfluencesZone and
       attempt.core.ruleLiqEventOrder and
       attempt.core.ruleLiqInternalRebreak and
-      attempt.core.ruleLiqNormalTwoOppositeCandles and
       attempt.core.ruleLiqOneCandleException and
       attempt.core.ruleLiqOwnExtremeSameLeg and
       attempt.core.ruleLiqReplacementAfterStaleMove and
@@ -2204,11 +2216,14 @@ entrySetupBundlePayload(EntryAttempt attempt, RawZone zone) =>
     int targetTicks = attempt.core.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
     bool commonRulesPass = attempt.core.commonRulesPass
     bool reviewedHashesValid = reviewedProducerHashesValid()
-    string commonFidelity = commonRulesPass and reviewedHashesValid ? "EXACT" : "UNRESOLVED"
+    bool oneCandleLiquidity = attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE
+    string commonFidelity = oneCandleLiquidity ? (commonRulesPass ? "DISCRETIONARY" : "UNRESOLVED") : commonRulesPass and reviewedHashesValid ? "EXACT" : "UNRESOLVED"
     "{" +
      "\"setup\":{" +
      "\"setup_id\":" + jsonString(attempt.core.setupId) + "," +
      "\"direction\":" + jsonString(attempt.core.demand ? "LONG" : "SHORT") + "," +
+     "\"liquidity_cohort\":" + jsonString(attempt.core.liquidityCohort) + "," +
+     "\"one_candle_enabled\":" + str.tostring(enableOneCandleLiquidity) + "," +
      "\"zone_top_ticks\":" + str.tostring(attempt.core.zoneTopTicks) + "," +
      "\"zone_bottom_ticks\":" + str.tostring(attempt.core.zoneBottomTicks) + "," +
      "\"zone_engaged_epoch\":" + str.tostring(attempt.core.engagementEpoch) + "," +

@@ -26,9 +26,9 @@ def test_pine_v3_declares_the_closed_three_model_contract() -> None:
     assert 'const string ENTRY_MODEL_BOC = "BOC"' in pine
     assert 'const string ENTRY_MODEL_CLOSE = "DIR_CLOSE"' in pine
     assert 'const string ENTRY_MODEL_FLIP = "HTF_FLIP"' in pine
-    assert 'const string ENTRY_SCHEMA_VERSION = "3.0"' in pine
-    assert 'const string ENTRY_STRATEGY_VERSION = "3.0.0-contract3"' in pine
-    assert 'const string ENTRY_RULE_CONTRACT_VERSION = "3.0.0"' in pine
+    assert 'const string ENTRY_SCHEMA_VERSION = "3.1"' in pine
+    assert 'const string ENTRY_STRATEGY_VERSION = "3.1.0-contract3"' in pine
+    assert 'const string ENTRY_RULE_CONTRACT_VERSION = "3.1.0"' in pine
 
 
 def test_pine_v3_liquidity_lines_stop_at_the_first_sweep_bar() -> None:
@@ -44,6 +44,46 @@ def test_pine_v3_liquidity_lines_stop_at_the_first_sweep_bar() -> None:
     ) in endpoint
     assert "int liquidityRightBar = liquidityDrawingRightBar(zone)" in zone_drawing
     assert "int rightBar = liquidityDrawingRightBar(ownerZone)" in raw_audit_drawing
+
+
+def test_pine_v3_one_candle_liquidity_is_opt_in_and_strict_by_default() -> None:
+    pine = source()
+    assert (
+        'enableOneCandleLiquidity = input.bool(false, '
+        '"Enable one-candle liquidity", group = "Liquidity")'
+    ) in pine
+    assert (
+        "minimumLiquidityOppositeCandles() =>\n"
+        "    enableOneCandleLiquidity ? 1 : 2"
+    ) in pine
+    pivot = section(pine, "confirmedLiquidityPivot(", "appendConfirmedLiquidityPivot(")
+    assert "oppositeCandleCount >= minimumLiquidityOppositeCandles()" in pivot
+
+
+def test_pine_v3_freezes_and_serializes_liquidity_cohort() -> None:
+    pine = source()
+    for field in (
+        "string cohort",
+        "string liquidityCohort",
+    ):
+        assert field in pine
+    assert 'const string LIQUIDITY_COHORT_ONE = "ONE_CANDLE"' in pine
+    assert 'const string LIQUIDITY_COHORT_TWO_PLUS = "TWO_PLUS_CANDLES"' in pine
+    assert 'const string ENTRY_SCHEMA_VERSION = "3.1"' in pine
+    assert 'const string ENTRY_STRATEGY_VERSION = "3.1.0-contract3"' in pine
+    assert 'const string ENTRY_RULE_CONTRACT_VERSION = "3.1.0"' in pine
+    assert (
+        "level.cohort := oppositeCandleCount == 1 "
+        "? LIQUIDITY_COHORT_ONE : LIQUIDITY_COHORT_TWO_PLUS"
+    ) in pine
+    assert 'attempt.core.liquidityCohort := zone.liquidityCohort' in pine
+    assert '"\\\"liquidity_cohort\\\":" + jsonString(attempt.core.liquidityCohort)' in pine
+    assert '"\\\"one_candle_enabled\\\":" + str.tostring(enableOneCandleLiquidity)' in pine
+    assert (
+        "attempt.core.ruleLiqOneCandleException := "
+        "attempt.core.ruleLiqNormalTwoOppositeCandles or "
+        "(enableOneCandleLiquidity and oppositeCandleCount == 1)"
+    ) in pine
 
 
 def test_pine_v3_user_defined_types_have_unique_fields() -> None:
