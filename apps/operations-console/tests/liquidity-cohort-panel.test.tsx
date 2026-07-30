@@ -52,7 +52,7 @@ import type { EntryCohortMetricsSnapshot } from "../src/lib/entry-cohort-metrics
 
 const snapshot: EntryCohortMetricsSnapshot = {
   state: "READY",
-  message: "2 liquidity cohort rows.",
+  message: "3 liquidity cohort rows.",
   items: [
     {
       liquidityCohort: "ONE_CANDLE",
@@ -82,6 +82,20 @@ const snapshot: EntryCohortMetricsSnapshot = {
       ambiguous: 0,
       open: 1,
     },
+    {
+      liquidityCohort: "TWO_PLUS_CANDLES",
+      oneCandleEnabled: true,
+      entryModel: "HTF_FLIP",
+      symbol: "NAS100",
+      feed: "CAPITALCOM",
+      trades: 1,
+      wins: 1,
+      losses: 0,
+      resolved: 1,
+      winRateBps: 10_000,
+      ambiguous: 0,
+      open: 0,
+    },
   ],
 };
 
@@ -105,10 +119,35 @@ describe("LiquidityCohortPanel", () => {
     expect(within(panel).getByText("No resolved trades")).toBeInTheDocument();
     expect(within(panel).getByText("0 resolved")).toBeInTheDocument();
     expect(within(panel).getByText("XPTUSD / OANDA")).toBeInTheDocument();
-    expect(within(panel).getByText("NAS100 / CAPITALCOM")).toBeInTheDocument();
-    expect(within(panel).getByText("HTF FLIP")).toBeInTheDocument();
+    expect(within(panel).getAllByText("NAS100 / CAPITALCOM")).toHaveLength(2);
+    expect(within(panel).getAllByText("HTF FLIP")).toHaveLength(2);
+    expect(within(panel).getByRole("columnheader", { name: "Setting" })).toBeVisible();
     expect(within(panel).getByRole("columnheader", { name: "Ambiguous" })).toBeVisible();
     expect(within(panel).getByRole("columnheader", { name: "Open" })).toBeVisible();
+
+    const nasRows = within(panel)
+      .getAllByRole("row")
+      .filter((row) => within(row).queryByText("NAS100 / CAPITALCOM") !== null);
+    expect(nasRows).toHaveLength(2);
+    expect(within(nasRows[0]!).getByText("STRICT")).toBeInTheDocument();
+    expect(within(nasRows[1]!).getByText("EXPERIMENT ON")).toBeInTheDocument();
+
+    const oneCandleRow = within(panel)
+      .getByText("XPTUSD / OANDA")
+      .closest("tr");
+    expect(oneCandleRow).not.toBeNull();
+    expect(
+      within(oneCandleRow!).getByText("66.67%").parentElement,
+    ).toHaveClass("liquidity-cohort-rate");
+    expect(within(oneCandleRow!).getByText("3 resolved")).toHaveClass(
+      "liquidity-cohort-resolved",
+    );
+    expect(
+      oneCandleRow!.querySelectorAll(".liquidity-cohort-number"),
+    ).toHaveLength(5);
+    expect(within(panel).getByRole("table").parentElement).toHaveClass(
+      "liquidity-cohort-table-wrap",
+    );
   });
 
   it.each([
@@ -116,23 +155,29 @@ describe("LiquidityCohortPanel", () => {
       "EMPTY",
       "No liquidity cohort trades have been recorded.",
       "No liquidity cohort trades have been recorded.",
+      "liquidity-cohort-state-neutral",
     ],
     [
       "ERROR",
       "Liquidity cohort metrics are unavailable or malformed.",
       "Liquidity cohort metrics are unavailable or malformed.",
+      "liquidity-cohort-state-error",
     ],
-  ] as const)("renders a usable %s state", (state, message, expected) => {
-    render(
-      <LiquidityCohortPanel
-        snapshot={{ state, items: [], message }}
-      />,
-    );
+  ] as const)(
+    "renders a usable %s state",
+    (state, message, expected, stateClass) => {
+      render(
+        <LiquidityCohortPanel
+          snapshot={{ state, items: [], message }}
+        />,
+      );
 
-    expect(screen.getByRole("region", { name: "Liquidity experiment" })).toHaveTextContent(
-      expected,
-    );
-  });
+      const panel = screen.getByRole("region", { name: "Liquidity experiment" });
+      expect(panel).toHaveTextContent(expected);
+      expect(within(panel).getByRole("status")).toHaveClass(stateClass);
+      expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
+    },
+  );
 
   it("uses the protected paper refresh lifecycle and renders before trade cards", async () => {
     lifecycleMocks.loadEntryCohortMetrics.mockResolvedValue(snapshot);

@@ -38,7 +38,12 @@ export function LiquidityCohortPanel({
       {snapshot.state !== "READY" ? (
         <p
           aria-live="polite"
-          className="simulation-message"
+          className={[
+            "liquidity-cohort-state",
+            snapshot.state === "ERROR"
+              ? "liquidity-cohort-state-error"
+              : "liquidity-cohort-state-neutral",
+          ].join(" ")}
           role="status"
         >
           {snapshot.message}
@@ -52,6 +57,7 @@ export function LiquidityCohortPanel({
             <thead>
               <tr>
                 <th scope="col">Model</th>
+                <th scope="col">Setting</th>
                 <th scope="col">Symbol / feed</th>
                 <th scope="col">Trades</th>
                 <th scope="col">Wins / losses</th>
@@ -66,7 +72,11 @@ export function LiquidityCohortPanel({
               return (
                 <tbody key={cohort}>
                   <tr>
-                    <th colSpan={7} scope="rowgroup">
+                    <th
+                      className="liquidity-cohort-group"
+                      colSpan={8}
+                      scope="rowgroup"
+                    >
                       {displayLabel(cohort)}
                     </th>
                   </tr>
@@ -81,19 +91,41 @@ export function LiquidityCohortPanel({
                       ].join(":")}
                     >
                       <th scope="row">{displayLabel(item.entryModel)}</th>
-                      <td>{item.symbol} / {item.feed}</td>
-                      <td>{item.trades}</td>
-                      <td>{item.wins} / {item.losses}</td>
                       <td>
-                        <strong>
-                          {item.winRateBps === null
-                            ? "No resolved trades"
-                            : `${(item.winRateBps / 100).toFixed(2)}%`}
-                        </strong>
-                        <span>{item.resolved} resolved</span>
+                        <span
+                          className={[
+                            "liquidity-cohort-setting",
+                            item.oneCandleEnabled
+                              ? "liquidity-cohort-setting-enabled"
+                              : "liquidity-cohort-setting-strict",
+                          ].join(" ")}
+                        >
+                          {item.oneCandleEnabled
+                            ? "EXPERIMENT ON"
+                            : "STRICT"}
+                        </span>
                       </td>
-                      <td>{item.ambiguous}</td>
-                      <td>{item.open}</td>
+                      <td>{item.symbol} / {item.feed}</td>
+                      <td className="liquidity-cohort-number">{item.trades}</td>
+                      <td className="liquidity-cohort-number">
+                        {item.wins} / {item.losses}
+                      </td>
+                      <td className="liquidity-cohort-number">
+                        <div className="liquidity-cohort-rate">
+                          <strong>
+                            {item.winRateBps === null
+                              ? "No resolved trades"
+                              : `${(item.winRateBps / 100).toFixed(2)}%`}
+                          </strong>
+                          <span className="liquidity-cohort-resolved">
+                            {item.resolved} resolved
+                          </span>
+                        </div>
+                      </td>
+                      <td className="liquidity-cohort-number">
+                        {item.ambiguous}
+                      </td>
+                      <td className="liquidity-cohort-number">{item.open}</td>
                     </tr>
                   ))}
                 </tbody>
