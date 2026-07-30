@@ -916,6 +916,41 @@ describe("RD entry v3 persistence", () => {
     ).rejects.toThrow(/stored v3 decision cohort/u);
   });
 
+  it("refuses to settle a stored shadow position under a different cohort", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const entryPayload = payloadFor("discretionary_boc_shadow");
+    await appendEntryV3Observation(
+      env(database),
+      await observation(entryPayload),
+      await payloadDigest(entryPayload),
+    );
+    database.database.exec(
+      `DROP TRIGGER observation_entry_v3_shadow_positions_state_guard;
+       DROP TRIGGER observation_entry_v3_shadow_positions_liquidity_cohort_update_guard;
+       UPDATE observation_entry_v3_shadow_positions
+       SET liquidity_cohort = 'ONE_CANDLE', one_candle_enabled = 1;`,
+    );
+    const exitPayload = realtimeExitPayload(
+      entryPayload,
+      "pine-v3-store:wrong-cohort-shadow-target",
+      "TARGET",
+    );
+
+    await expect(
+      appendEntryV3Observation(
+        env(database),
+        await observation(exitPayload),
+        await payloadDigest(exitPayload),
+      ),
+    ).rejects.toThrow(/stored v3 shadow cohort/u);
+    expect(
+      database.database
+        .prepare("SELECT state FROM observation_entry_v3_shadow_positions")
+        .get(),
+    ).toEqual({ state: "OPEN" });
+  });
+
   it("tracks a reviewed DIR_CLOSE through target when paper configuration is unavailable", async () => {
     const database = new SqliteD1();
     installPaperAccount(database);

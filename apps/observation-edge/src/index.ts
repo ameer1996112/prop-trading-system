@@ -1398,6 +1398,8 @@ interface DecisionSelectionRow {
     | "PAPER_CONFIGURATION_UNAVAILABLE"
     | "NOT_SELECTED_ALREADY_OPEN"
     | null;
+  readonly liquidity_cohort: "ONE_CANDLE" | "TWO_PLUS_CANDLES";
+  readonly one_candle_enabled: number;
   readonly canonical_candidate_id: string | null;
   readonly canonical_evidence_id: string | null;
   readonly co_triggered_models_json: string;
@@ -1472,6 +1474,22 @@ interface DecisionShadowRow {
   readonly candidate_id: string;
   readonly state: "OPEN" | "STOPPED" | "TARGET_HIT" | "AMBIGUOUS";
   readonly outcome_r_millis: number | null;
+  readonly liquidity_cohort: "ONE_CANDLE" | "TWO_PLUS_CANDLES";
+  readonly one_candle_enabled: number;
+}
+
+function validateStoredDecisionCohort(
+  liquidityCohort: unknown,
+  oneCandleEnabled: unknown,
+): void {
+  if (
+    (liquidityCohort !== "ONE_CANDLE" &&
+      liquidityCohort !== "TWO_PLUS_CANDLES") ||
+    (oneCandleEnabled !== 0 && oneCandleEnabled !== 1) ||
+    (liquidityCohort === "ONE_CANDLE" && oneCandleEnabled !== 1)
+  ) {
+    throw new StorageUnavailableError();
+  }
 }
 
 function parseStoredDecisionJson<T>(
@@ -1563,6 +1581,8 @@ function decisionSelectionView(
     policy_action: row.policy_action,
     action: row.action,
     effective_action_reason: row.effective_action_reason,
+    liquidity_cohort: row.liquidity_cohort,
+    one_candle_enabled: row.one_candle_enabled === 1,
     co_triggered_models: [...selection.co_triggered_models],
     evaluated_at_epoch: selection.evaluated_at_epoch,
     selected_trigger_epoch: row.selected_trigger_epoch,
@@ -1702,6 +1722,10 @@ async function listRdEntryDecisions(
     }
 
     const items = selectionRows.map((row) => {
+      validateStoredDecisionCohort(
+        row.liquidity_cohort,
+        row.one_candle_enabled,
+      );
       if (
         !Number.isSafeInteger(row.entry_ticks) ||
         !Number.isSafeInteger(row.stop_ticks) ||
@@ -1891,6 +1915,12 @@ async function listRdEntryDecisions(
       }
       const paper = paperBySelection.get(row.selection_id) ?? null;
       const shadow = shadowBySelection.get(row.selection_id) ?? null;
+      if (shadow !== null) {
+        validateStoredDecisionCohort(
+          shadow.liquidity_cohort,
+          shadow.one_candle_enabled,
+        );
+      }
       if (
         (paper !== null &&
           (paper.opened_decision_id.length < 1 ||
@@ -1899,8 +1929,11 @@ async function listRdEntryDecisions(
               paper.opened_canonical_model,
             ) ||
             !Number.isSafeInteger(paper.opened_evaluated_at_epoch))) ||
-        shadow !== null &&
-        !candidateRowsByStorageId.has(shadow.candidate_id)
+        (paper !== null && row.liquidity_cohort === "ONE_CANDLE") ||
+        (shadow !== null &&
+          (!candidateRowsByStorageId.has(shadow.candidate_id) ||
+            shadow.liquidity_cohort !== row.liquidity_cohort ||
+            shadow.one_candle_enabled !== row.one_candle_enabled))
       ) {
         throw new StorageUnavailableError();
       }
@@ -1952,6 +1985,8 @@ async function listRdEntryDecisions(
             : {
                 state: shadow.state,
                 outcome_r_millis: shadow.outcome_r_millis,
+                liquidity_cohort: shadow.liquidity_cohort,
+                one_candle_enabled: shadow.one_candle_enabled === 1,
               },
       };
     });
