@@ -275,6 +275,28 @@ function payloadFor(caseId: string): Record<string, unknown> {
   };
 }
 
+function oneCandlePayloadFor(caseId: string): Record<string, unknown> {
+  const value = payloadFor(caseId);
+  value.schema_version = "3.1";
+  value.strategy_version = "3.1.0-contract3";
+  value.rule_contract_version = "3.1.0";
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  setup.liquidity_cohort = "ONE_CANDLE";
+  setup.one_candle_enabled = true;
+  setup.common_fidelity = "DISCRETIONARY";
+  const rules = setup.common_rule_results as Array<Record<string, unknown>>;
+  for (const rule of rules) {
+    if (
+      rule.rule_id === "LIQ_NORMAL_TWO_OPPOSITE_CANDLES" ||
+      rule.rule_id === "LIQ_INTERNAL_REBREAK"
+    ) {
+      rule.passed = false;
+    }
+  }
+  return value;
+}
+
 async function observation(
   payload: Record<string, unknown>,
 ): Promise<Extract<ValidatedObservation, { version: "entry-v3" }>> {
@@ -823,6 +845,75 @@ describe("RD entry v3 persistence", () => {
         .prepare("SELECT COUNT(*) AS count FROM paper_trade_allocations")
         .get(),
     ).toEqual({ count: 0 });
+  });
+
+  it("persists an enabled one-candle selection and immutable shadow cohort without paper", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const entryPayload = oneCandlePayloadFor("discretionary_boc_shadow");
+    const result = await appendEntryV3Observation(
+      env(database),
+      await observation(entryPayload),
+      await payloadDigest(entryPayload),
+    );
+
+    expect(result.evaluations[0]?.effectiveAction).toBe("SHADOW_ONLY");
+    expect(
+      database.database
+        .prepare(
+          `SELECT liquidity_cohort, one_candle_enabled, action
+           FROM observation_entry_v3_selections`,
+        )
+        .get(),
+    ).toMatchObject({
+      liquidity_cohort: "ONE_CANDLE",
+      one_candle_enabled: 1,
+      action: "SHADOW_ONLY",
+    });
+    expect(
+      database.database
+        .prepare("SELECT * FROM observation_entry_v3_paper_links")
+        .all(),
+    ).toHaveLength(0);
+    expect(
+      database.database
+        .prepare(
+          `SELECT liquidity_cohort, one_candle_enabled, state
+           FROM observation_entry_v3_shadow_positions`,
+        )
+        .get(),
+    ).toMatchObject({
+      liquidity_cohort: "ONE_CANDLE",
+      one_candle_enabled: 1,
+      state: "OPEN",
+    });
+    expect(() =>
+      database.database
+        .prepare(
+          `UPDATE observation_entry_v3_shadow_positions
+           SET liquidity_cohort = 'TWO_PLUS_CANDLES'`,
+        )
+        .run(),
+    ).toThrow();
+  });
+
+  it("rejects a stored decision whose cohort no longer matches the validated setup", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const payload = payloadFor("strict_long_boc_only");
+    const validated = await observation(payload);
+    const digest = await payloadDigest(payload);
+    await appendEntryV3Observation(env(database), validated, digest);
+    database.database.exec(
+      `DROP TRIGGER observation_entry_v3_selections_no_update;
+       DROP TRIGGER observation_entry_v3_selections_liquidity_cohort_update_guard;
+       UPDATE observation_entry_v3_selections
+       SET liquidity_cohort = 'ONE_CANDLE', one_candle_enabled = 1;`,
+    );
+
+    await expect(
+      appendEntryV3Observation(env(database), validated, digest),
+    ).rejects.toThrow(/stored v3 decision cohort/u);
   });
 
   it("tracks a reviewed DIR_CLOSE through target when paper configuration is unavailable", async () => {

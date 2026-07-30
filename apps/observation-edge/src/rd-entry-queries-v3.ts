@@ -25,7 +25,7 @@ INSERT INTO observation_entry_v3_events (
   strategy_version, rule_contract_version, event_role, is_realtime, symbol,
   tick_size, detector_code_hash, settings_hash, validated_payload_json,
   payload_sha256, observed_at_epoch, recorded_at
-) VALUES (?, ?, ?, ?, '3.0.0-contract3', '3.0.0', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 export const SELECT_ENTRY_V3_EVENT_DISPOSITION_SQL = `
@@ -95,9 +95,10 @@ INSERT INTO observation_entry_v3_selections (
   selection_id, logical_selection_id, event_id, setup_id, attempt_kind,
   policy_version, revision, canonical_candidate_id, canonical_evidence_id,
   canonical_model, reason, fidelity, policy_action, action,
-  effective_action_reason, co_triggered_models_json, evaluated_at_epoch,
-  selected_trigger_epoch, selected_trigger_sequence, entry_ticks, stop_ticks,
-  target_ticks, selection_json
+  effective_action_reason, liquidity_cohort, one_candle_enabled,
+  co_triggered_models_json, evaluated_at_epoch, selected_trigger_epoch,
+  selected_trigger_sequence, entry_ticks, stop_ticks, target_ticks,
+  selection_json
 )
 SELECT
   json_extract(value, '$.selection_id'),
@@ -115,6 +116,8 @@ SELECT
   json_extract(value, '$.policy_action'),
   json_extract(value, '$.action'),
   json_extract(value, '$.effective_action_reason'),
+  json_extract(value, '$.liquidity_cohort'),
+  json_extract(value, '$.one_candle_enabled'),
   json_extract(value, '$.co_triggered_models_json'),
   json_extract(value, '$.evaluated_at_epoch'),
   json_extract(value, '$.selected_trigger_epoch'),
@@ -183,6 +186,8 @@ SELECT
   selection.setup_id,
   selection.action,
   selection.effective_action_reason,
+  selection.liquidity_cohort,
+  selection.one_candle_enabled,
   parity.parity_status,
   parity.mismatch_reason
 FROM observation_entry_v3_selections AS selection
@@ -196,7 +201,8 @@ export const SELECT_ENTRY_V3_SHADOW_POSITION_SQL = `
 SELECT
   candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
   trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks, target_ticks,
-  state, exit_event_id, outcome_r_millis, created_at, terminal_at
+  state, exit_event_id, outcome_r_millis, liquidity_cohort,
+  one_candle_enabled, created_at, terminal_at
 FROM observation_entry_v3_shadow_positions
 WHERE setup_id = ? AND attempt_kind = ?
 LIMIT 1
@@ -206,8 +212,9 @@ export const INSERT_ENTRY_V3_SHADOW_POSITION_SQL = `
 INSERT INTO observation_entry_v3_shadow_positions (
   candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
   trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks, target_ticks,
-  state, exit_event_id, outcome_r_millis, created_at, terminal_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', NULL, NULL, ?, NULL)
+  state, exit_event_id, outcome_r_millis, liquidity_cohort,
+  one_candle_enabled, created_at, terminal_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', NULL, NULL, ?, ?, ?, NULL)
 `;
 
 export const TERMINATE_ENTRY_V3_SHADOW_POSITION_SQL = `
@@ -256,6 +263,8 @@ SELECT
   selection.policy_action,
   selection.action,
   selection.effective_action_reason,
+  selection.liquidity_cohort,
+  selection.one_candle_enabled,
   selection.canonical_candidate_id,
   selection.canonical_evidence_id,
   selection.co_triggered_models_json,
@@ -371,7 +380,9 @@ SELECT
   member.selection_id,
   shadow.candidate_id,
   shadow.state,
-  shadow.outcome_r_millis
+  shadow.outcome_r_millis,
+  shadow.liquidity_cohort,
+  shadow.one_candle_enabled
 FROM observation_entry_v3_selection_members AS member
 JOIN observation_entry_v3_shadow_positions AS shadow
   ON shadow.candidate_id = member.object_id

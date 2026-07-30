@@ -854,7 +854,7 @@ class FakeD1 {
   ) {
     const root = fileURLToPath(new URL("..", import.meta.url));
     this.sqlite.exec("PRAGMA foreign_keys = ON");
-    applyObservationMigrationsThrough(this.sqlite, root, 25);
+    applyObservationMigrationsThrough(this.sqlite, root, 28);
     this.syncEntryMaps();
   }
 
@@ -2494,12 +2494,197 @@ describe("observation edge Worker", () => {
         }),
       ]),
     );
+    database.exec(
+      readFileSync(
+        `${root}/migrations/0027_observation_entry_v3_paper_fallback_shadow.sql`,
+        "utf8",
+      ),
+    );
+    database.exec(
+      readFileSync(
+        `${root}/migrations/0028_observation_entry_v3_liquidity_cohorts.sql`,
+        "utf8",
+      ),
+    );
     const plan = database
       .prepare(`EXPLAIN QUERY PLAN ${LIST_ENTRY_V3_DECISIONS_SQL}`)
       .all(20) as Array<{ detail: string }>;
     expect(plan.map((step) => step.detail).join("\n")).toContain(
       "idx_observation_entry_v3_selections_attempt_order",
     );
+  });
+
+  it("migrates legacy v3 cohorts and admits only exact v3.1 receipt and event tuples", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 27);
+    database
+      .prepare(
+        `INSERT INTO observation_receipts (
+          receipt_id, received_at, idempotency_key, payload_sha256,
+          schema_version, strategy_id, strategy_version, producer_instance_id,
+          sequence, symbol, ticker_id, feed, timeframe, kind
+        ) VALUES (
+          'legacy-v3-receipt', '2026-07-30T00:00:00Z', 'legacy-v3', ?,
+          '3.0', 'rd_liquidity_sd_5m_v1', '3.0.0-contract3',
+          'legacy-v3-producer', 1, 'EURUSD', 'OANDA:EURUSD', 'OANDA', '5',
+          'incremental'
+        )`,
+      )
+      .run("a".repeat(64));
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_events (
+          event_id, receipt_id, producer_instance_id, producer_sequence,
+          strategy_version, rule_contract_version, event_role, is_realtime,
+          symbol, tick_size, detector_code_hash, settings_hash,
+          validated_payload_json, payload_sha256, observed_at_epoch, recorded_at
+        ) VALUES (
+          'legacy-v3-event', 'legacy-v3-receipt', 'legacy-v3-producer', 1,
+          '3.0.0-contract3', '3.0.0', 'ENTRY_DECISION', 1, 'EURUSD',
+          '0.00001', ?, ?, '{}', ?, 1, '2026-07-30T00:00:00Z'
+        )`,
+      )
+      .run("b".repeat(64), "c".repeat(64), "a".repeat(64));
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_selections (
+          selection_id, logical_selection_id, event_id, setup_id, attempt_kind,
+          policy_version, revision, canonical_candidate_id,
+          canonical_evidence_id, canonical_model, reason, fidelity,
+          policy_action, action, effective_action_reason,
+          co_triggered_models_json, evaluated_at_epoch, selected_trigger_epoch,
+          selected_trigger_sequence, entry_ticks, stop_ticks, target_ticks,
+          selection_json
+        ) VALUES (
+          'legacy-v3-selection', 'legacy-v3-logical-selection',
+          'legacy-v3-event', 'legacy-v3-setup', 'INITIAL',
+          'rd-entry-arbitration-v3', 0, NULL, NULL, NULL, 'NO_CANDIDATE',
+          NULL, 'NONE', 'NONE', NULL, '[]', 1, NULL, NULL, 100, 90, 120, '{}'
+        )`,
+      )
+      .run();
+
+    database.exec("BEGIN");
+    database.exec(
+      readFileSync(
+        `${root}/migrations/0028_observation_entry_v3_liquidity_cohorts.sql`,
+        "utf8",
+      ),
+    );
+    database.exec("COMMIT");
+
+    expect(
+      database
+        .prepare(
+          `SELECT liquidity_cohort, one_candle_enabled
+           FROM observation_entry_v3_selections
+           WHERE selection_id = 'legacy-v3-selection'`,
+        )
+        .get(),
+    ).toEqual({
+      liquidity_cohort: "TWO_PLUS_CANDLES",
+      one_candle_enabled: 0,
+    });
+    database
+      .prepare(
+        `INSERT INTO observation_receipts (
+          receipt_id, received_at, idempotency_key, payload_sha256,
+          schema_version, strategy_id, strategy_version, producer_instance_id,
+          sequence, symbol, ticker_id, feed, timeframe, kind
+        ) VALUES (
+          'v31-receipt', '2026-07-30T00:00:01Z', 'v31', ?, '3.1',
+          'rd_liquidity_sd_5m_v1', '3.1.0-contract3', 'v31-producer', 1,
+          'EURUSD', 'OANDA:EURUSD', 'OANDA', '5', 'incremental'
+        )`,
+      )
+      .run("d".repeat(64));
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_events (
+          event_id, receipt_id, producer_instance_id, producer_sequence,
+          strategy_version, rule_contract_version, event_role, is_realtime,
+          symbol, tick_size, detector_code_hash, settings_hash,
+          validated_payload_json, payload_sha256, observed_at_epoch, recorded_at
+        ) VALUES (
+          'v31-event', 'v31-receipt', 'v31-producer', 1,
+          '3.1.0-contract3', '3.1.0', 'ENTRY_DECISION', 1, 'EURUSD',
+          '0.00001', ?, ?, '{}', ?, 1, '2026-07-30T00:00:01Z'
+        )`,
+      )
+      .run("e".repeat(64), "f".repeat(64), "d".repeat(64));
+    database
+      .prepare(
+        `INSERT INTO observation_receipts (
+          receipt_id, received_at, idempotency_key, payload_sha256,
+          schema_version, strategy_id, strategy_version, producer_instance_id,
+          sequence, symbol, ticker_id, feed, timeframe, kind
+        ) VALUES (
+          'v31-bad-event-receipt', '2026-07-30T00:00:02Z',
+          'v31-bad-event', ?, '3.1', 'rd_liquidity_sd_5m_v1',
+          '3.1.0-contract3', 'v31-bad-event-producer', 1, 'EURUSD',
+          'OANDA:EURUSD', 'OANDA', '5', 'incremental'
+        )`,
+      )
+      .run("2".repeat(64));
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_events (
+            event_id, receipt_id, producer_instance_id, producer_sequence,
+            strategy_version, rule_contract_version, event_role, is_realtime,
+            symbol, tick_size, detector_code_hash, settings_hash,
+            validated_payload_json, payload_sha256, observed_at_epoch,
+            recorded_at
+          ) VALUES (
+            'v31-bad-event', 'v31-bad-event-receipt',
+            'v31-bad-event-producer', 1, '3.1.0-contract3', '3.0.0',
+            'ENTRY_DECISION', 1, 'EURUSD', '0.00001', ?, ?, '{}', ?, 1,
+            '2026-07-30T00:00:02Z'
+          )`,
+        )
+        .run("3".repeat(64), "4".repeat(64), "2".repeat(64)),
+    ).toThrow();
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_selections (
+            selection_id, logical_selection_id, event_id, setup_id,
+            attempt_kind, policy_version, revision, canonical_candidate_id,
+            canonical_evidence_id, canonical_model, reason, fidelity,
+            policy_action, action, effective_action_reason,
+            co_triggered_models_json, evaluated_at_epoch,
+            selected_trigger_epoch, selected_trigger_sequence, entry_ticks,
+            stop_ticks, target_ticks, selection_json, liquidity_cohort,
+            one_candle_enabled
+          ) VALUES (
+            'malformed-v31-selection', 'malformed-v31-logical', 'v31-event',
+            'malformed-v31-setup', 'INITIAL', 'rd-entry-arbitration-v3', 0,
+            NULL, NULL, NULL, 'NO_CANDIDATE', NULL, 'NONE', 'NONE', NULL,
+            '[]', 1, NULL, NULL, 100, 90, 120, '{}', 'ONE_CANDLE', 0
+          )`,
+        )
+        .run(),
+    ).toThrow(/one-candle cohort requires enabled flag/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_receipts (
+            receipt_id, received_at, idempotency_key, payload_sha256,
+            schema_version, strategy_id, strategy_version,
+            producer_instance_id, sequence, symbol, ticker_id, feed,
+            timeframe, kind
+          ) VALUES (
+            'bad-v31-receipt', '2026-07-30T00:00:02Z', 'bad-v31', ?, '3.1',
+            'rd_liquidity_sd_5m_v1', '3.0.0-contract3', 'bad-v31-producer', 1,
+            'EURUSD', 'OANDA:EURUSD', 'OANDA', '5', 'incremental'
+          )`,
+        )
+        .run("1".repeat(64)),
+    ).toThrow();
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    database.close();
   });
 
   it("routes bounded v3 audit responses and returns explicit conflicts", async () => {
