@@ -1690,6 +1690,112 @@ function seedEntryV3Decision(
     .run(`parity:${caseId}`, eventId, selectionRowId);
 }
 
+interface ExperimentalShadowFixture {
+  readonly candidateId: string;
+  readonly setupId: string;
+  readonly direction: "LONG" | "SHORT";
+  readonly triggerEpoch: number;
+  readonly triggerSequence: number;
+  readonly entryTicks: number;
+  readonly evaluatedAtEpoch: number;
+}
+
+function experimentalShadowFixture(
+  database: FakeD1,
+  caseId: string,
+  model: "BOC" | "DIR_CLOSE" | "HTF_FLIP",
+): ExperimentalShadowFixture {
+  seedEntryV3Decision(database, caseId);
+  database.sqlite.exec(
+    `DROP TRIGGER observation_entry_v3_selections_no_update;
+     DROP TRIGGER observation_entry_v3_selections_liquidity_cohort_update_guard;
+     UPDATE observation_entry_v3_selections
+     SET liquidity_cohort = 'ONE_CANDLE',
+         one_candle_enabled = 1,
+         policy_action = 'SHADOW_ONLY',
+         action = 'SHADOW_ONLY',
+         effective_action_reason = NULL,
+         canonical_candidate_id = NULL,
+         canonical_evidence_id = NULL,
+         canonical_model = NULL,
+         fidelity = NULL,
+         selected_trigger_epoch = NULL,
+         selected_trigger_sequence = NULL;`,
+  );
+  const candidate = database.sqlite
+    .prepare(
+      `SELECT candidate_id, setup_id, direction
+       FROM observation_entry_v3_candidates
+       WHERE model = ? AND state = 'MATCHED'`,
+    )
+    .get(model) as {
+    candidate_id: string;
+    setup_id: string;
+    direction: "LONG" | "SHORT";
+  };
+  const evidence = database.sqlite
+    .prepare(
+      `SELECT observed_trigger_epoch, trigger_sequence, observed_trigger_ticks
+       FROM observation_entry_v3_evidence
+       WHERE candidate_id = ?`,
+    )
+    .get(candidate.candidate_id) as {
+    observed_trigger_epoch: number;
+    trigger_sequence: number;
+    observed_trigger_ticks: number;
+  };
+  const selection = database.sqlite
+    .prepare(
+      `SELECT evaluated_at_epoch
+       FROM observation_entry_v3_selections
+       WHERE setup_id = ?`,
+    )
+    .get(candidate.setup_id) as { evaluated_at_epoch: number };
+  return {
+    candidateId: candidate.candidate_id,
+    setupId: candidate.setup_id,
+    direction: candidate.direction,
+    triggerEpoch: evidence.observed_trigger_epoch,
+    triggerSequence: evidence.trigger_sequence,
+    entryTicks: evidence.observed_trigger_ticks,
+    evaluatedAtEpoch: selection.evaluated_at_epoch,
+  };
+}
+
+function insertExperimentalShadow(
+  database: FakeD1,
+  fixture: ExperimentalShadowFixture,
+  overrides: Partial<{
+    readonly candidateId: string;
+    readonly setupId: string;
+    readonly evaluatedAtEpoch: number;
+    readonly liquidityCohort: "ONE_CANDLE" | "TWO_PLUS_CANDLES";
+    readonly oneCandleEnabled: number;
+  }> = {},
+): void {
+  database.sqlite
+    .prepare(
+      `INSERT INTO observation_entry_v3_shadow_positions (
+        candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
+        trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
+        target_ticks, state, exit_event_id, outcome_r_millis,
+        liquidity_cohort, one_candle_enabled, created_at, terminal_at
+      ) VALUES (?, ?, 'INITIAL', ?, ?, ?, ?, ?, 101, 151, 'OPEN',
+        NULL, NULL, ?, ?, '2026-07-30T00:00:00Z', NULL)`,
+    )
+    .run(
+      overrides.candidateId ?? fixture.candidateId,
+      overrides.setupId ?? fixture.setupId,
+      fixture.direction,
+      fixture.triggerEpoch,
+      fixture.triggerSequence,
+      overrides.evaluatedAtEpoch ?? fixture.evaluatedAtEpoch,
+      fixture.entryTicks,
+      overrides.liquidityCohort ?? "ONE_CANDLE",
+      overrides.oneCandleEnabled ?? 1,
+    );
+}
+
 function cloneEntryV3DecisionEvent(
   database: FakeD1,
   caseId: string,
@@ -2793,14 +2899,99 @@ describe("observation edge Worker", () => {
     database.close();
   });
 
-  it("rejects a shadow position whose cohort differs from its authorized selection", () => {
+  it.each([
+    ["BOC", "strict_long_boc_only"],
+    ["DIR_CLOSE", "close_fallback_after_blocked_aggressive_models"],
+    ["HTF_FLIP", "same_event_price_conflict"],
+  ] as const)(
+    "authorizes an enabled one-candle %s shadow owned by its selection",
+    (model, caseId) => {
+      const database = new FakeD1();
+      const fixture = experimentalShadowFixture(database, caseId, model);
+
+      expect(() => insertExperimentalShadow(database, fixture)).not.toThrow();
+      expect(
+        database.sqlite
+          .prepare(
+            `SELECT liquidity_cohort, one_candle_enabled, state
+             FROM observation_entry_v3_shadow_positions`,
+          )
+          .get(),
+      ).toEqual({
+        liquidity_cohort: "ONE_CANDLE",
+        one_candle_enabled: 1,
+        state: "OPEN",
+      });
+    },
+  );
+
+  it("rejects disabled, paper, mismatched, unowned, and wrong-revision one-candle shadows", () => {
+    const expectRejected = (
+      prepare: (
+        database: FakeD1,
+        fixture: ExperimentalShadowFixture,
+      ) => void,
+      overrides: Parameters<typeof insertExperimentalShadow>[2] = {},
+    ): void => {
+      const database = new FakeD1();
+      const fixture = experimentalShadowFixture(
+        database,
+        "close_fallback_after_blocked_aggressive_models",
+        "DIR_CLOSE",
+      );
+      prepare(database, fixture);
+      expect(() =>
+        insertExperimentalShadow(database, fixture, overrides),
+      ).toThrow();
+    };
+
+    expectRejected(
+      () => undefined,
+      { oneCandleEnabled: 0 },
+    );
+    expectRejected(
+      () => undefined,
+      { liquidityCohort: "TWO_PLUS_CANDLES" },
+    );
+    expectRejected(
+      () => undefined,
+      { setupId: "wrong-one-candle-setup" },
+    );
+    expectRejected(
+      (database, fixture) => {
+        database.sqlite.exec(
+          "DROP TRIGGER observation_entry_v3_selection_members_no_delete",
+        );
+        database.sqlite
+          .prepare(
+            `DELETE FROM observation_entry_v3_selection_members
+             WHERE object_kind = 'CANDIDATE' AND object_id = ?`,
+          )
+          .run(fixture.candidateId);
+      },
+    );
+    expectRejected(
+      () => undefined,
+      { evaluatedAtEpoch: 2401 },
+    );
+
     const database = new FakeD1();
-    seedEntryV3Decision(database, "discretionary_boc_shadow");
+    seedEntryV3Decision(database, "strict_long_boc_only");
+    database.sqlite.exec(
+      `DROP TRIGGER observation_entry_v3_selections_no_update;
+       DROP TRIGGER observation_entry_v3_selections_liquidity_cohort_update_guard;
+       UPDATE observation_entry_v3_selections
+       SET liquidity_cohort = 'ONE_CANDLE',
+           one_candle_enabled = 1,
+           policy_action = 'PAPER_ELIGIBLE',
+           action = 'PAPER_ELIGIBLE',
+           effective_action_reason = NULL;`,
+    );
     const candidate = database.sqlite
       .prepare(
         `SELECT candidate_id, setup_id, direction
          FROM observation_entry_v3_candidates
-         WHERE model = 'BOC'`,
+         WHERE model = 'BOC' AND state = 'MATCHED'`,
       )
       .get() as {
       candidate_id: string;
@@ -2818,26 +3009,23 @@ describe("observation edge Worker", () => {
       trigger_sequence: number;
       observed_trigger_ticks: number;
     };
+    const selection = database.sqlite
+      .prepare(
+        `SELECT evaluated_at_epoch
+         FROM observation_entry_v3_selections`,
+      )
+      .get() as { evaluated_at_epoch: number };
 
     expect(() =>
-      database.sqlite
-        .prepare(
-          `INSERT INTO observation_entry_v3_shadow_positions (
-            candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
-            trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
-            target_ticks, state, exit_event_id, outcome_r_millis,
-            liquidity_cohort, one_candle_enabled, created_at, terminal_at
-          ) VALUES (?, ?, 'INITIAL', ?, ?, ?, 2400, ?, 101, 151, 'OPEN',
-            NULL, NULL, 'ONE_CANDLE', 1, '2026-07-30T00:00:00Z', NULL)`,
-        )
-        .run(
-          candidate.candidate_id,
-          candidate.setup_id,
-          candidate.direction,
-          evidence.observed_trigger_epoch,
-          evidence.trigger_sequence,
-          evidence.observed_trigger_ticks,
-        ),
+      insertExperimentalShadow(database, {
+        candidateId: candidate.candidate_id,
+        setupId: candidate.setup_id,
+        direction: candidate.direction,
+        triggerEpoch: evidence.observed_trigger_epoch,
+        triggerSequence: evidence.trigger_sequence,
+        entryTicks: evidence.observed_trigger_ticks,
+        evaluatedAtEpoch: selection.evaluated_at_epoch,
+      }),
     ).toThrow(/v3 shadow position authorization rejected/u);
   });
 
