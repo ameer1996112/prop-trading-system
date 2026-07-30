@@ -427,6 +427,45 @@ function selectedEvidence(
         null);
 }
 
+function experimentalOneCandlePair(
+  bundle: ValidatedEntryV3Bundle,
+): {
+  readonly candidateIndex: number;
+  readonly evidence: EntryCandidateEvidenceV3;
+} | null {
+  if (
+    bundle.setup.liquidity_cohort !== "ONE_CANDLE" ||
+    !bundle.setup.one_candle_enabled ||
+    bundle.evaluation.selection.action !== "SHADOW_ONLY"
+  ) {
+    return null;
+  }
+  const pairs = bundle.evaluation.candidates.flatMap(
+    (candidate, candidateIndex) => {
+      const evidence = bundle.evaluation.evidence.find(
+        (item) => item.candidate_id === candidate.candidate_id,
+      );
+      return evidence === undefined ||
+        evidence.observed_trigger_epoch === null ||
+        evidence.observed_trigger_ticks === null
+        ? []
+        : [{ candidateIndex, evidence }];
+    },
+  );
+  pairs.sort(
+    (left, right) =>
+      left.evidence.observed_trigger_epoch! -
+        right.evidence.observed_trigger_epoch! ||
+      left.evidence.trigger_sequence - right.evidence.trigger_sequence ||
+      bundle.evaluation.candidates[
+        left.candidateIndex
+      ]!.candidate_id.localeCompare(
+        bundle.evaluation.candidates[right.candidateIndex]!.candidate_id,
+      ),
+  );
+  return pairs[0] ?? null;
+}
+
 function discretionaryBocPair(bundle: ValidatedEntryV3Bundle): {
   readonly candidateIndex: number;
   readonly evidence: EntryCandidateEvidenceV3;
@@ -1047,6 +1086,9 @@ async function appendEntryV3ObservationAttempt(
       preparedPaper !== undefined &&
       preparedPaper.evidence.observed_trigger_epoch !== null
     ) {
+      if (bundle.setup.liquidity_cohort === "ONE_CANDLE") {
+        throw new TypeError("one-candle v3 paper intent forbidden");
+      }
       const { intent, evidence: intentEvidence } = preparedPaper;
       const intentPayloadSha256 = await canonicalSha256({
         ...intent,
@@ -1098,11 +1140,15 @@ async function appendEntryV3ObservationAttempt(
     }
 
     const shadowPair =
-      discretionaryBocPair(bundle) ??
-      (identityMatches &&
-      effectiveActionReason === "PAPER_CONFIGURATION_UNAVAILABLE"
-        ? selectedShadowPair(bundle)
-        : null);
+      bundle.setup.liquidity_cohort === "ONE_CANDLE" &&
+      existingLink !== null
+        ? null
+        : (experimentalOneCandlePair(bundle) ??
+          discretionaryBocPair(bundle) ??
+          (identityMatches &&
+          effectiveActionReason === "PAPER_CONFIGURATION_UNAVAILABLE"
+            ? selectedShadowPair(bundle)
+            : null));
     const existingShadow =
       observation.eventRole === "ENTRY_DECISION" && shadowPair !== null
         ? await env.DB
