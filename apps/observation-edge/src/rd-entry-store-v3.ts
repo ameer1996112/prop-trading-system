@@ -120,6 +120,8 @@ interface StoredShadowPositionV3 {
   readonly state: "OPEN" | "STOPPED" | "TARGET_HIT" | "AMBIGUOUS";
   readonly exit_event_id: string | null;
   readonly outcome_r_millis: number | null;
+  readonly liquidity_cohort: "ONE_CANDLE" | "TWO_PLUS_CANDLES";
+  readonly one_candle_enabled: number;
 }
 
 interface StoredExitApplicationV3 {
@@ -152,6 +154,37 @@ interface StoredEventDispositionV3 {
 interface PaperConfiguration {
   readonly accountIds: readonly string[];
   readonly riskBps: number;
+}
+
+function entryV3VersionTuple(
+  observation: EntryV3Observation,
+): readonly [
+  "3.0.0-contract3" | "3.1.0-contract3",
+  "3.0.0" | "3.1.0",
+] {
+  const schemaVersion = observation.metadata.schemaVersion;
+  const strategyVersion = observation.metadata.strategyVersion;
+  if (schemaVersion === "3.0" && strategyVersion === "3.0.0-contract3") {
+    return [strategyVersion, "3.0.0"];
+  }
+  if (schemaVersion === "3.1" && strategyVersion === "3.1.0-contract3") {
+    return [strategyVersion, "3.1.0"];
+  }
+  throw new TypeError("invalid v3 storage version tuple");
+}
+
+function validateStoredLiquidityCohort(
+  liquidityCohort: unknown,
+  oneCandleEnabled: unknown,
+): void {
+  if (
+    (liquidityCohort !== "ONE_CANDLE" &&
+      liquidityCohort !== "TWO_PLUS_CANDLES") ||
+    (oneCandleEnabled !== 0 && oneCandleEnabled !== 1) ||
+    (liquidityCohort === "ONE_CANDLE" && oneCandleEnabled !== 1)
+  ) {
+    throw new TypeError("stored v3 decision cohort malformed");
+  }
 }
 
 export interface EntryV3StoredEvaluation {
@@ -606,6 +639,8 @@ async function storedEvaluationsForEvent(
       setup_id: string;
       action: SelectionActionV3;
       effective_action_reason: EffectiveActionReason;
+      liquidity_cohort: "ONE_CANDLE" | "TWO_PLUS_CANDLES";
+      one_candle_enabled: number;
       parity_status: "MATCH" | "MISMATCH" | "NOT_PROVIDED";
       mismatch_reason: ParityMismatchReason;
     }>();
@@ -613,6 +648,18 @@ async function storedEvaluationsForEvent(
   return bundles.map((bundle) => {
     const stored = bySetup.get(bundle.setup.setup_id);
     if (stored === undefined) throw new TypeError("stored v3 decision unavailable");
+    validateStoredLiquidityCohort(
+      stored.liquidity_cohort,
+      stored.one_candle_enabled,
+    );
+    if (
+      stored.liquidity_cohort !== bundle.setup.liquidity_cohort ||
+      (stored.one_candle_enabled === 1) !== bundle.setup.one_candle_enabled ||
+      (stored.liquidity_cohort === "ONE_CANDLE" &&
+        stored.action === "PAPER_ELIGIBLE")
+    ) {
+      throw new TypeError("stored v3 decision cohort mismatch");
+    }
     return {
       evaluation: bundle.evaluation,
       effectiveAction: stored.action,
@@ -951,6 +998,8 @@ async function appendEntryV3ObservationAttempt(
       policy_action: selection.action,
       action: effectiveAction,
       effective_action_reason: effectiveActionReason,
+      liquidity_cohort: bundle.setup.liquidity_cohort,
+      one_candle_enabled: bundle.setup.one_candle_enabled ? 1 : 0,
       co_triggered_models_json: JSON.stringify(selection.co_triggered_models),
       evaluated_at_epoch: selection.evaluated_at_epoch,
       selected_trigger_epoch: selectedTriggerEpoch,
@@ -1059,6 +1108,8 @@ async function appendEntryV3ObservationAttempt(
           shadowPair.evidence.observed_trigger_ticks,
           bundle.tradePlan.stop_ticks,
           bundle.tradePlan.target_ticks,
+          bundle.setup.liquidity_cohort,
+          bundle.setup.one_candle_enabled ? 1 : 0,
           recordedAt,
         ),
       );
@@ -1220,6 +1271,8 @@ async function appendEntryV3ObservationAttempt(
     }
   }
 
+  const [strategyVersion, ruleContractVersion] =
+    entryV3VersionTuple(observation);
   const statements = [
     receiptInsert(env, receiptId, recordedAt, observation, payloadSha256),
     env.DB.prepare(INSERT_ENTRY_V3_EVENT_SQL).bind(
@@ -1227,6 +1280,8 @@ async function appendEntryV3ObservationAttempt(
       receiptId,
       observation.metadata.producerInstanceId,
       observation.producerSequence,
+      strategyVersion,
+      ruleContractVersion,
       observation.eventRole,
       observation.isRealtime ? 1 : 0,
       observation.metadata.symbol,
