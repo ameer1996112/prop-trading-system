@@ -245,6 +245,74 @@ describe("broker geometry reconstruction v1", () => {
     });
   });
 
+  it("Task 5 boundary executes the public reconstruction artifact", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const evidence = brokerBarEvidenceFixture(longBars(), capability);
+
+    const first = await reconstructBrokerGeometryV1(
+      structuredClone(candidate),
+      structuredClone(evidence),
+      structuredClone(capability),
+    );
+    const replay = await reconstructBrokerGeometryV1(
+      structuredClone(candidate),
+      structuredClone(evidence),
+      structuredClone(capability),
+    );
+    const firstBytes = new TextEncoder().encode(canonicalStringify(first));
+    const replayBytes = new TextEncoder().encode(canonicalStringify(replay));
+    const { reconstruction_body_sha256: firstDigest, ...firstBody } = first;
+    const { reconstruction_body_sha256: replayDigest, ...replayBody } = replay;
+
+    expect(firstBytes).toEqual(replayBytes);
+    expect(firstDigest).toBe(replayDigest);
+    expect(firstDigest).toBe("f4998d8b52e7d484cb9cac37e1739338bef6dc38a83342f72a937657c8f3f028");
+    await expect(sha256Hex(canonicalStringify(firstBody))).resolves.toBe(firstDigest);
+    await expect(sha256Hex(canonicalStringify(replayBody))).resolves.toBe(replayDigest);
+    expect(first).toMatchObject({
+      outcome: "MATCH",
+      reason_code: "NONE",
+      authority: "PAPER_ONLY",
+      real_execution_allowed: false,
+      command: null,
+    });
+    expect(Object.isFrozen(first)).toBe(true);
+
+    const evidenceIdentityChanged = {
+      ...evidence,
+      evidence_id: "broker-evidence-reconstruction-v2",
+    };
+    const capabilityDigestChanged = await brokerCapabilityFixture({
+      broker_symbol: "EURUSD-REPLAY",
+    });
+    const changedEvidence = await reconstructBrokerGeometryV1(
+      structuredClone(candidate),
+      structuredClone(evidenceIdentityChanged),
+      structuredClone(capability),
+    );
+    const changedCapability = await reconstructBrokerGeometryV1(
+      structuredClone(candidate),
+      brokerBarEvidenceFixture(longBars(), capabilityDigestChanged),
+      structuredClone(capabilityDigestChanged),
+    );
+
+    expect(changedEvidence.evidence_id).toBe(evidenceIdentityChanged.evidence_id);
+    expect(changedEvidence.reconstruction_body_sha256).not.toBe(firstDigest);
+    expect(changedCapability.capability_sha256).toBe(capabilityDigestChanged.capability_sha256);
+    expect(changedCapability.reconstruction_body_sha256).not.toBe(firstDigest);
+    expect(changedCapability.reconstruction_body_sha256).not.toBe(
+      changedEvidence.reconstruction_body_sha256,
+    );
+    for (const result of [changedEvidence, changedCapability]) {
+      const { reconstruction_body_sha256: digest, ...body } = result;
+      await expect(sha256Hex(canonicalStringify(body))).resolves.toBe(digest);
+      expect(result.authority).toBe("PAPER_ONLY");
+      expect(result.real_execution_allowed).toBe(false);
+      expect(result.command).toBeNull();
+    }
+  });
+
   it("blocks valid evidence that derives nonpositive LONG broker geometry", async () => {
     const candidate = await v2LongCandidateFixture();
     const capability = await brokerCapabilityFixture();
