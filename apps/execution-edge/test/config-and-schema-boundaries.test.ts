@@ -5,6 +5,7 @@ import { validateBrokerSymbolCapabilityV1 } from "../src/broker-symbol-capabilit
 import { validateExecutionCandidateV2 } from "../src/execution-candidate-v2";
 import {
   brokerCapabilityFixture,
+  validateJsonSchemaPayload,
   v2LongCandidateFixture,
 } from "./support/broker-reconstruction-fixture";
 
@@ -79,6 +80,58 @@ describe("execution-edge configuration and schema boundaries", () => {
     await expect(validateBrokerSymbolCapabilityV1({ ...capability, unexpected: true })).rejects.toThrow(
       "BROKER_SYMBOL_CAPABILITY_INVALID",
     );
+  });
+
+  it("rejects an extra payload field through all four broker reconstruction JSON schemas", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const {
+      candidate_body_sha256: _candidateDigest,
+      logical_candidate_id: _candidateId,
+      proposal_schema_version: _proposalVersion,
+      schema_version: _candidateSchemaVersion,
+      ...proposalBody
+    } = candidate;
+    const proposal = {
+      ...proposalBody,
+      schema_version: "rd-entry-execution-proposal-v2",
+    };
+    const reconstruction = {
+      schema_version: "BrokerGeometryReconstructionV1",
+      reconstruction_body_sha256: "f".repeat(64),
+      logical_candidate_id: candidate.logical_candidate_id,
+      candidate_body_sha256: candidate.candidate_body_sha256,
+      evidence_id: "broker-evidence-schema-fixture",
+      capability_sha256: capability.capability_sha256,
+      source_symbol: "EURUSD",
+      broker_symbol: "EURUSD",
+      candidate_source_bar_close_epoch: 1_786_392_000,
+      outcome: "MATCH",
+      reason_code: "NONE",
+      matched_engagement_open_epoch: 1_786_391_400,
+      matched_source_bar_close_epoch: 1_786_392_000,
+      broker_entry_ticks: 1100,
+      broker_wick_ticks: 1000,
+      broker_stop_ticks: 998,
+      broker_risk_distance_ticks: 102,
+      broker_target_ticks: 1508,
+      maximum_divergence_price_units: 0,
+      authority: "PAPER_ONLY",
+      real_execution_allowed: false,
+      command: null,
+    };
+    for (const [file, payload] of [
+      ["rd-entry-execution-proposal-v2.schema.json", proposal],
+      ["execution-candidate-v2.schema.json", candidate],
+      ["broker-symbol-capability-v1.schema.json", capability],
+      ["broker-geometry-reconstruction-v1.schema.json", reconstruction],
+    ] as const) {
+      const schema = json(`contracts/schema/${file}`);
+      expect(validateJsonSchemaPayload(schema, payload)).toEqual([]);
+      expect(validateJsonSchemaPayload(schema, { ...payload, unexpected: true })).toContain(
+        "$.unexpected: additional property is not allowed",
+      );
+    }
   });
 
   it("contains no live command authority or credential-shaped contract fields", () => {

@@ -78,3 +78,95 @@ export async function brokerCapabilityFixture(
     capability_sha256: overrides.capability_sha256 ?? capabilitySha256,
   };
 }
+
+type JsonSchema = Readonly<Record<string, unknown>>;
+
+function schemaObject(value: unknown): JsonSchema {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("TEST_SCHEMA_INVALID");
+  }
+  return value as JsonSchema;
+}
+
+function schemaTypeMatches(value: unknown, type: string): boolean {
+  if (type === "null") return value === null;
+  if (type === "object") return value !== null && typeof value === "object" && !Array.isArray(value);
+  if (type === "array") return Array.isArray(value);
+  if (type === "string") return typeof value === "string";
+  if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+  if (type === "number") return typeof value === "number";
+  if (type === "boolean") return typeof value === "boolean";
+  throw new Error("TEST_SCHEMA_UNSUPPORTED");
+}
+
+function schemaReference(schema: JsonSchema, root: JsonSchema): JsonSchema {
+  const reference = schema.$ref;
+  if (typeof reference !== "string" || !reference.startsWith("#/$defs/")) {
+    throw new Error("TEST_SCHEMA_UNSUPPORTED");
+  }
+  const definition = schemaObject(root.$defs)[reference.slice("#/$defs/".length)];
+  return schemaObject(definition);
+}
+
+function schemaValidationErrors(schema: JsonSchema, value: unknown, path: string, root: JsonSchema): string[] {
+  if (schema.$ref !== undefined) return schemaValidationErrors(schemaReference(schema, root), value, path, root);
+  const errors: string[] = [];
+  const declaredType = schema.type;
+  if (typeof declaredType === "string" && !schemaTypeMatches(value, declaredType)) {
+    return [`${path}: expected ${declaredType}`];
+  }
+  if (Array.isArray(declaredType) && !declaredType.some((type) => (
+    typeof type === "string" && schemaTypeMatches(value, type)
+  ))) {
+    return [`${path}: expected one allowed type`];
+  }
+  if (schema.const !== undefined && !Object.is(value, schema.const)) {
+    errors.push(`${path}: value does not match const`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((allowed) => Object.is(value, allowed))) {
+    errors.push(`${path}: value is not in enum`);
+  }
+  if (typeof value === "string") {
+    if (typeof schema.minLength === "number" && value.length < schema.minLength) errors.push(`${path}: shorter than minLength`);
+    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) errors.push(`${path}: longer than maxLength`);
+    if (typeof schema.pattern === "string" && !new RegExp(schema.pattern, "u").test(value)) errors.push(`${path}: does not match pattern`);
+  }
+  if (typeof value === "number") {
+    if (typeof schema.minimum === "number" && value < schema.minimum) errors.push(`${path}: less than minimum`);
+    if (typeof schema.maximum === "number" && value > schema.maximum) errors.push(`${path}: greater than maximum`);
+  }
+  if (schema.not !== undefined && schemaValidationErrors(schemaObject(schema.not), value, path, root).length === 0) {
+    errors.push(`${path}: matches forbidden schema`);
+  }
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const object = value as Record<string, unknown>;
+    const properties = schema.properties === undefined ? {} : schemaObject(schema.properties);
+    const required = schema.required;
+    if (Array.isArray(required)) {
+      for (const key of required) {
+        if (typeof key !== "string") throw new Error("TEST_SCHEMA_INVALID");
+        if (!(key in object)) errors.push(`${path}.${key}: required property is missing`);
+      }
+    }
+    for (const [key, item] of Object.entries(object)) {
+      const propertySchema = properties[key];
+      if (propertySchema === undefined) {
+        if (schema.additionalProperties === false) errors.push(`${path}.${key}: additional property is not allowed`);
+      } else {
+        errors.push(...schemaValidationErrors(schemaObject(propertySchema), item, `${path}.${key}`, root));
+      }
+    }
+  }
+  if (Array.isArray(schema.allOf)) {
+    for (const clause of schema.allOf) errors.push(...schemaValidationErrors(schemaObject(clause), value, path, root));
+  }
+  if (schema.if !== undefined && schemaValidationErrors(schemaObject(schema.if), value, path, root).length === 0 && schema.then !== undefined) {
+    errors.push(...schemaValidationErrors(schemaObject(schema.then), value, path, root));
+  }
+  return errors;
+}
+
+export function validateJsonSchemaPayload(schema: unknown, payload: unknown): readonly string[] {
+  const root = schemaObject(schema);
+  return schemaValidationErrors(root, payload, "$", root);
+}
