@@ -1,4 +1,10 @@
 import { canonicalStringify, sha256Hex } from "./canonical";
+import {
+  ceilPriceUnitsToTicks,
+  parseTickSizeToPriceUnits,
+  safeBrokerTicks,
+  ticksToPriceUnits,
+} from "./exact-price-v1";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const IDENTIFIER = /^[\x21-\x5b\x5d-\x7e]{1,160}$/u;
@@ -61,19 +67,6 @@ function positiveSafeInteger(value: unknown): number {
   return value;
 }
 
-function tickSizePriceUnits(value: unknown): bigint {
-  if (typeof value !== "string" || value.length > 32 || !TICK_SIZE.test(value)) invalid();
-  const [whole, fraction = ""] = value.split(".");
-  const units = BigInt(whole!) * 1_000_000_000_000n + BigInt(fraction.padEnd(12, "0"));
-  if (units <= 0n) invalid();
-  return units;
-}
-
-function ceilDiv(left: bigint, right: bigint): bigint {
-  if (left <= 0n || right <= 0n) invalid();
-  return (left + right - 1n) / right;
-}
-
 export async function validateBrokerSymbolCapabilityV1(
   value: unknown,
 ): Promise<BrokerSymbolCapabilityV1> {
@@ -89,17 +82,25 @@ export async function validateBrokerSymbolCapabilityV1(
     const brokerSymbol = identifier(input.broker_symbol);
     const sourceTickSize = input.source_tick_size;
     const brokerTickSize = input.broker_tick_size;
-    const sourceTickUnits = tickSizePriceUnits(sourceTickSize);
-    const brokerTickUnits = tickSizePriceUnits(brokerTickSize);
+    if (
+      typeof sourceTickSize !== "string" || sourceTickSize.length > 32 || !TICK_SIZE.test(sourceTickSize) ||
+      typeof brokerTickSize !== "string" || brokerTickSize.length > 32 || !TICK_SIZE.test(brokerTickSize)
+    ) invalid();
+    const sourceTickUnits = parseTickSizeToPriceUnits(sourceTickSize);
+    const brokerTickUnits = parseTickSizeToPriceUnits(brokerTickSize);
     const sourceBufferTicks = positiveSafeInteger(input.source_buffer_ticks);
     const brokerBufferTicks = positiveSafeInteger(input.broker_buffer_ticks);
     const tolerance = positiveSafeInteger(input.divergence_tolerance_source_ticks);
     const policy = INERT_GEOMETRY_POLICY[sourceSymbol as keyof typeof INERT_GEOMETRY_POLICY];
-    const expectedBrokerBuffer = ceilDiv(BigInt(sourceBufferTicks) * sourceTickUnits, brokerTickUnits);
+    const expectedBrokerBuffer = safeBrokerTicks(
+      ceilPriceUnitsToTicks(
+        ticksToPriceUnits(sourceBufferTicks, sourceTickUnits),
+        brokerTickUnits,
+      ),
+    );
     if (
       sourceBufferTicks !== policy.buffer || tolerance !== policy.tolerance ||
-      expectedBrokerBuffer > BigInt(Number.MAX_SAFE_INTEGER) ||
-      brokerBufferTicks !== Number(expectedBrokerBuffer)
+      brokerBufferTicks !== expectedBrokerBuffer
     ) invalid();
     const { capability_sha256: _digest, ...body } = input;
     if (await sha256Hex(canonicalStringify(body)) !== capabilitySha256) invalid();
