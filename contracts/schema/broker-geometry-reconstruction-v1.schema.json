@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/broker-geometry-reconstruction-v1.schema.json",
+  "title": "BrokerGeometryReconstructionV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "reconstruction_body_sha256", "logical_candidate_id", "candidate_body_sha256", "evidence_id", "capability_sha256", "source_symbol", "broker_symbol", "candidate_source_bar_close_epoch", "outcome", "reason_code", "matched_engagement_open_epoch", "matched_source_bar_close_epoch", "broker_entry_ticks", "broker_wick_ticks", "broker_stop_ticks", "broker_risk_distance_ticks", "broker_target_ticks", "maximum_divergence_price_units", "authority", "real_execution_allowed", "command"],
+  "properties": {
+    "schema_version": {"const": "BrokerGeometryReconstructionV1"}, "reconstruction_body_sha256": {"$ref": "#/$defs/sha256"}, "logical_candidate_id": {"$ref": "#/$defs/sha256"}, "candidate_body_sha256": {"$ref": "#/$defs/sha256"}, "evidence_id": {"$ref": "#/$defs/identifier"}, "capability_sha256": {"$ref": "#/$defs/sha256"}, "source_symbol": {"enum": ["EURUSD", "GBPJPY", "USDJPY", "XAUUSD", "NAS100"]}, "broker_symbol": {"$ref": "#/$defs/identifier"}, "candidate_source_bar_close_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "outcome": {"enum": ["MATCH", "BLOCKED", "DATA_GAP"]}, "reason_code": {"enum": ["NONE", "BROKER_EVIDENCE_MISSING", "BROKER_EVIDENCE_GAP", "BROKER_CAPABILITY_MISMATCH", "GEOMETRY_MISMATCH"]}, "matched_engagement_open_epoch": {"type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991}, "matched_source_bar_close_epoch": {"type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991}, "broker_entry_ticks": {"$ref": "#/$defs/nullableSafeInteger"}, "broker_wick_ticks": {"$ref": "#/$defs/nullableSafeInteger"}, "broker_stop_ticks": {"$ref": "#/$defs/nullableSafeInteger"}, "broker_risk_distance_ticks": {"$ref": "#/$defs/nullablePositiveSafeInteger"}, "broker_target_ticks": {"$ref": "#/$defs/nullableSafeInteger"}, "maximum_divergence_price_units": {"$ref": "#/$defs/nullableSafeInteger"}, "authority": {"const": "PAPER_ONLY"}, "real_execution_allowed": {"const": false}, "command": {"const": null}
+  },
+  "allOf": [
+    {"if": {"properties": {"outcome": {"const": "MATCH"}}}, "then": {"properties": {"reason_code": {"const": "NONE"}, "matched_engagement_open_epoch": {"type": "integer"}, "matched_source_bar_close_epoch": {"type": "integer"}, "broker_entry_ticks": {"type": "integer"}, "broker_wick_ticks": {"type": "integer"}, "broker_stop_ticks": {"type": "integer"}, "broker_risk_distance_ticks": {"type": "integer"}, "broker_target_ticks": {"type": "integer"}, "maximum_divergence_price_units": {"type": "integer"}}}},
+    {"if": {"properties": {"outcome": {"enum": ["BLOCKED", "DATA_GAP"]}}}, "then": {"properties": {"matched_engagement_open_epoch": {"const": null}, "matched_source_bar_close_epoch": {"const": null}, "broker_entry_ticks": {"const": null}, "broker_wick_ticks": {"const": null}, "broker_stop_ticks": {"const": null}, "broker_risk_distance_ticks": {"const": null}, "broker_target_ticks": {"const": null}, "maximum_divergence_price_units": {"const": null}}}}
+  ],
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "nullableSafeInteger": {"type": ["integer", "null"], "minimum": -9007199254740991, "maximum": 9007199254740991}, "nullablePositiveSafeInteger": {"type": ["integer", "null"], "minimum": 1, "maximum": 9007199254740991}
+  },
+  "description": "Replayable, side-effect-free broker geometry evidence. It is permanently PAPER_ONLY and cannot carry a command."
+}

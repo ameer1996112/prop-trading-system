@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/broker-symbol-capability-v1.schema.json",
+  "title": "BrokerSymbolCapabilityV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capability_sha256", "account_profile_sha256", "source_symbol", "broker_symbol", "source_tick_size", "broker_tick_size", "buffer_policy_version", "source_buffer_ticks", "broker_buffer_ticks", "divergence_tolerance_source_ticks"],
+  "properties": {
+    "schema_version": {"const": "BrokerSymbolCapabilityV1"},
+    "capability_sha256": {"$ref": "#/$defs/sha256"},
+    "account_profile_sha256": {"$ref": "#/$defs/sha256"},
+    "source_symbol": {"enum": ["EURUSD", "GBPJPY", "USDJPY", "XAUUSD", "NAS100"]},
+    "broker_symbol": {"$ref": "#/$defs/identifier"},
+    "source_tick_size": {"$ref": "#/$defs/tickSize"},
+    "broker_tick_size": {"$ref": "#/$defs/tickSize"},
+    "buffer_policy_version": {"const": "rd-entry-wick-buffer-v1"},
+    "source_buffer_ticks": {"$ref": "#/$defs/positiveSafeInteger"},
+    "broker_buffer_ticks": {"$ref": "#/$defs/positiveSafeInteger"},
+    "divergence_tolerance_source_ticks": {"$ref": "#/$defs/positiveSafeInteger"}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "positiveSafeInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "tickSize": {"type": "string", "maxLength": 32, "pattern": "^(?:0\\.[0-9]{0,11}[1-9]|[1-9][0-9]*(?:\\.[0-9]{0,11}[1-9])?)$"}
+  },
+  "description": "Strict, geometry-only, paper-only broker symbol capability. Runtime validation pins its canonical digest and inert buffer policy."
+}
