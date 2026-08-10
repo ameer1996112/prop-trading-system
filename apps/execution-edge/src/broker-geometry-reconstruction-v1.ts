@@ -97,7 +97,7 @@ function onlyInternalEvidenceGap(
 ): BrokerBarEvidenceV1 | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const input = value as Record<string, unknown>;
-  if (!Array.isArray(input.bars) || input.bars.length < 2) return null;
+  if (!Array.isArray(input.bars) || input.bars.length < 2 || input.bars.length > 512) return null;
   try {
     const parts = input.bars.map((bar) => {
       if (bar === null || typeof bar !== "object" || Array.isArray(bar)) invalidInput();

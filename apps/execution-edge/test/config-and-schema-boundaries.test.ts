@@ -134,6 +134,60 @@ describe("execution-edge configuration and schema boundaries", () => {
     }
   });
 
+  it("rejects invalid reconstruction outcome, reason, and numeric mappings through its parsed schema", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const schema = json("contracts/schema/broker-geometry-reconstruction-v1.schema.json");
+    const match = {
+      schema_version: "BrokerGeometryReconstructionV1",
+      reconstruction_body_sha256: "f".repeat(64),
+      logical_candidate_id: candidate.logical_candidate_id,
+      candidate_body_sha256: candidate.candidate_body_sha256,
+      evidence_id: "broker-evidence-schema-fixture",
+      capability_sha256: capability.capability_sha256,
+      source_symbol: "EURUSD",
+      broker_symbol: "EURUSD",
+      candidate_source_bar_close_epoch: 1_786_392_000,
+      outcome: "MATCH",
+      reason_code: "NONE",
+      matched_engagement_open_epoch: 1_786_391_400,
+      matched_source_bar_close_epoch: 1_786_392_000,
+      broker_entry_ticks: 1100,
+      broker_wick_ticks: 1000,
+      broker_stop_ticks: 998,
+      broker_risk_distance_ticks: 102,
+      broker_target_ticks: 1508,
+      maximum_divergence_price_units: 0,
+      authority: "PAPER_ONLY",
+      real_execution_allowed: false,
+      command: null,
+    };
+    const emptyGeometry = {
+      matched_engagement_open_epoch: null,
+      matched_source_bar_close_epoch: null,
+      broker_entry_ticks: null,
+      broker_wick_ticks: null,
+      broker_stop_ticks: null,
+      broker_risk_distance_ticks: null,
+      broker_target_ticks: null,
+      maximum_divergence_price_units: null,
+    };
+
+    expect(validateJsonSchemaPayload(schema, match)).toEqual([]);
+    for (const [caseName, value] of [
+      ["MATCH reason", { ...match, reason_code: "GEOMETRY_MISMATCH" }],
+      ["MATCH zero geometry", { ...match, broker_entry_ticks: 0 }],
+      ["MATCH negative geometry", { ...match, broker_wick_ticks: -1 }],
+      ["MATCH negative divergence", { ...match, maximum_divergence_price_units: -1 }],
+      ["DATA_GAP reason", { ...match, ...emptyGeometry, outcome: "DATA_GAP", reason_code: "NONE" }],
+      ["BLOCKED reason", { ...match, ...emptyGeometry, outcome: "BLOCKED", reason_code: "BROKER_EVIDENCE_GAP" }],
+      ["DATA_GAP geometry", { ...match, outcome: "DATA_GAP", reason_code: "BROKER_EVIDENCE_MISSING" }],
+      ["BLOCKED geometry", { ...match, outcome: "BLOCKED", reason_code: "GEOMETRY_MISMATCH" }],
+    ] as const) {
+      expect(validateJsonSchemaPayload(schema, value), caseName).not.toEqual([]);
+    }
+  });
+
   it("contains no live command authority or credential-shaped contract fields", () => {
     const command = readFileSync(
       new URL("contracts/schema/trade-command-v1.schema.json", root),

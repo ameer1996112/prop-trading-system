@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { canonicalStringify, sha256Hex } from "../src/canonical";
@@ -35,6 +36,38 @@ describe("broker geometry reconstruction v1", () => {
       command: null,
     });
   }
+
+  it("replays every complete broker reconstruction vector with its literal canonical result", async () => {
+    const vector = JSON.parse(readFileSync(
+      new URL("../../../contracts/vectors/broker-geometry-reconstruction-v1.json", import.meta.url),
+      "utf8",
+    )) as {
+      readonly cases: readonly {
+        readonly case_id: string;
+        readonly candidate?: unknown;
+        readonly capability?: unknown;
+        readonly evidence?: unknown;
+        readonly expected: Record<string, unknown>;
+      }[];
+    };
+
+    for (const vectorCase of vector.cases) {
+      expect(vectorCase, vectorCase.case_id).toHaveProperty("candidate");
+      expect(vectorCase, vectorCase.case_id).toHaveProperty("capability");
+      expect(vectorCase, vectorCase.case_id).toHaveProperty("evidence");
+      const actual = await reconstructBrokerGeometryV1(
+        vectorCase.candidate,
+        vectorCase.evidence,
+        vectorCase.capability,
+      );
+      expect(canonicalStringify(actual), vectorCase.case_id).toBe(
+        canonicalStringify(vectorCase.expected),
+      );
+      expect(actual.reconstruction_body_sha256, vectorCase.case_id).toBe(
+        vectorCase.expected.reconstruction_body_sha256,
+      );
+    }
+  });
 
   it.each([
     ["starts after zone activation", longBars().slice(1), "BROKER_EVIDENCE_MISSING"],
@@ -97,6 +130,30 @@ describe("broker geometry reconstruction v1", () => {
     await expect(reconstructBrokerGeometryV1(
       { ...candidate, unexpected: true },
       brokerBarEvidenceFixture(longBars(), capability),
+      capability,
+    )).rejects.toThrow("BROKER_RECONSTRUCTION_INPUT_INVALID");
+  });
+
+  it("rejects a 513-bar internal-gap batch before attempting gap recovery", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const bars = Array.from({ length: 513 }, (_, index) => {
+      const skippedInterval = index >= 256 ? 1 : 0;
+      const open_epoch = candidate.zone_active_from_epoch as number + (index + skippedInterval) * 300;
+      return {
+        open_epoch,
+        close_epoch: open_epoch + 300,
+        open_ticks: 1040,
+        high_ticks: 1110,
+        low_ticks: 1000,
+        close_ticks: 1100,
+        closed: true,
+      };
+    });
+
+    await expect(reconstructBrokerGeometryV1(
+      candidate,
+      brokerBarEvidenceFixture(bars, capability),
       capability,
     )).rejects.toThrow("BROKER_RECONSTRUCTION_INPUT_INVALID");
   });
