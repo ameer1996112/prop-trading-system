@@ -10,11 +10,11 @@ const CAPABILITY_KEYS = [
 ] as const;
 
 export const INERT_GEOMETRY_POLICY = Object.freeze({
-  EURUSD: { buffer: 2, tolerance: 3 },
-  GBPJPY: { buffer: 3, tolerance: 5 },
-  USDJPY: { buffer: 2, tolerance: 5 },
-  XAUUSD: { buffer: 5, tolerance: 10 },
-  NAS100: { buffer: 10, tolerance: 20 },
+  EURUSD: Object.freeze({ buffer: 2, tolerance: 3 }),
+  GBPJPY: Object.freeze({ buffer: 3, tolerance: 5 }),
+  USDJPY: Object.freeze({ buffer: 2, tolerance: 5 }),
+  XAUUSD: Object.freeze({ buffer: 5, tolerance: 10 }),
+  NAS100: Object.freeze({ buffer: 10, tolerance: 20 }),
 });
 
 export interface BrokerSymbolCapabilityV1 {

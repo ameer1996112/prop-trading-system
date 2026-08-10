@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { validateBrokerSymbolCapabilityV1 } from "../src/broker-symbol-capability-v1";
+import { validateExecutionCandidateV2 } from "../src/execution-candidate-v2";
+import {
+  brokerCapabilityFixture,
+  v2LongCandidateFixture,
+} from "./support/broker-reconstruction-fixture";
+
 const root = new URL("../../../", import.meta.url);
 
 function json(path: string): Record<string, unknown> {
@@ -63,18 +70,15 @@ describe("execution-edge configuration and schema boundaries", () => {
     expect((schema.required as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it("keeps all broker reconstruction schemas closed to unknown fields", () => {
-    for (const file of [
-      "rd-entry-execution-proposal-v2.schema.json",
-      "execution-candidate-v2.schema.json",
-      "broker-symbol-capability-v1.schema.json",
-      "broker-geometry-reconstruction-v1.schema.json",
-    ]) {
-      const schema = json(`contracts/schema/${file}`);
-      const properties = schema.properties as Record<string, unknown>;
-      expect(schema.additionalProperties).toBe(false);
-      expect(properties).not.toHaveProperty("unexpected");
-    }
+  it("rejects extra fields through the broker reconstruction payload validators", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    await expect(validateExecutionCandidateV2({ ...candidate, unexpected: true })).rejects.toThrow(
+      "EXECUTION_CANDIDATE_V2_INVALID",
+    );
+    await expect(validateBrokerSymbolCapabilityV1({ ...capability, unexpected: true })).rejects.toThrow(
+      "BROKER_SYMBOL_CAPABILITY_INVALID",
+    );
   });
 
   it("contains no live command authority or credential-shaped contract fields", () => {
