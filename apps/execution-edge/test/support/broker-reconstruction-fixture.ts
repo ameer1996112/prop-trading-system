@@ -33,7 +33,7 @@ async function v2CandidateFromProposal(index: number): Promise<Record<string, un
     source_bar_close_epoch: sourceBar.close_epoch,
   };
   const logicalCandidateId = await sha256Hex(canonicalStringify(identity));
-  const body = {
+  const body: Record<string, unknown> = {
     ...proposal,
     schema_version: "ExecutionCandidateV2",
     proposal_schema_version: "rd-entry-execution-proposal-v2",
@@ -52,6 +52,63 @@ export async function v2LongCandidateFixture(): Promise<Record<string, unknown>>
 
 export async function v2ShortCandidateFixture(): Promise<Record<string, unknown>> {
   return v2CandidateFromProposal(1);
+}
+
+export async function v2ShortGeometryCandidateFixture(): Promise<Record<string, unknown>> {
+  const candidate = await v2ShortCandidateFixture();
+  const sourceBar = {
+    open_epoch: 1_786_391_700,
+    close_epoch: 1_786_392_000,
+    open_ticks: 1100,
+    high_ticks: 1120,
+    low_ticks: 990,
+    close_ticks: 1000,
+    closed: true,
+  };
+  const body: Record<string, unknown> = {
+    ...candidate,
+    schema_version: "ExecutionCandidateV2",
+    proposal_schema_version: "rd-entry-execution-proposal-v2",
+    strategy_version: "rd-entry-execution-proposal-v2",
+    ticker_id: "EURUSD",
+    source_symbol: "EURUSD",
+    source_tick_size: "0.00001",
+    direction: "SHORT",
+    zone_top_ticks: 1110,
+    zone_bottom_ticks: 1050,
+    engagement_candle: {
+      open_epoch: 1_786_391_400,
+      close_epoch: 1_786_391_700,
+      open_ticks: 1080,
+      high_ticks: 1120,
+      low_ticks: 1040,
+      close_ticks: 1070,
+      closed: true,
+    },
+    source_bar: sourceBar,
+    wick_reference: "HIGH",
+    wick_reference_ticks: 1120,
+    buffer_ticks: 2,
+    entry_ticks: 1000,
+    stop_ticks: 1122,
+    risk_distance_ticks: 122,
+    target_ticks: 512,
+  };
+  const logicalCandidateId = await sha256Hex(canonicalStringify({
+    strategy_version: body.strategy_version,
+    wire_version: body.schema_version,
+    ticker_id: body.ticker_id,
+    setup_id: candidate.setup_id,
+    setup_revision: candidate.setup_revision,
+    selection_id: candidate.selection_id,
+    source_bar_close_epoch: sourceBar.close_epoch,
+  }));
+  const { candidate_body_sha256: _oldDigest, ...unsignedBody } = body;
+  const finalizedBody = { ...unsignedBody, logical_candidate_id: logicalCandidateId };
+  return {
+    ...finalizedBody,
+    candidate_body_sha256: await sha256Hex(canonicalStringify(finalizedBody)),
+  };
 }
 
 export type BrokerCapabilityFixtureOverrides = Readonly<Record<string, unknown>>;
@@ -76,6 +133,31 @@ export async function brokerCapabilityFixture(
   return {
     ...body,
     capability_sha256: overrides.capability_sha256 ?? capabilitySha256,
+  };
+}
+
+export function brokerBarEvidenceFixture(
+  bars: readonly Record<string, unknown>[],
+  capability: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const lastBar = bars.at(-1);
+  if (lastBar === undefined || typeof lastBar.close_epoch !== "number") {
+    throw new Error("TEST_BROKER_EVIDENCE_INVALID");
+  }
+  return {
+    schema_version: "BrokerBarEvidenceV1",
+    evidence_id: "broker-evidence-reconstruction-v1",
+    installation_id: "broker-installation-v1",
+    account_id: "broker-account-v1",
+    account_profile_sha256: "3".repeat(64),
+    source_symbol: capability.source_symbol,
+    broker_symbol: capability.broker_symbol,
+    symbol_capability_sha256: capability.capability_sha256,
+    timeframe: "M5",
+    reconciliation_cursor: "broker-reconstruction-cursor-v1",
+    reconciliation_sha256: "4".repeat(64),
+    bars,
+    observed_at_epoch: lastBar.close_epoch + 1,
   };
 }
 
