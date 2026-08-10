@@ -101,6 +101,7 @@ import {
   EntryV2MessageTooLargeError,
   EntryV2ValidationError,
 } from "./rd-entry-wire";
+import { EntryV3ValidationError } from "./rd-entry-wire-v3";
 import { INSERT_MARKET_BAR_HEARTBEAT_SQL } from "./rd-entry-queries";
 import { RD_ENTRY_PROMOTION_BINDING } from "./generated/rd-entry-promotion-binding";
 import {
@@ -1165,6 +1166,16 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
         error.status,
         error.code,
         "Schema 2.0 observation body exceeds the compact wire limit",
+      );
+    }
+    if (error instanceof EntryV3ValidationError) {
+      const validationCode = /^ENTRY_V3_[A-Z0-9_]{1,96}$/u.test(error.message)
+        ? error.message
+        : "ENTRY_V3_INVALID";
+      return errorResponse(
+        422,
+        validationCode,
+        "Schema 3.x observation envelope failed validation",
       );
     }
     if (

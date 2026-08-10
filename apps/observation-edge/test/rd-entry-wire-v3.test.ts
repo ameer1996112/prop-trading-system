@@ -587,6 +587,33 @@ describe("RD entry v3 wire", () => {
     );
   });
 
+  it("accepts a fail-closed UNREVIEWED one-candle audit payload", async () => {
+    const value = oneCandlePayload();
+    value.detector_code_hash = "UNREVIEWED";
+    value.settings_hash = "UNREVIEWED";
+    const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+    const setup = bundle.setup as Record<string, unknown>;
+    setup.common_fidelity = "UNRESOLVED";
+    for (const candidate of bundle.candidates as Array<Record<string, unknown>>) {
+      candidate.state = "BLOCKED";
+    }
+    for (const evidence of bundle.evidence as Array<Record<string, unknown>>) {
+      evidence.fidelity = "UNRESOLVED";
+      evidence.passed_rule_ids = [];
+      evidence.failed_rule_ids = ["COMMON_SETUP_NOT_EXACT"];
+    }
+
+    const result = await validateEntryV3Payload(strict(value));
+
+    expect(result.entryBundles[0]!.setup).toMatchObject({
+      liquidity_cohort: "ONE_CANDLE",
+      common_fidelity: "UNRESOLVED",
+    });
+    expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
+      "SHADOW_ONLY",
+    );
+  });
+
   it.each([
     ["invalidated", "SETUP_INVALIDATED"],
     ["zero-candidate", "NO_CANDIDATE"],
@@ -724,6 +751,21 @@ describe("RD entry v3 wire", () => {
       expect(result.eventRole).toBe("ENTRY_DECISION");
       expect(result.entryBundles[0]!.evaluation.selection.canonical_model).toBe(
         "BOC",
+      );
+    }
+  });
+
+  it("routes schema 3.1 through the entry-v3 observation union", async () => {
+    const result = await validateObservationEnvelope(
+      strict({ credential: "secret", payload: oneCandlePayload() }),
+      undefined,
+      reviewedHashes,
+    );
+    expect(result.version).toBe("entry-v3");
+    if (result.version === "entry-v3") {
+      expect(result.paperCommands).toEqual([]);
+      expect(result.entryBundles[0]!.setup.liquidity_cohort).toBe(
+        "ONE_CANDLE",
       );
     }
   });
@@ -1571,4 +1613,5 @@ describe("RD entry v3 wire", () => {
       validateEntryV3Payload(strict(value), reviewedHashes),
     ).rejects.toBeInstanceOf(EntryV3ValidationError);
   });
+
 });

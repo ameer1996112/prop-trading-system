@@ -92,9 +92,16 @@ showTapped = input.bool(false, "Show tapped zones", group = "Display")
 showInvalidated = input.bool(false, "Show invalidated zones", group = "Display")
 showLiquidityLines = input.bool(true, "Show liquidity lines", group = "Display")
 showLiquidityProofLines = input.bool(false, "Show liquidity proof lines", group = "Display")
+showStructureLiquidityLines = input.bool(true, "Show bigger-structure liquidity (display only)", group = "Display")
+liquidityPrimaryLineWidth = input.int(2, "Primary liquidity line width", minval = 1, maxval = 3, group = "Display")
+showLiquidityPriceLabels = input.bool(false, "Show liquidity price labels", group = "Display")
+showActionableTradeMarkers = input.bool(true, "Show actionable paper entry/exit markers", group = "Display", tooltip = "Marks only PAPER_ELIGIBLE selections and their exits. Shadow-only diagnostic observations remain webhook telemetry and are not shown as trades.")
 showStatusPanel = input.bool(false, "Show status panel", group = "Display")
 liquidityPivotStrength = input.int(2, "Liquidity pivot strength", minval = 1, maxval = 10, group = "Liquidity")
-enableOneCandleLiquidity = input.bool(false, "Enable one-candle liquidity", group = "Liquidity")
+enableOneCandleLiquidity = input.bool(true, "Enable one-candle liquidity", group = "Liquidity")
+enableMicroRetracementLiquidity = input.bool(false, "Enable micro-retracement liquidity (display only)", group = "Liquidity")
+liquidityStructureMaxDistancePercent = input.float(30.0, "Bigger structure max distance (% of move)", minval = 1.0, maxval = 100.0, step = 1.0, group = "Liquidity")
+liquidityStructureStrictBos = input.bool(false, "Strict structural BOS (close beyond level)", group = "Liquidity")
 showLabels = input.bool(false, "Show diagnostic labels", group = "Diagnostics")
 emitDiagnostics = input.bool(false, "Emit non-executable diagnostic alerts", group = "Diagnostics")
 const bool exportSetupEvents = false
@@ -121,13 +128,9 @@ demandColor = input.color(color.new(color.teal, 72), "Demand", group = "Colors")
 supplyColor = input.color(color.new(color.red, 76), "Supply", group = "Colors")
 tappedColor = input.color(color.new(color.gray, 82), "Tapped", group = "Colors")
 invalidatedColor = input.color(color.new(color.black, 88), "Invalidated", group = "Colors")
-liquidityPendingColor = input.color(color.orange, "Liquidity pending", group = "Colors")
-liquiditySweptColor = input.color(color.teal, "Liquidity swept", group = "Colors")
-liquiditySecondaryColor = input.color(color.new(color.gray, 35), "Liquidity own extreme", group = "Colors")
-
-string instrumentTicker = str.upper(syminfo.ticker)
-bool isGoldMarket = str.contains(instrumentTicker, "XAU") or str.contains(instrumentTicker, "GOLD")
-bool isIndexMarket = str.contains(instrumentTicker, "NAS") or str.contains(instrumentTicker, "US100") or str.contains(instrumentTicker, "USTEC") or str.contains(instrumentTicker, "NDX") or str.contains(instrumentTicker, "SPX") or str.contains(instrumentTicker, "US500") or str.contains(instrumentTicker, "US30") or str.contains(instrumentTicker, "DJI")
+liquidityPendingColor = input.color(color.new(color.orange, 18), "Liquidity pending", group = "Colors")
+liquiditySweptColor = input.color(color.new(color.teal, 18), "Liquidity swept", group = "Colors")
+liquiditySecondaryColor = input.color(color.new(color.gray, 55), "Liquidity own extreme", group = "Colors")
 
 setupContractIdentifier(string value) =>
     string allowedCharacters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:@|+-"
@@ -182,6 +185,17 @@ type LiquidityLevel
     int takenBar
     line liquidityLine
     line ownExtremeLine
+    label liquidityLabel
+
+type StructureLiquidityLevel
+    bool demand
+    float price
+    int priceBar
+    float bosLevel
+    int bosLevelBar
+    int oppositeCandleCount
+    string cohort
+    bool microRetracement
 
 type RawZone
     int id
@@ -227,6 +241,13 @@ type RawZone
     int liquidityPrimaryIndex
     int pendingLiquidityPrimaryIndex
     bool liquidityScanInitialized
+    array<int> structureLiquidityIndexes
+    float structureLiquidityPrice
+    int structureLiquidityBar
+    float structureLiquidityBosLevel
+    int structureLiquidityBosBar
+    float structureMoveExtreme
+    int structureMoveExtremeBar
     int routeBlockerId
     string setupState
     int setupBar
@@ -246,6 +267,8 @@ type RawZone
     box zoneBox
     line liquidityLine
     line ownExtremeLine
+    line structureLiquidityLine
+    label liquidityLabel
     label debugLabel
 
 type EntryCore
@@ -572,6 +595,13 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
     zone.liquidityPrimaryIndex := na
     zone.pendingLiquidityPrimaryIndex := na
     zone.liquidityScanInitialized := false
+    zone.structureLiquidityIndexes := array.new<int>()
+    zone.structureLiquidityPrice := na
+    zone.structureLiquidityBar := na
+    zone.structureLiquidityBosLevel := na
+    zone.structureLiquidityBosBar := na
+    zone.structureMoveExtreme := na
+    zone.structureMoveExtremeBar := na
     zone.routeBlockerId := na
     zone.setupState := SETUP_WAITING
     zone.setupBar := na
@@ -591,6 +621,8 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
     zone.zoneBox := na
     zone.liquidityLine := na
     zone.ownExtremeLine := na
+    zone.structureLiquidityLine := na
+    zone.liquidityLabel := na
     zone.debugLabel := na
     zone
 
@@ -656,47 +688,64 @@ zoneBorderWidth(RawZone zone) =>
 zoneRightBar(RawZone zone) =>
     zone.state == STATE_FRESH ? bar_index + projectionBars : zone.stateBar
 
-liquidityDrawingRightBar(RawZone zone) =>
-    not na(zone.liquiditySweptBar) ? zone.liquiditySweptBar : zoneRightBar(zone)
+liquiditySafeDrawingBar(int sourceBar) =>
+    math.max(sourceBar, bar_index - 9999)
+
+liquidityFirstVisualSweepBar(RawZone zone, float price, int priceBar) =>
+    int sweptBar = na
+    int rangeStart = priceBar + 1
+    int rangeEnd = zone.state == STATE_FRESH ? bar_index : zone.stateBar
+    if not na(price) and not na(priceBar) and not na(rangeEnd) and rangeStart <= rangeEnd
+        for sourceBar = rangeStart to rangeEnd
+            int sourceOffset = bar_index - sourceBar
+            if sourceOffset >= 0 and sourceOffset < 5000
+                bool swept = zone.demand ? low[sourceOffset] <= price : high[sourceOffset] >= price
+                if na(sweptBar) and swept
+                    sweptBar := sourceBar
+    sweptBar
+
+liquidityDrawingRightBar(RawZone zone, float price, int priceBar) =>
+    int firstVisualSweepBar = liquidityFirstVisualSweepBar(zone, price, priceBar)
+    not na(firstVisualSweepBar) ? firstVisualSweepBar : zoneRightBar(zone)
+
+liquidityPriceDistanceToZone(RawZone zone, float price) =>
+    zone.demand ? price - zone.top : zone.bottom - price
 
 liquidityDistanceToZone(RawZone zone, LiquidityLevel level) =>
-    zone.demand ? level.nearExtreme - zone.top : zone.bottom - level.nearExtreme
+    liquidityPriceDistanceToZone(zone, level.nearExtreme)
 
-liquidityGuidanceMaxPips() =>
-    float guidance = na
-    if str.contains(instrumentTicker, "GBPJPY")
-        guidance := 10.0
-    else if str.contains(instrumentTicker, "EURUSD")
-        guidance := 5.0
-    else if str.contains(instrumentTicker, "USDJPY")
-        guidance := 3.0
-    guidance
+liquidityStructureMove(RawZone zone, float bosLevel) =>
+    // Measure the full impulse from the zone's distal edge. Measuring from the
+    // proximal edge drops valid swings whenever the zone itself is wide.
+    float impulseMove = zone.demand ? bosLevel - zone.bottom : zone.top - bosLevel
+    math.max(impulseMove, 0.0)
 
-liquidityPipSize() =>
-    str.contains(instrumentTicker, "JPY") ? 0.01 : 0.0001
+liquidityGuidanceMaxPrice(RawZone zone, float bosLevel) =>
+    liquidityStructureMove(zone, bosLevel) * liquidityStructureMaxDistancePercent * 0.01
 
-liquidityGuidanceMaxPrice() =>
-    float guidancePips = liquidityGuidanceMaxPips()
-    na(guidancePips) ? na : guidancePips * liquidityPipSize()
-
-liquidityDistanceFidelity() =>
-    not na(liquidityGuidanceMaxPips()) ? "CALIBRATED" : (isGoldMarket or isIndexMarket ? "DISCRETIONARY" : "UNRESOLVED")
+liquidityDistanceFidelity(RawZone zone, float bosLevel) =>
+    liquidityStructureMove(zone, bosLevel) > 0 ? "CALIBRATED" : "UNRESOLVED"
 
 liquiditySupportsZone(RawZone zone, LiquidityLevel level) =>
     float distance = liquidityDistanceToZone(zone, level)
-    float guidanceMax = liquidityGuidanceMaxPrice()
-    bool withinObservationGuidance = na(guidanceMax) or distance <= guidanceMax
+    float guidanceMax = liquidityGuidanceMaxPrice(zone, level.anchor)
+    bool withinObservationGuidance = not na(guidanceMax) and distance <= guidanceMax + syminfo.mintick * 0.5
     level.demand == zone.demand and distance > 0 and withinObservationGuidance
 
 liquidityRanksCloser(RawZone zone, LiquidityLevel candidate, LiquidityLevel primary) =>
+    bool newer = candidate.nearExtremeBar > primary.nearExtremeBar
+    bool sameBar = candidate.nearExtremeBar == primary.nearExtremeBar
     float candidateDistance = liquidityDistanceToZone(zone, candidate)
     float primaryDistance = liquidityDistanceToZone(zone, primary)
-    candidateDistance < primaryDistance - syminfo.mintick * 0.5
+    newer or (sameBar and candidateDistance < primaryDistance - syminfo.mintick * 0.5)
 
 zoneText(RawZone zone) =>
     string side = zone.demand ? "D" : "S"
     string bounds = "oH " + str.tostring(zone.originHigh, format.mintick) + " oL " + str.tostring(zone.originLow, format.mintick) + " dH " + str.tostring(zone.firstDepartureHigh, format.mintick) + " dL " + str.tostring(zone.firstDepartureLow, format.mintick) + " env " + str.tostring(zone.formationDistal, format.mintick) + " z " + str.tostring(zone.top, format.mintick) + "/" + str.tostring(zone.bottom, format.mintick)
     "Z" + str.tostring(zone.id) + " " + side + " " + zone.formation + " " + zone.geometry + "\n" + bounds + "\n" + zone.state + " " + zone.reason + "\n" + zone.eligibilityState + " " + zone.eligibilityReason + " qualified " + str.tostring(zone.liquidityQualified) + "\n" + zone.setupState + " " + zone.setupReason
+
+liquidityPriceLabelText(float price) =>
+    "LIQ " + str.tostring(price, format.mintick)
 
 setupDisplayText(RawZone zone) =>
     displayMode == DISPLAY_SETUPS_ONLY ? (premiumVisuals ? zone.setupState : zone.setupState + "\n" + zone.setupReason) : ""
@@ -704,10 +753,12 @@ setupDisplayText(RawZone zone) =>
 updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
     bool visible = zoneVisible(zone, allZones)
     if visible
-        int rightBar = zoneRightBar(zone)
+        int leftBar = liquiditySafeDrawingBar(zone.originBar)
+        int rightBar = liquiditySafeDrawingBar(zoneRightBar(zone))
         if na(zone.zoneBox)
-            zone.zoneBox := box.new(zone.originBar, zone.top, rightBar, zone.bottom, xloc = xloc.bar_index, bgcolor = zoneColor(zone), border_color = zoneBorderColor(zone), border_width = zoneBorderWidth(zone))
+            zone.zoneBox := box.new(leftBar, zone.top, rightBar, zone.bottom, xloc = xloc.bar_index, bgcolor = zoneColor(zone), border_color = zoneBorderColor(zone), border_width = zoneBorderWidth(zone))
         else
+            box.set_left(zone.zoneBox, leftBar)
             box.set_right(zone.zoneBox, rightBar)
             box.set_top(zone.zoneBox, zone.top)
             box.set_bottom(zone.zoneBox, zone.bottom)
@@ -722,7 +773,7 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
         bool diagnosticLabelsVisible = not premiumVisuals and displayMode == DISPLAY_RAW_AUDIT and showLabels
         if diagnosticLabelsVisible
             if na(zone.debugLabel)
-                zone.debugLabel := label.new(zone.originBar, zone.demand ? zone.bottom : zone.top, zoneText(zone), xloc = xloc.bar_index, style = zone.demand ? label.style_label_up : label.style_label_down, color = color.new(color.black, 15), textcolor = color.white, size = size.tiny)
+                zone.debugLabel := label.new(leftBar, zone.demand ? zone.bottom : zone.top, zoneText(zone), xloc = xloc.bar_index, style = zone.demand ? label.style_label_up : label.style_label_down, color = color.new(color.black, 15), textcolor = color.white, size = size.tiny)
             else
                 label.set_text(zone.debugLabel, zoneText(zone))
         else if not na(zone.debugLabel)
@@ -736,32 +787,48 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
             label.delete(zone.debugLabel)
             zone.debugLabel := na
 
-    bool zoneLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityAnchor) and not na(zone.liquidityAnchorBar) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar)
+    bool structureAvailable = not na(zone.structureLiquidityPrice) and not na(zone.structureLiquidityBar)
+    bool structurePreferred = structureAvailable and showStructureLiquidityLines
+    bool zoneLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityAnchor) and not na(zone.liquidityAnchorBar) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar) and not structurePreferred
     if zoneLiquidityVisible
-        int liquidityRightBar = liquidityDrawingRightBar(zone)
-        int liquidityLeftBar = math.max(zone.originBar, zone.liquidityExtremeBar)
-        int ownExtremeLeftBar = math.max(zone.originBar, zone.liquidityAnchorBar)
+        int liquidityRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar(zone, zone.liquidityExtreme, zone.liquidityExtremeBar))
+        int liquidityLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, zone.liquidityExtremeBar))
+        int proofLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, zone.liquidityAnchorBar))
         bool liquidityTaken = not na(zone.liquiditySweptBar)
-        color primaryColor = premiumVisuals ? color.new(color.gray, liquidityTaken ? 40 : 18) : liquidityTaken ? liquiditySweptColor : liquidityPendingColor
+        color primaryColor = liquidityTaken ? liquiditySweptColor : liquidityPendingColor
         color ownExtremeColor = premiumVisuals ? color.new(color.gray, liquidityTaken ? 45 : 12) : liquiditySecondaryColor
+        string primaryStyle = liquidityTaken ? line.style_dashed : line.style_solid
         string ownExtremeStyle = liquidityTaken ? line.style_solid : line.style_dashed
         if na(zone.liquidityLine)
-            zone.liquidityLine := line.new(liquidityLeftBar, zone.liquidityExtreme, liquidityRightBar, zone.liquidityExtreme, xloc = xloc.bar_index, extend = extend.none, color = primaryColor, style = line.style_solid, width = 2)
+            zone.liquidityLine := line.new(liquidityLeftBar, zone.liquidityExtreme, liquidityRightBar, zone.liquidityExtreme, xloc = xloc.bar_index, extend = extend.none, color = primaryColor, style = primaryStyle, width = liquidityPrimaryLineWidth)
         else
             line.set_xy1(zone.liquidityLine, liquidityLeftBar, zone.liquidityExtreme)
             line.set_xy2(zone.liquidityLine, liquidityRightBar, zone.liquidityExtreme)
             line.set_color(zone.liquidityLine, primaryColor)
-            line.set_style(zone.liquidityLine, line.style_solid)
-            line.set_width(zone.liquidityLine, 2)
+            line.set_style(zone.liquidityLine, primaryStyle)
+            line.set_width(zone.liquidityLine, liquidityPrimaryLineWidth)
+        if showLiquidityPriceLabels
+            string liquidityLabelText = liquidityPriceLabelText(zone.liquidityExtreme)
+            color liquidityLabelTextColor = liquidityTaken ? color.white : color.black
+            if na(zone.liquidityLabel)
+                zone.liquidityLabel := label.new(liquidityRightBar, zone.liquidityExtreme, liquidityLabelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = primaryColor, textcolor = liquidityLabelTextColor, size = size.tiny)
+            else
+                label.set_xy(zone.liquidityLabel, liquidityRightBar, zone.liquidityExtreme)
+                label.set_text(zone.liquidityLabel, liquidityLabelText)
+                label.set_color(zone.liquidityLabel, primaryColor)
+                label.set_textcolor(zone.liquidityLabel, liquidityLabelTextColor)
+        else if not na(zone.liquidityLabel)
+            label.delete(zone.liquidityLabel)
+            zone.liquidityLabel := na
         if showLiquidityProofLines
             if na(zone.ownExtremeLine)
-                zone.ownExtremeLine := line.new(ownExtremeLeftBar, zone.liquidityAnchor, liquidityRightBar, zone.liquidityAnchor, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = 2)
+                zone.ownExtremeLine := line.new(proofLeftBar, zone.liquidityAnchor, liquidityRightBar, zone.liquidityAnchor, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = 1)
             else
-                line.set_xy1(zone.ownExtremeLine, ownExtremeLeftBar, zone.liquidityAnchor)
+                line.set_xy1(zone.ownExtremeLine, proofLeftBar, zone.liquidityAnchor)
                 line.set_xy2(zone.ownExtremeLine, liquidityRightBar, zone.liquidityAnchor)
                 line.set_color(zone.ownExtremeLine, ownExtremeColor)
                 line.set_style(zone.ownExtremeLine, ownExtremeStyle)
-                line.set_width(zone.ownExtremeLine, 2)
+                line.set_width(zone.ownExtremeLine, 1)
         else if not na(zone.ownExtremeLine)
             line.delete(zone.ownExtremeLine)
             zone.ownExtremeLine := na
@@ -772,6 +839,41 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
         if not na(zone.ownExtremeLine)
             line.delete(zone.ownExtremeLine)
             zone.ownExtremeLine := na
+        if not structurePreferred and not na(zone.liquidityLabel)
+            label.delete(zone.liquidityLabel)
+            zone.liquidityLabel := na
+
+    bool structureLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and structurePreferred
+    if structureLiquidityVisible
+        int structureLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, zone.structureLiquidityBar))
+        int structureRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar(zone, zone.structureLiquidityPrice, zone.structureLiquidityBar))
+        if na(zone.structureLiquidityLine)
+            zone.structureLiquidityLine := line.new(structureLeftBar, zone.structureLiquidityPrice, structureRightBar, zone.structureLiquidityPrice, xloc = xloc.bar_index, extend = extend.none, color = liquidityPendingColor, style = line.style_solid, width = liquidityPrimaryLineWidth)
+        else
+            line.set_xy1(zone.structureLiquidityLine, structureLeftBar, zone.structureLiquidityPrice)
+            line.set_xy2(zone.structureLiquidityLine, structureRightBar, zone.structureLiquidityPrice)
+            line.set_color(zone.structureLiquidityLine, liquidityPendingColor)
+            line.set_style(zone.structureLiquidityLine, line.style_solid)
+            line.set_width(zone.structureLiquidityLine, liquidityPrimaryLineWidth)
+        if showLiquidityPriceLabels
+            string structureLiquidityLabelText = liquidityPriceLabelText(zone.structureLiquidityPrice)
+            if na(zone.liquidityLabel)
+                zone.liquidityLabel := label.new(structureRightBar, zone.structureLiquidityPrice, structureLiquidityLabelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = liquidityPendingColor, textcolor = color.black, size = size.tiny)
+            else
+                label.set_xy(zone.liquidityLabel, structureRightBar, zone.structureLiquidityPrice)
+                label.set_text(zone.liquidityLabel, structureLiquidityLabelText)
+                label.set_color(zone.liquidityLabel, liquidityPendingColor)
+                label.set_textcolor(zone.liquidityLabel, color.black)
+        else if not na(zone.liquidityLabel)
+            label.delete(zone.liquidityLabel)
+            zone.liquidityLabel := na
+    else
+        if not na(zone.structureLiquidityLine)
+            line.delete(zone.structureLiquidityLine)
+            zone.structureLiquidityLine := na
+        if structurePreferred and not na(zone.liquidityLabel)
+            label.delete(zone.liquidityLabel)
+            zone.liquidityLabel := na
     true
 
 addUniqueLiquidityIndex(array<int> selectedIndexes, int candidateIndex) =>
@@ -821,6 +923,9 @@ updateLiquidityDrawings(array<LiquidityLevel> levels, array<int> drawnIndexes, a
                 if not na(previousLevel.ownExtremeLine)
                     line.delete(previousLevel.ownExtremeLine)
                     previousLevel.ownExtremeLine := na
+                if not na(previousLevel.liquidityLabel)
+                    label.delete(previousLevel.liquidityLabel)
+                    previousLevel.liquidityLabel := na
                 array.set(levels, previousIndex, previousLevel)
 
     int selectedCount = array.size(selectedIndexes)
@@ -831,30 +936,48 @@ updateLiquidityDrawings(array<LiquidityLevel> levels, array<int> drawnIndexes, a
                 LiquidityLevel level = array.get(levels, candidateIndex)
                 RawZone ownerZone = array.get(allZones, array.get(selectedZoneIndexes, selectedOffset))
                 bool primary = liquidityIsPrimary(candidateIndex, allZones)
-                int rightBar = liquidityDrawingRightBar(ownerZone)
-                int liquidityLeftBar = math.max(ownerZone.originBar, level.nearExtremeBar)
-                int ownExtremeLeftBar = math.max(ownerZone.originBar, level.anchorBar)
-                color lineColor = premiumVisuals ? color.new(color.gray, level.taken ? 40 : 18) : level.taken ? liquiditySweptColor : liquidityPendingColor
-                int lineWidth = primary ? 2 : 1
+                int rightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar(ownerZone, level.nearExtreme, level.nearExtremeBar))
+                int liquidityLeftBar = liquiditySafeDrawingBar(math.max(ownerZone.originBar, level.nearExtremeBar))
+                int proofLeftBar = liquiditySafeDrawingBar(math.max(ownerZone.originBar, level.anchorBar))
+                color lineColor = level.taken ? liquiditySweptColor : liquidityPendingColor
+                int lineWidth = liquidityPrimaryLineWidth
+                string lineStyle = level.taken ? line.style_dashed : line.style_solid
                 if na(level.liquidityLine)
-                    level.liquidityLine := line.new(liquidityLeftBar, level.nearExtreme, rightBar, level.nearExtreme, xloc = xloc.bar_index, extend = extend.none, color = lineColor, style = line.style_solid, width = lineWidth)
+                    level.liquidityLine := line.new(liquidityLeftBar, level.nearExtreme, rightBar, level.nearExtreme, xloc = xloc.bar_index, extend = extend.none, color = lineColor, style = lineStyle, width = lineWidth)
                 else
                     line.set_xy1(level.liquidityLine, liquidityLeftBar, level.nearExtreme)
                     line.set_xy2(level.liquidityLine, rightBar, level.nearExtreme)
                     line.set_color(level.liquidityLine, lineColor)
-                    line.set_style(level.liquidityLine, line.style_solid)
+                    line.set_style(level.liquidityLine, lineStyle)
                     line.set_width(level.liquidityLine, lineWidth)
+                if primary and showLiquidityPriceLabels
+                    string liquidityLabelText = liquidityPriceLabelText(level.nearExtreme)
+                    color liquidityLabelTextColor = level.taken ? color.white : color.black
+                    if na(level.liquidityLabel)
+                        level.liquidityLabel := label.new(rightBar, level.nearExtreme, liquidityLabelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = lineColor, textcolor = liquidityLabelTextColor, size = size.tiny)
+                    else
+                        label.set_xy(level.liquidityLabel, rightBar, level.nearExtreme)
+                        label.set_text(level.liquidityLabel, liquidityLabelText)
+                        label.set_color(level.liquidityLabel, lineColor)
+                        label.set_textcolor(level.liquidityLabel, liquidityLabelTextColor)
+                else if not na(level.liquidityLabel)
+                    label.delete(level.liquidityLabel)
+                    level.liquidityLabel := na
 
-                color ownExtremeColor = premiumVisuals ? color.new(color.gray, level.taken ? 45 : 12) : liquiditySecondaryColor
-                string ownExtremeStyle = level.taken ? line.style_solid : line.style_dashed
-                if na(level.ownExtremeLine)
-                    level.ownExtremeLine := line.new(ownExtremeLeftBar, level.anchor, rightBar, level.anchor, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = lineWidth)
-                else
-                    line.set_xy1(level.ownExtremeLine, ownExtremeLeftBar, level.anchor)
-                    line.set_xy2(level.ownExtremeLine, rightBar, level.anchor)
-                    line.set_color(level.ownExtremeLine, ownExtremeColor)
-                    line.set_style(level.ownExtremeLine, ownExtremeStyle)
-                    line.set_width(level.ownExtremeLine, lineWidth)
+                if showLiquidityProofLines
+                    color ownExtremeColor = premiumVisuals ? color.new(color.gray, level.taken ? 45 : 12) : liquiditySecondaryColor
+                    string ownExtremeStyle = level.taken ? line.style_solid : line.style_dashed
+                    if na(level.ownExtremeLine)
+                        level.ownExtremeLine := line.new(proofLeftBar, level.anchor, rightBar, level.anchor, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = 1)
+                    else
+                        line.set_xy1(level.ownExtremeLine, proofLeftBar, level.anchor)
+                        line.set_xy2(level.ownExtremeLine, rightBar, level.anchor)
+                        line.set_color(level.ownExtremeLine, ownExtremeColor)
+                        line.set_style(level.ownExtremeLine, ownExtremeStyle)
+                        line.set_width(level.ownExtremeLine, 1)
+                else if not na(level.ownExtremeLine)
+                    line.delete(level.ownExtremeLine)
+                    level.ownExtremeLine := na
                 array.set(levels, candidateIndex, level)
 
     if not showLiquidityLines and previousCount > 0
@@ -868,6 +991,9 @@ updateLiquidityDrawings(array<LiquidityLevel> levels, array<int> drawnIndexes, a
                 if not na(previousLevel.ownExtremeLine)
                     line.delete(previousLevel.ownExtremeLine)
                     previousLevel.ownExtremeLine := na
+                if not na(previousLevel.liquidityLabel)
+                    label.delete(previousLevel.liquidityLabel)
+                    previousLevel.liquidityLabel := na
                 array.set(levels, previousIndex, previousLevel)
 
     array.clear(drawnIndexes)
@@ -979,8 +1105,28 @@ liquidityLegProof(bool demand, int strength) =>
     int oppositeCandleCount = 0
     float ownExtreme = na
     int ownExtremeBar = na
+    int pivotOffset = strength
+    float legNearExtreme = demand ? low[pivotOffset] : high[pivotOffset]
+    int legNearExtremeBar = bar_index - pivotOffset
+    int firstLegOffset = na
+    // A structural reversal low/high can be printed by more than one
+    // same-direction candle before the preceding opposite-candle leg is
+    // visible. Search across that bounded reversal bridge instead of
+    // rejecting an otherwise valid pivot after checking only one candle.
+    for bridgeOffset = 0 to strength
+        int bridgeSourceOffset = pivotOffset + bridgeOffset
+        bool bridgeAvailable = bridgeSourceOffset <= bar_index
+        bool insideReversalBridge = na(firstLegOffset) and bridgeAvailable
+        if insideReversalBridge
+            float candidateNearExtreme = demand ? low[bridgeSourceOffset] : high[bridgeSourceOffset]
+            bool replacesNearExtreme = demand ? candidateNearExtreme <= legNearExtreme : candidateNearExtreme >= legNearExtreme
+            if replacesNearExtreme
+                legNearExtreme := candidateNearExtreme
+                legNearExtremeBar := bar_index - bridgeSourceOffset
+            if liquidityCandleIsOpposite(demand, bridgeSourceOffset)
+                firstLegOffset := bridgeSourceOffset
     for legOffset = 0 to 19
-        int sourceOffset = strength + legOffset
+        int sourceOffset = na(firstLegOffset) ? bar_index + 1 : firstLegOffset + legOffset
         bool sourceAvailable = sourceOffset <= bar_index
         bool belongsToLeg = sourceAvailable and liquidityCandleIsOpposite(demand, sourceOffset)
         if belongsToLeg
@@ -990,9 +1136,14 @@ liquidityLegProof(bool demand, int strength) =>
             if replacesExtreme
                 ownExtreme := candidateExtreme
                 ownExtremeBar := bar_index - sourceOffset
+            float candidateNearExtreme = demand ? low[sourceOffset] : high[sourceOffset]
+            bool replacesNearExtreme = demand ? candidateNearExtreme <= legNearExtreme : candidateNearExtreme >= legNearExtreme
+            if replacesNearExtreme
+                legNearExtreme := candidateNearExtreme
+                legNearExtremeBar := bar_index - sourceOffset
         else
             break
-    [oppositeCandleCount, ownExtreme, ownExtremeBar]
+    [oppositeCandleCount, ownExtreme, ownExtremeBar, legNearExtreme, legNearExtremeBar]
 
 confirmedLiquidityPivot(bool demand, int strength) =>
     bool confirmed = bar_index >= strength * 2
@@ -1000,18 +1151,18 @@ confirmedLiquidityPivot(bool demand, int strength) =>
         float center = demand ? low[strength] : high[strength]
         for offset = 0 to strength * 2
             if offset != strength
-                bool invalid = demand ? low[offset] <= center : high[offset] >= center
+                bool invalid = demand ? low[offset] < center : high[offset] > center
                 if invalid
                     confirmed := false
                     break
     if confirmed
-        [oppositeCandleCount, _, _] = liquidityLegProof(demand, strength)
+        [oppositeCandleCount, _, _, _, _] = liquidityLegProof(demand, strength)
         confirmed := oppositeCandleCount >= minimumLiquidityOppositeCandles()
     confirmed
 
 appendConfirmedLiquidityPivot(bool demand, int strength, array<LiquidityLevel> levels, array<int> createdIndexes) =>
     int pivotBar = bar_index - strength
-    [oppositeCandleCount, ownExtreme, ownExtremeBar] = liquidityLegProof(demand, strength)
+    [oppositeCandleCount, ownExtreme, ownExtremeBar, _, _] = liquidityLegProof(demand, strength)
     LiquidityLevel level = LiquidityLevel.new()
     level.demand := demand
     level.anchor := ownExtreme
@@ -1026,6 +1177,7 @@ appendConfirmedLiquidityPivot(bool demand, int strength, array<LiquidityLevel> l
     level.takenBar := na
     level.liquidityLine := na
     level.ownExtremeLine := na
+    level.liquidityLabel := na
     array.push(levels, level)
     array.push(createdIndexes, array.size(levels) - 1)
 
@@ -1035,6 +1187,144 @@ updateConfirmedLiquidityPivots(array<LiquidityLevel> levels, array<int> createdI
         appendConfirmedLiquidityPivot(true, liquidityPivotStrength, levels, createdIndexes)
     if confirmedLiquidityPivot(false, liquidityPivotStrength)
         appendConfirmedLiquidityPivot(false, liquidityPivotStrength, levels, createdIndexes)
+    true
+
+confirmedStructureLiquidityPivot(bool demand, int strength) =>
+    bool confirmed = bar_index >= strength * 2
+    if confirmed
+        float center = demand ? low[strength] : high[strength]
+        for offset = 0 to strength * 2
+            if offset != strength
+                bool invalid = demand ? low[offset] < center : high[offset] > center
+                if invalid
+                    confirmed := false
+                    break
+    if confirmed
+        [oppositeCandleCount, _, _, _, _] = liquidityLegProof(demand, strength)
+        confirmed := oppositeCandleCount >= minimumLiquidityOppositeCandles()
+    confirmed
+
+appendConfirmedStructureLiquidityPivot(bool demand, int strength, array<StructureLiquidityLevel> levels, array<int> createdIndexes) =>
+    [oppositeCandleCount, ownExtreme, ownExtremeBar, _, _] = liquidityLegProof(demand, strength)
+    StructureLiquidityLevel level = StructureLiquidityLevel.new()
+    level.demand := demand
+    level.price := demand ? low[strength] : high[strength]
+    level.priceBar := bar_index - strength
+    level.bosLevel := ownExtreme
+    level.bosLevelBar := ownExtremeBar
+    level.oppositeCandleCount := oppositeCandleCount
+    level.cohort := oppositeCandleCount == 1 ? LIQUIDITY_COHORT_ONE : LIQUIDITY_COHORT_TWO_PLUS
+    level.microRetracement := false
+    array.push(levels, level)
+    array.push(createdIndexes, array.size(levels) - 1)
+
+confirmedMicroStructureLiquidity(bool demand) =>
+    bool sourceAvailable = bar_index >= 2
+    bool pauseIsOpposite = liquidityCandleIsOpposite(demand, 1)
+    bool priorIsOpposite = liquidityCandleIsOpposite(demand, 2)
+    bool continuationCandle = demand ? close > open : close < open
+    bool breaksPauseExtreme = demand ? high > high[1] : low < low[1]
+    enableMicroRetracementLiquidity and sourceAvailable and pauseIsOpposite and not priorIsOpposite and continuationCandle and breaksPauseExtreme
+
+appendConfirmedMicroStructureLiquidity(bool demand, array<StructureLiquidityLevel> levels, array<int> createdIndexes) =>
+    StructureLiquidityLevel level = StructureLiquidityLevel.new()
+    level.demand := demand
+    level.price := demand ? low[1] : high[1]
+    level.priceBar := bar_index - 1
+    level.bosLevel := demand ? high[1] : low[1]
+    level.bosLevelBar := bar_index - 1
+    level.oppositeCandleCount := 1
+    level.cohort := LIQUIDITY_COHORT_ONE
+    level.microRetracement := true
+    array.push(levels, level)
+    array.push(createdIndexes, array.size(levels) - 1)
+
+updateConfirmedStructureLiquidityPivots(array<StructureLiquidityLevel> levels, array<int> createdIndexes) =>
+    array.clear(createdIndexes)
+    int strength = liquidityPivotStrength
+    if confirmedStructureLiquidityPivot(true, strength)
+        appendConfirmedStructureLiquidityPivot(true, strength, levels, createdIndexes)
+    if confirmedStructureLiquidityPivot(false, strength)
+        appendConfirmedStructureLiquidityPivot(false, strength, levels, createdIndexes)
+    if confirmedMicroStructureLiquidity(true)
+        appendConfirmedMicroStructureLiquidity(true, levels, createdIndexes)
+    if confirmedMicroStructureLiquidity(false)
+        appendConfirmedMicroStructureLiquidity(false, levels, createdIndexes)
+    true
+
+structureLiquidityZoneTouched(RawZone zone) =>
+    zone.demand ? low <= zone.top : high >= zone.bottom
+
+refreshStructureLiquidityMoveReference(RawZone zone, int strength) =>
+    int sourceOffset = strength + 1
+    int sourceBar = bar_index - sourceOffset
+    bool sourceAvailable = sourceOffset <= bar_index and sourceBar >= zone.confirmationBar
+    if sourceAvailable
+        float extreme = zone.structureMoveExtreme
+        float candidateExtreme = zone.demand ? high[sourceOffset] : low[sourceOffset]
+        bool replaces = na(extreme) or (zone.demand ? candidateExtreme > extreme : candidateExtreme < extreme)
+        if replaces
+            zone.structureMoveExtreme := candidateExtreme
+            zone.structureMoveExtremeBar := sourceBar
+    true
+
+structureLiquidityBosConfirmed(RawZone zone, StructureLiquidityLevel candidate) =>
+    float bosLevel = candidate.bosLevel
+    int sourceOffset = 0
+    bool formedBeforeBos = not na(bosLevel) and bar_index >= candidate.priceBar + 1
+    bool brokeStructure = zone.demand ? (liquidityStructureStrictBos ? close[sourceOffset] > bosLevel : high[sourceOffset] > bosLevel) : (liquidityStructureStrictBos ? close[sourceOffset] < bosLevel : low[sourceOffset] < bosLevel)
+    bool immediateMicroBos = candidate.microRetracement and bar_index == candidate.priceBar + 1 and brokeStructure
+    bool standardBos = not candidate.microRetracement and formedBeforeBos and brokeStructure
+    bool confirmed = immediateMicroBos or standardBos
+    int bosBar = confirmed ? bar_index : na
+    [confirmed, bosLevel, bosBar]
+
+refreshZoneStructureLiquidity(RawZone zone, array<StructureLiquidityLevel> levels, array<int> createdIndexes) =>
+    if zone.state == STATE_FRESH and bar_index > zone.confirmationBar
+        int strength = liquidityPivotStrength
+        refreshStructureLiquidityMoveReference(zone, strength)
+        bool zoneStillUntouched = not structureLiquidityZoneTouched(zone)
+        if zoneStillUntouched
+            int candidateCount = array.size(createdIndexes)
+            if candidateCount > 0
+                for candidateOffset = 0 to candidateCount - 1
+                    int candidateIndex = array.get(createdIndexes, candidateOffset)
+                    StructureLiquidityLevel candidate = array.get(levels, candidateIndex)
+                    float candidateMoveLevel = zone.structureMoveExtreme
+                    int candidateMoveLevelBar = zone.structureMoveExtremeBar
+                    float distance = liquidityPriceDistanceToZone(zone, candidate.price)
+                    bool formedAfterConfirmation = candidate.priceBar > zone.confirmationBar
+                    bool correctSide = candidate.demand == zone.demand and distance > 0
+                    bool candleCountQualified = candidate.microRetracement or candidate.oppositeCandleCount >= minimumLiquidityOppositeCandles()
+                    bool hasRetracementEvidence = not na(candidate.bosLevel) and not na(candidate.bosLevelBar) and candidate.bosLevelBar <= candidate.priceBar and not na(candidateMoveLevel) and not na(candidateMoveLevelBar) and candidateMoveLevelBar < candidate.priceBar and candleCountQualified
+                    bool newZoneLink = not array.includes(zone.structureLiquidityIndexes, candidateIndex)
+                    if formedAfterConfirmation and correctSide and hasRetracementEvidence and newZoneLink
+                        addUniqueLiquidityIndex(zone.structureLiquidityIndexes, candidateIndex)
+
+            int linkedCandidateCount = array.size(zone.structureLiquidityIndexes)
+            if linkedCandidateCount > 0
+                for linkedOffset = 0 to linkedCandidateCount - 1
+                    int candidateIndex = array.get(zone.structureLiquidityIndexes, linkedOffset)
+                    StructureLiquidityLevel candidate = array.get(levels, candidateIndex)
+                    [bosConfirmed, bosLevel, bosBar] = structureLiquidityBosConfirmed(zone, candidate)
+                    float distance = liquidityPriceDistanceToZone(zone, candidate.price)
+                    bool bosAfterSwing = bosConfirmed and bosBar > candidate.priceBar
+                    float completedMoveLevel = zone.structureMoveExtreme
+                    float bosMoveExtreme = zone.demand ? high : low
+                    bool bosExtendsMove = bosAfterSwing and (na(completedMoveLevel) or (zone.demand ? bosMoveExtreme > completedMoveLevel : bosMoveExtreme < completedMoveLevel))
+                    if bosExtendsMove
+                        completedMoveLevel := bosMoveExtreme
+                    float guidanceMax = liquidityGuidanceMaxPrice(zone, completedMoveLevel)
+                    bool withinBiggerStructure = not na(guidanceMax) and distance <= guidanceMax + syminfo.mintick * 0.5
+                    float currentDistance = liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice)
+                    bool sameDistance = math.abs(distance - currentDistance) <= syminfo.mintick * 0.5
+                    bool earlierAtSamePrice = sameDistance and candidate.priceBar < zone.structureLiquidityBar
+                    bool closer = na(zone.structureLiquidityPrice) or distance < currentDistance - syminfo.mintick * 0.5 or earlierAtSamePrice
+                    if bosAfterSwing and withinBiggerStructure and closer
+                        zone.structureLiquidityPrice := candidate.price
+                        zone.structureLiquidityBar := candidate.priceBar
+                        zone.structureLiquidityBosLevel := bosLevel
+                        zone.structureLiquidityBosBar := bosBar
     true
 
 zoneLiquidityTakenBar(RawZone zone, LiquidityLevel primary, float anchor) =>
@@ -1120,8 +1410,8 @@ refreshZoneLiquidity(RawZone zone, array<LiquidityLevel> levels, array<int> crea
             zone.liquidityOppositeCandleCount := primary.oppositeCandleCount
             zone.liquidityCohort := primary.cohort
             zone.liquidityDistance := liquidityDistanceToZone(zone, primary)
-            zone.liquidityDistanceGuidanceMax := liquidityGuidanceMaxPrice()
-            zone.liquidityDistanceFidelity := liquidityDistanceFidelity()
+            zone.liquidityDistanceGuidanceMax := liquidityGuidanceMaxPrice(zone, primaryAnchor)
+            zone.liquidityDistanceFidelity := liquidityDistanceFidelity(zone, primaryAnchor)
             primary.taken := not na(primarySweptBar)
             primary.takenBar := primarySweptBar
             array.set(levels, zone.liquidityPrimaryIndex, primary)
@@ -2211,6 +2501,15 @@ entrySelectedFacts(EntryAttempt attempt) =>
         selectedTicks := attempt.boc.bocEmitted ? attempt.boc.bocEventTicks : attempt.directionalClose.closeEmitted ? attempt.directionalClose.closeEventTicks : attempt.flip.flipEventTicks
     [selectedEpoch, selectedSequence, selectedTicks]
 
+// One immutable plan is shared by the serialized setup bundle, the exit
+// monitor, and the chart markers. Shadow attempts may have a diagnostic entry
+// price, but they never become human-facing paper trades.
+entryPlanFacts(EntryAttempt attempt) =>
+    int frozenEntryTicks = attempt.core.entryTicks
+    int frozenStopTicks = not na(attempt.core.stopTicks) ? attempt.core.stopTicks : attempt.core.demand ? frozenEntryTicks - entryStopTicks : frozenEntryTicks + entryStopTicks
+    int frozenTargetTicks = not na(attempt.core.targetTicks) ? attempt.core.targetTicks : attempt.core.demand ? frozenEntryTicks + entryTargetTicks : frozenEntryTicks - entryTargetTicks
+    [frozenEntryTicks, frozenStopTicks, frozenTargetTicks]
+
 entryHasPaperEligibleSelection(EntryAttempt attempt) =>
     bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
     bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact
@@ -2229,13 +2528,16 @@ entryBundleReadyToEmit(EntryAttempt attempt) =>
      (not attempt.flip.flipEmitted or not na(attempt.flip.flipObservedAtEpoch))
 
 entrySetupBundlePayload(EntryAttempt attempt, RawZone zone) =>
-    [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
-    int stopTicks = attempt.core.demand ? selectedTicks - entryStopTicks : selectedTicks + entryStopTicks
-    int targetTicks = attempt.core.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
+    [selectedTicks, stopTicks, targetTicks] = entryPlanFacts(attempt)
     bool commonRulesPass = attempt.core.commonRulesPass
     bool reviewedHashesValid = reviewedProducerHashesValid()
     bool oneCandleLiquidity = attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE
-    string commonFidelity = oneCandleLiquidity ? (commonRulesPass ? "DISCRETIONARY" : "UNRESOLVED") : commonRulesPass and reviewedHashesValid ? "EXACT" : "UNRESOLVED"
+    // UNREVIEWED is a paired fail-closed producer identity. Its setup,
+    // candidates, evidence, and selection must all remain shadow-only even
+    // when the underlying one-candle rules pass. Sending DISCRETIONARY with
+    // UNREVIEWED is a contradictory promotion claim and the Worker correctly
+    // rejects that envelope with 422.
+    string commonFidelity = not reviewedHashesValid ? "UNRESOLVED" : oneCandleLiquidity ? (commonRulesPass ? "DISCRETIONARY" : "UNRESOLVED") : commonRulesPass ? "EXACT" : "UNRESOLVED"
     "{" +
      "\"setup\":{" +
      "\"setup_id\":" + jsonString(attempt.core.setupId) + "," +
@@ -2257,14 +2559,14 @@ entrySetupBundlePayload(EntryAttempt attempt, RawZone zone) =>
      "\"stop_ticks\":" + str.tostring(stopTicks) + "," +
      "\"target_ticks\":" + str.tostring(targetTicks) + "}}"
 
-entryMarketEventPayload(EntryAttempt attempt, bool historicalAmbiguousExit) =>
+entryMarketEventPayload(EntryAttempt attempt, bool exitFollowup) =>
     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
-    bool closeSelected = not historicalAmbiguousExit and attempt.directionalClose.closeEmitted and selectedEpoch == attempt.directionalClose.closeEventEpoch and selectedSequence == attempt.directionalClose.closeEventSequence
-    int marketEpoch = historicalAmbiguousExit ? epochSeconds(time_close) : selectedEpoch
-    int marketSequence = historicalAmbiguousExit ? tickSequence : selectedSequence
-    int marketTicks = historicalAmbiguousExit ? priceTicks(close) : selectedTicks
-    bool confirmedSelected = historicalAmbiguousExit or closeSelected
-    string confirmed = historicalAmbiguousExit ? orderedCandlePayload(epochSeconds(time), epochSeconds(time_close), priceTicks(open), priceTicks(high), priceTicks(low), priceTicks(close)) : closeSelected ? orderedCandlePayload(attempt.directionalClose.closeOpenEpoch, attempt.directionalClose.closeEventEpoch, attempt.directionalClose.closeOpenTicks, attempt.directionalClose.closeHighTicks, attempt.directionalClose.closeLowTicks, attempt.directionalClose.closeCloseTicks) : "null"
+    bool closeSelected = not exitFollowup and attempt.directionalClose.closeEmitted and selectedEpoch == attempt.directionalClose.closeEventEpoch and selectedSequence == attempt.directionalClose.closeEventSequence
+    int marketEpoch = exitFollowup ? entryClockEpoch() : selectedEpoch
+    int marketSequence = exitFollowup ? tickSequence : selectedSequence
+    int marketTicks = exitFollowup ? priceTicks(close) : selectedTicks
+    bool confirmedSelected = exitFollowup ? not barstate.isrealtime : closeSelected
+    string confirmed = exitFollowup ? (barstate.isrealtime ? "null" : orderedCandlePayload(epochSeconds(time), epochSeconds(time_close), priceTicks(open), priceTicks(high), priceTicks(low), priceTicks(close))) : closeSelected ? orderedCandlePayload(attempt.directionalClose.closeOpenEpoch, attempt.directionalClose.closeEventEpoch, attempt.directionalClose.closeOpenTicks, attempt.directionalClose.closeHighTicks, attempt.directionalClose.closeLowTicks, attempt.directionalClose.closeCloseTicks) : "null"
     "{" +
      "\"epoch\":" + str.tostring(marketEpoch) + "," +
      "\"sequence\":" + str.tostring(marketSequence) + "," +
@@ -2272,7 +2574,7 @@ entryMarketEventPayload(EntryAttempt attempt, bool historicalAmbiguousExit) =>
      "\"barstate_isconfirmed\":" + str.tostring(confirmedSelected) + "," +
      "\"confirmed_bar\":" + confirmed + "}"
 
-entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool historicalAmbiguousExit) =>
+entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool exitFollowup) =>
     int producerSequence = nextEntrySequence()
     string eventId = entryProducerInstanceId + ":" + str.tostring(producerSequence)
     bool reviewedPromotion = attempt.core.commonRulesPass and reviewedProducerHashesValid()
@@ -2296,14 +2598,14 @@ entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool histori
      "\"detector_code_hash\":" + jsonString(detectorHash) + "," +
      "\"settings_hash\":" + jsonString(settingsHashValue) + "," +
      "\"observed_at_epoch\":" + str.tostring(entryEvaluationEpoch(attempt)) + "," +
-     "\"market_event\":" + entryMarketEventPayload(attempt, historicalAmbiguousExit) + "," +
+     "\"market_event\":" + entryMarketEventPayload(attempt, exitFollowup) + "," +
      "\"exit_events\":" + exitEvents + "," +
      "\"setups\":[" + entrySetupBundlePayload(attempt, zone) + "]}"
 
-emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitEvents, bool historicalAmbiguousExit) =>
+emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitEvents, bool exitFollowup) =>
     bool emitted = false
     if emitEntryV3Events and entryCredentialSafe()
-        string payload = entryPayload(attempt, zone, exitEvents, historicalAmbiguousExit)
+        string payload = entryPayload(attempt, zone, exitEvents, exitFollowup)
         string envelope = "{\"credential\":" + jsonString(entryV3Credential) + ",\"payload\":" + payload + "}"
         if str.length(envelope) >= ENTRY_MAX_PAYLOAD_CHARS
             log.error("ENTRY_V3_ENVELOPE_TOO_LARGE")
@@ -2318,6 +2620,23 @@ emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitE
     else if emitEntryV3Events and str.length(entryV3Credential) > 0
         log.error("ENTRY_V3_CREDENTIAL_UNSAFE")
     emitted
+
+drawActionableEntry(EntryAttempt attempt) =>
+    if showActionableTradeMarkers
+        [entryTicks, stopTicks, targetTicks] = entryPlanFacts(attempt)
+        float entryPrice = entryTicks * syminfo.mintick
+        float stopPrice = stopTicks * syminfo.mintick
+        float targetPrice = targetTicks * syminfo.mintick
+        string markerText = "PAPER " + (attempt.core.demand ? "LONG" : "SHORT") + "\nE " + str.tostring(entryPrice, format.mintick) + "\nSL " + str.tostring(stopPrice, format.mintick) + "\nTP " + str.tostring(targetPrice, format.mintick)
+        label.new(bar_index, entryPrice, markerText, xloc = xloc.bar_index, yloc = yloc.price, style = attempt.core.demand ? label.style_label_up : label.style_label_down, color = attempt.core.demand ? color.new(color.teal, 8) : color.new(color.red, 8), textcolor = color.white, size = size.tiny)
+
+drawActionableExit(EntryAttempt attempt, string exitReason, int exitTicks) =>
+    if showActionableTradeMarkers
+        [entryTicks, stopTicks, targetTicks] = entryPlanFacts(attempt)
+        float exitPrice = exitTicks * syminfo.mintick
+        float entryPrice = entryTicks * syminfo.mintick
+        string markerText = "EXIT " + exitReason + "\n" + str.tostring(exitPrice, format.mintick) + " | E " + str.tostring(entryPrice, format.mintick)
+        label.new(bar_index, exitPrice, markerText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = exitReason == "TARGET" ? color.new(color.teal, 8) : color.new(color.orange, 8), textcolor = color.white, size = size.tiny)
 
 recordDirectionalClose(EntryAttempt attempt, RawZone zone) =>
     bool zoneEngaged = not na(attempt.core.engagementEpoch)
@@ -2763,9 +3082,11 @@ finalizeFlipCandidate(EntryAttempt attempt) =>
 
 monitorAttemptExit(EntryAttempt attempt, RawZone zone) =>
     bool emitted = false
+    bool actionableExit = false
+    string exitReason = ""
+    int exitTicks = na
     if not na(attempt.core.entryTicks) and not attempt.core.exitTerminal and entryBundleReadyToEmit(attempt)
-        int stopPriceTicks = not na(attempt.core.stopTicks) ? attempt.core.stopTicks : attempt.core.demand ? attempt.core.entryTicks - entryStopTicks : attempt.core.entryTicks + entryStopTicks
-        int targetPriceTicks = not na(attempt.core.targetTicks) ? attempt.core.targetTicks : attempt.core.demand ? attempt.core.entryTicks + entryTargetTicks : attempt.core.entryTicks - entryTargetTicks
+        [entryPriceTicks, stopPriceTicks, targetPriceTicks] = entryPlanFacts(attempt)
         float stopPrice = stopPriceTicks * syminfo.mintick
         float targetPrice = targetPriceTicks * syminfo.mintick
         bool stopHit = attempt.core.demand ? (barstate.isrealtime ? close <= stopPrice : low <= stopPrice) : (barstate.isrealtime ? close >= stopPrice : high >= stopPrice)
@@ -2775,15 +3096,18 @@ monitorAttemptExit(EntryAttempt attempt, RawZone zone) =>
         bool newTarget = targetHit and not stopHit and not attempt.core.stopEventEmitted and not attempt.core.targetEventEmitted
         if historicalAmbiguous or newStop or newTarget
             string reason = historicalAmbiguous ? "AMBIGUOUS_SAME_BAR_EXIT" : newStop ? "STOP_LOSS" : "TARGET"
-            int eventTicks = historicalAmbiguous ? priceTicks(close) : newStop ? stopPriceTicks : targetPriceTicks
+            int eventTicks = priceTicks(close)
             string eventId = attempt.core.setupId + ":exit:" + reason + ":" + str.tostring(tickSequence)
             string exitEvent = "[{\"event_id\":" + jsonString(eventId) + ",\"setup_id\":" + jsonString(attempt.core.setupId) + ",\"exit_reason\":" + jsonString(reason) + ",\"epoch\":" + str.tostring(barstate.isrealtime ? epochSeconds(timenow) : epochSeconds(time_close)) + ",\"sequence\":" + str.tostring(tickSequence) + ",\"price_ticks\":" + str.tostring(eventTicks) + "}]"
             attempt.core.stopEventEmitted := newStop
             attempt.core.targetEventEmitted := newTarget
             attempt.core.ambiguousExitEmitted := historicalAmbiguous
             attempt.core.exitTerminal := true
-            emitted := emitEntryPayload(attempt, zone, barstate.isrealtime, exitEvent, historicalAmbiguous)
-    emitted
+            actionableExit := attempt.core.paperDecisionEmitted
+            exitReason := reason
+            exitTicks := eventTicks
+            emitted := emitEntryPayload(attempt, zone, barstate.isrealtime, exitEvent, true)
+    [emitted, actionableExit, exitReason, exitTicks]
 
 deleteZone(RawZone zone) =>
     if not na(zone.zoneBox)
@@ -2792,6 +3116,10 @@ deleteZone(RawZone zone) =>
         line.delete(zone.liquidityLine)
     if not na(zone.ownExtremeLine)
         line.delete(zone.ownExtremeLine)
+    if not na(zone.structureLiquidityLine)
+        line.delete(zone.structureLiquidityLine)
+    if not na(zone.liquidityLabel)
+        label.delete(zone.liquidityLabel)
     if not na(zone.debugLabel)
         label.delete(zone.debugLabel)
 
@@ -2801,6 +3129,8 @@ var RawZone[] zones = array.new<RawZone>()
 var LiquidityLevel[] liquidityLevels = array.new<LiquidityLevel>()
 var int[] createdLiquidityIndexes = array.new<int>()
 var int[] drawnLiquidityIndexes = array.new<int>()
+var StructureLiquidityLevel[] structureLiquidityLevels = array.new<StructureLiquidityLevel>()
+var int[] createdStructureLiquidityIndexes = array.new<int>()
 var int nextZoneId = 1
 var string lastDecision = "WAITING_FOR_CLOSED_5M_BAR"
 var int validationSequence = 0
@@ -2852,6 +3182,8 @@ if barstate.isconfirmed and isFiveMinute and validationCapture and not validatio
         array.clear(liquidityLevels)
         array.clear(createdLiquidityIndexes)
         array.clear(drawnLiquidityIndexes)
+        array.clear(structureLiquidityLevels)
+        array.clear(createdStructureLiquidityIndexes)
         array.clear(entryAttempts)
         nextZoneId := 1
         validationSequence := 0
@@ -2881,6 +3213,7 @@ if barstate.isconfirmed and isFiveMinute and validationReady
         validationEvents := appendValidationEvent(validationEvents, validationSentinel("CAPTURE_START"))
         validationEventCount += 1
     updateConfirmedLiquidityPivots(liquidityLevels, createdLiquidityIndexes)
+    updateConfirmedStructureLiquidityPivots(structureLiquidityLevels, createdStructureLiquidityIndexes)
 
     int zoneCount = array.size(zones)
     if zoneCount > 0
@@ -2888,6 +3221,7 @@ if barstate.isconfirmed and isFiveMinute and validationReady
         // same-bar sweep/engagement evidence so it can fail closed as SHADOW_ONLY.
         for index = 0 to zoneCount - 1
             RawZone zone = array.get(zones, index)
+            refreshZoneStructureLiquidity(zone, structureLiquidityLevels, createdStructureLiquidityIndexes)
             [primaryAvailable, primaryTaken, primarySwept, primaryChanged] = refreshZoneLiquidity(zone, liquidityLevels, createdLiquidityIndexes)
             bool becameEligible = updateZoneEligibility(zone, primaryAvailable, primaryTaken, primarySwept, primaryChanged)
             if becameEligible
@@ -3076,10 +3410,13 @@ if barstate.isconfirmed and isFiveMinute and validationReady
                 deleteZone(array.get(zones, failedIndex))
         array.clear(zones)
         array.clear(liquidityLevels)
+        array.clear(structureLiquidityLevels)
 
 // Entry candidates are evaluated after the qualified setup engine has completed
 // its update. This block also runs on realtime intrabar updates, which is what
 // preserves first-crossing chronology for BOC and flip.
+bool actionablePaperEntryThisUpdate = false
+bool actionablePaperExitThisUpdate = false
 int entryZoneCount = array.size(zones)
 if isFiveMinute and validationReady and entryZoneCount > 0
     for entryZoneIndex = 0 to entryZoneCount - 1
@@ -3107,17 +3444,51 @@ if isFiveMinute and validationReady and entryZoneCount > 0
                     attempt.core.entryTicks := selectedTicks
                     attempt.core.stopTicks := zone.demand ? selectedTicks - entryStopTicks : selectedTicks + entryStopTicks
                     attempt.core.targetTicks := zone.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
+                    actionablePaperEntryThisUpdate := true
+                    drawActionableEntry(attempt)
                 bool intrabarCandidate = barstate.isrealtime and not closeTriggered
                 emitEntryPayload(attempt, zone, intrabarCandidate, "[]", false)
             if bundleReady
-                monitorAttemptExit(attempt, zone)
+                [exitEmitted, actionableExit, exitReason, exitTicks] = monitorAttemptExit(attempt, zone)
+                actionablePaperExitThisUpdate := actionablePaperExitThisUpdate or actionableExit
+                if actionableExit
+                    drawActionableExit(attempt, exitReason, exitTicks)
             array.set(entryAttempts, attemptIndex, attempt)
+
+// These named conditions are deliberately separate from the alert function.
+// The existing "Any alert function call" webhook remains strict JSON
+// telemetry, while operators can create clean, non-webhook TradingView alerts
+// from these two named conditions.
+alertcondition(actionablePaperEntryThisUpdate, "SND RD | Actionable paper entry", "{{ticker}} {{interval}} actionable paper entry at {{close}}")
+alertcondition(actionablePaperExitThisUpdate, "SND RD | Actionable paper exit", "{{ticker}} {{interval}} actionable paper exit at {{close}}")
 
 int drawCount = array.size(zones)
 if drawCount > 0
     for index = 0 to drawCount - 1
         RawZone zone = array.get(zones, index)
         updateZoneDrawing(zone, zones)
+        array.set(zones, index, zone)
+// Boxes are painted during the loop above. On the final chart bar, re-copy
+// liquidity objects so every primary line and label sits above every zone.
+if barstate.islast and drawCount > 0
+    for index = 0 to drawCount - 1
+        RawZone zone = array.get(zones, index)
+        if not na(zone.ownExtremeLine)
+            line raisedOwnExtremeLine = line.copy(zone.ownExtremeLine)
+            line.delete(zone.ownExtremeLine)
+            zone.ownExtremeLine := raisedOwnExtremeLine
+        if not na(zone.structureLiquidityLine)
+            line raisedStructureLiquidityLine = line.copy(zone.structureLiquidityLine)
+            line.delete(zone.structureLiquidityLine)
+            zone.structureLiquidityLine := raisedStructureLiquidityLine
+        if not na(zone.liquidityLine)
+            line raisedLiquidityLine = line.copy(zone.liquidityLine)
+            line.delete(zone.liquidityLine)
+            zone.liquidityLine := raisedLiquidityLine
+        if not na(zone.liquidityLabel)
+            label raisedLiquidityLabel = label.copy(zone.liquidityLabel)
+            label.delete(zone.liquidityLabel)
+            zone.liquidityLabel := raisedLiquidityLabel
         array.set(zones, index, zone)
 updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)
 

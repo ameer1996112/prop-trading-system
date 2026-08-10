@@ -2107,6 +2107,18 @@ function entryV3WorkerExitPayload(
   return payload;
 }
 
+function entryV3WorkerMismatchedExitPayload(): Record<string, unknown> {
+  const entry = entryV3WorkerPayload();
+  const exit = entryV3WorkerExitPayload(
+    entry,
+    "worker-v3:mismatched-exit",
+    "STOP_LOSS",
+    2,
+  );
+  exit.market_event = structuredClone(entry.market_event);
+  return exit;
+}
+
 function installWorkerPaperAccount(database: FakeD1): void {
   database.sqlite
     .prepare(
@@ -3422,6 +3434,24 @@ describe("observation edge Worker", () => {
     const replay = await handleRequest(postBody(target), env);
     expect(replay.status).toBe(409);
     expect(await body(replay)).toEqual(firstBody);
+  });
+
+  it("returns a sanitized entry-v3 validation code for mismatched exit facts", async () => {
+    const response = await handleRequest(
+      postBody(entryV3WorkerMismatchedExitPayload()),
+      await environment(),
+    );
+    const responseBody = await body(response);
+
+    expect(response.status).toBe(422);
+    expect(responseBody).toEqual({
+      error: {
+        code: "ENTRY_V3_EXIT_NOT_CAUSAL",
+        message: "Schema 3.x observation envelope failed validation",
+      },
+    });
+    expect(JSON.stringify(responseBody)).not.toContain(CREDENTIAL);
+    expect(JSON.stringify(responseBody)).not.toContain("setups");
   });
 
   it("keeps liveness public while ingress defaults fail-closed", async () => {
