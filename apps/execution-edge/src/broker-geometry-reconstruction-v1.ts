@@ -8,7 +8,7 @@ import {
   type ExecutionCandidateV2,
   validateExecutionCandidateV2,
 } from "./execution-candidate-v2";
-import { parseTickSizeToPriceUnits } from "./exact-price-v1";
+import { parseTickSizeToPriceUnits, safeBrokerTicks } from "./exact-price-v1";
 
 export interface BrokerGeometryReconstructionV1 {
   readonly schema_version: "BrokerGeometryReconstructionV1";
@@ -50,11 +50,16 @@ function invalidInput(): never {
   throw new Error("BROKER_RECONSTRUCTION_INPUT_INVALID");
 }
 
-function safeWireInteger(value: bigint): number {
-  if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
-    invalidInput();
-  }
+function safeNonnegativeWireUnits(value: bigint): number {
+  if (value < 0n) throw new Error("EXACT_PRICE_INVALID");
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("EXACT_PRICE_OUT_OF_RANGE");
   return Number(value);
+}
+
+function exactConversionFailure(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === "EXACT_PRICE_INVALID" || error.message === "EXACT_PRICE_OUT_OF_RANGE"
+  );
 }
 
 function priceUnits(ticks: number, tickSizeUnits: bigint): bigint {
@@ -206,14 +211,21 @@ export async function reconstructBrokerGeometryV1(
     return difference > maximum ? difference : maximum;
   }, 0n);
 
-  return result(candidate, evidence.evidence_id, capability, "MATCH", "NONE", {
-    matched_engagement_open_epoch: engagement.open_epoch,
-    matched_source_bar_close_epoch: sourceBar.close_epoch,
-    broker_entry_ticks: safeWireInteger(entry),
-    broker_wick_ticks: safeWireInteger(wick),
-    broker_stop_ticks: safeWireInteger(stop),
-    broker_risk_distance_ticks: safeWireInteger(risk),
-    broker_target_ticks: safeWireInteger(target),
-    maximum_divergence_price_units: safeWireInteger(maximumDivergence),
-  });
+  try {
+    return result(candidate, evidence.evidence_id, capability, "MATCH", "NONE", {
+      matched_engagement_open_epoch: engagement.open_epoch,
+      matched_source_bar_close_epoch: sourceBar.close_epoch,
+      broker_entry_ticks: safeBrokerTicks(entry),
+      broker_wick_ticks: safeBrokerTicks(wick),
+      broker_stop_ticks: safeBrokerTicks(stop),
+      broker_risk_distance_ticks: safeBrokerTicks(risk),
+      broker_target_ticks: safeBrokerTicks(target),
+      maximum_divergence_price_units: safeNonnegativeWireUnits(maximumDivergence),
+    });
+  } catch (error) {
+    if (exactConversionFailure(error)) {
+      return result(candidate, evidence.evidence_id, capability, "BLOCKED", "GEOMETRY_MISMATCH", null);
+    }
+    throw error;
+  }
 }

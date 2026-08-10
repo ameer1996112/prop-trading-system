@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalStringify, sha256Hex } from "../src/canonical";
 import { reconstructBrokerGeometryV1 } from "../src/broker-geometry-reconstruction-v1";
 import {
   brokerBarEvidenceFixture,
@@ -94,6 +95,99 @@ describe("broker geometry reconstruction v1", () => {
       broker_target_ticks: 1488,
       maximum_divergence_price_units: 0,
       reconstruction_body_sha256: "d426f4963bf495c78cc1ebc06c43e823114ea2e26321f0456440f7ae33002a6f",
+      authority: "PAPER_ONLY",
+      real_execution_allowed: false,
+      command: null,
+    });
+  });
+
+  it("blocks valid evidence that derives nonpositive LONG broker geometry", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const evidence = brokerBarEvidenceFixture([
+      { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 1110, low_ticks: 0, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
+    ], capability);
+
+    const result = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(result).toMatchObject({
+      outcome: "BLOCKED",
+      reason_code: "GEOMETRY_MISMATCH",
+      matched_engagement_open_epoch: null,
+      matched_source_bar_close_epoch: null,
+      broker_entry_ticks: null,
+      broker_wick_ticks: null,
+      broker_stop_ticks: null,
+      broker_risk_distance_ticks: null,
+      broker_target_ticks: null,
+      maximum_divergence_price_units: null,
+      authority: "PAPER_ONLY",
+      real_execution_allowed: false,
+      command: null,
+    });
+  });
+
+  it("blocks valid evidence whose derived 4R target is outside safe broker ticks", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const evidence = brokerBarEvidenceFixture([
+      { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: Number.MAX_SAFE_INTEGER - 1, high_ticks: Number.MAX_SAFE_INTEGER, low_ticks: 1000, close_ticks: Number.MAX_SAFE_INTEGER, closed: true },
+    ], capability);
+
+    const result = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(result).toMatchObject({
+      outcome: "BLOCKED",
+      reason_code: "GEOMETRY_MISMATCH",
+      matched_engagement_open_epoch: null,
+      matched_source_bar_close_epoch: null,
+      broker_entry_ticks: null,
+      broker_wick_ticks: null,
+      broker_stop_ticks: null,
+      broker_risk_distance_ticks: null,
+      broker_target_ticks: null,
+      maximum_divergence_price_units: null,
+      authority: "PAPER_ONLY",
+      real_execution_allowed: false,
+      command: null,
+    });
+  });
+
+  it("blocks valid evidence whose exact divergence is outside safe wire units", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const { candidate_body_sha256: _oldDigest, ...body } = candidate;
+    const updatedBody = { ...body, source_tick_size: "1" };
+    const updatedCandidate = {
+      ...updatedBody,
+      candidate_body_sha256: await sha256Hex(canonicalStringify(updatedBody)),
+    };
+    const capability = await brokerCapabilityFixture({
+      source_tick_size: "1",
+      broker_tick_size: "1",
+    });
+    const evidence = brokerBarEvidenceFixture([
+      { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 12000, low_ticks: 1000, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
+    ], capability);
+
+    const result = await reconstructBrokerGeometryV1(updatedCandidate, evidence, capability);
+
+    expect(result).toMatchObject({
+      outcome: "BLOCKED",
+      reason_code: "GEOMETRY_MISMATCH",
+      matched_engagement_open_epoch: null,
+      matched_source_bar_close_epoch: null,
+      broker_entry_ticks: null,
+      broker_wick_ticks: null,
+      broker_stop_ticks: null,
+      broker_risk_distance_ticks: null,
+      broker_target_ticks: null,
+      maximum_divergence_price_units: null,
       authority: "PAPER_ONLY",
       real_execution_allowed: false,
       command: null,
