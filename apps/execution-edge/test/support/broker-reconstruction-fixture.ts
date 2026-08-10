@@ -111,6 +111,44 @@ export async function v2ShortGeometryCandidateFixture(): Promise<Record<string, 
   };
 }
 
+export async function v2LongCandidateForSymbolFixture(
+  sourceSymbol: "EURUSD" | "GBPJPY" | "USDJPY" | "XAUUSD" | "NAS100",
+  sourceTickSize: string,
+  bufferTicks: number,
+): Promise<Record<string, unknown>> {
+  const candidate = await v2LongCandidateFixture();
+  const engagement = candidate.engagement_candle as Record<string, unknown>;
+  const sourceBar = candidate.source_bar as Record<string, unknown>;
+  const stopTicks = Number(engagement.low_ticks) - bufferTicks;
+  const riskDistanceTicks = Number(sourceBar.close_ticks) - stopTicks;
+  const targetTicks = Number(sourceBar.close_ticks) + 4 * riskDistanceTicks;
+  const body: Record<string, unknown> = {
+    ...candidate,
+    ticker_id: sourceSymbol,
+    source_symbol: sourceSymbol,
+    source_tick_size: sourceTickSize,
+    buffer_ticks: bufferTicks,
+    stop_ticks: stopTicks,
+    risk_distance_ticks: riskDistanceTicks,
+    target_ticks: targetTicks,
+  };
+  const logicalCandidateId = await sha256Hex(canonicalStringify({
+    strategy_version: body.strategy_version,
+    wire_version: body.schema_version,
+    ticker_id: body.ticker_id,
+    setup_id: body.setup_id,
+    setup_revision: body.setup_revision,
+    selection_id: body.selection_id,
+    source_bar_close_epoch: sourceBar.close_epoch,
+  }));
+  const { candidate_body_sha256: _oldDigest, ...unsignedBody } = body;
+  const finalizedBody = { ...unsignedBody, logical_candidate_id: logicalCandidateId };
+  return {
+    ...finalizedBody,
+    candidate_body_sha256: await sha256Hex(canonicalStringify(finalizedBody)),
+  };
+}
+
 export type BrokerCapabilityFixtureOverrides = Readonly<Record<string, unknown>>;
 
 export async function brokerCapabilityFixture(

@@ -3,7 +3,7 @@ import {
   type BrokerSymbolCapabilityV1,
   validateBrokerSymbolCapabilityV1,
 } from "./broker-symbol-capability-v1";
-import { validateBrokerBarEvidenceV1 } from "./contracts-v1";
+import { type BrokerBarEvidenceV1, validateBrokerBarEvidenceV1 } from "./contracts-v1";
 import {
   type ExecutionCandidateV2,
   validateExecutionCandidateV2,
@@ -62,6 +62,14 @@ function exactConversionFailure(error: unknown): boolean {
   );
 }
 
+function validatorFailure(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === "EXECUTION_CANDIDATE_V2_INVALID" ||
+    error.message === "BROKER_SYMBOL_CAPABILITY_INVALID" ||
+    error.message === "BROKER_BAR_EVIDENCE_INVALID"
+  );
+}
+
 function priceUnits(ticks: number, tickSizeUnits: bigint): bigint {
   if (!Number.isSafeInteger(ticks) || tickSizeUnits <= 0n) invalidInput();
   return BigInt(ticks) * tickSizeUnits;
@@ -69,6 +77,74 @@ function priceUnits(ticks: number, tickSizeUnits: bigint): bigint {
 
 function absoluteDifference(left: bigint, right: bigint): bigint {
   return left >= right ? left - right : right - left;
+}
+
+type EvidenceValidation = Readonly<{
+  readonly evidence: BrokerBarEvidenceV1;
+  readonly hasInternalGap: boolean;
+}>;
+
+function rawEvidenceCapabilitySha256(value: unknown): string {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) invalidInput();
+  const capability = (value as Record<string, unknown>).symbol_capability_sha256;
+  if (typeof capability !== "string") invalidInput();
+  return capability;
+}
+
+function onlyInternalEvidenceGap(
+  value: unknown,
+  capabilitySha256: string,
+): BrokerBarEvidenceV1 | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  if (!Array.isArray(input.bars) || input.bars.length < 2) return null;
+  try {
+    const parts = input.bars.map((bar) => {
+      if (bar === null || typeof bar !== "object" || Array.isArray(bar)) invalidInput();
+      const closeEpoch = (bar as Record<string, unknown>).close_epoch;
+      if (typeof closeEpoch !== "number") invalidInput();
+      return validateBrokerBarEvidenceV1(
+        { ...input, bars: [bar], observed_at_epoch: closeEpoch },
+        capabilitySha256,
+      );
+    });
+    const lastPart = parts.at(-1);
+    const lastBar = input.bars.at(-1);
+    if (lastPart === undefined || lastBar === undefined) invalidInput();
+    validateBrokerBarEvidenceV1({ ...input, bars: [lastBar] }, capabilitySha256);
+    const bars = parts.map((part) => part.bars[0]!);
+    if (!bars.some((bar, index) => index > 0 && bar.open_epoch > bars[index - 1]!.close_epoch)) {
+      return null;
+    }
+    if (bars.some((bar, index) => index > 0 && bar.open_epoch < bars[index - 1]!.close_epoch)) {
+      return null;
+    }
+    return Object.freeze({
+      ...lastPart,
+      bars: Object.freeze(bars),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "BROKER_RECONSTRUCTION_INPUT_INVALID") throw error;
+    if (validatorFailure(error)) return null;
+    throw error;
+  }
+}
+
+function validateEvidence(
+  value: unknown,
+): EvidenceValidation {
+  const capabilitySha256 = rawEvidenceCapabilitySha256(value);
+  try {
+    return Object.freeze({
+      evidence: validateBrokerBarEvidenceV1(value, capabilitySha256),
+      hasInternalGap: false,
+    });
+  } catch (error) {
+    if (!validatorFailure(error)) throw error;
+    const evidence = onlyInternalEvidenceGap(value, capabilitySha256);
+    if (evidence === null) invalidInput();
+    return Object.freeze({ evidence, hasInternalGap: true });
+  }
 }
 
 async function result(
@@ -118,16 +194,20 @@ export async function reconstructBrokerGeometryV1(
   try {
     candidate = await validateExecutionCandidateV2(candidateValue);
     capability = await validateBrokerSymbolCapabilityV1(capabilityValue);
-  } catch {
-    return invalidInput();
+  } catch (error) {
+    if (validatorFailure(error)) return invalidInput();
+    throw error;
   }
 
-  let evidence;
+  let evidenceValidation: EvidenceValidation;
   try {
-    evidence = validateBrokerBarEvidenceV1(evidenceValue, capability.capability_sha256);
-  } catch {
-    return invalidInput();
+    evidenceValidation = validateEvidence(evidenceValue);
+  } catch (error) {
+    if (error instanceof Error && error.message === "BROKER_RECONSTRUCTION_INPUT_INVALID") throw error;
+    if (validatorFailure(error)) return invalidInput();
+    throw error;
   }
+  const { evidence } = evidenceValidation;
 
   if (
     candidate.source_symbol !== capability.source_symbol ||
@@ -135,9 +215,22 @@ export async function reconstructBrokerGeometryV1(
     evidence.source_symbol !== candidate.source_symbol ||
     evidence.broker_symbol !== capability.broker_symbol ||
     evidence.account_profile_sha256 !== capability.account_profile_sha256 ||
-    evidence.timeframe !== "M5"
+    evidence.timeframe !== "M5" ||
+    evidence.symbol_capability_sha256 !== capability.capability_sha256
   ) {
     return result(candidate, evidence.evidence_id, capability, "BLOCKED", "BROKER_CAPABILITY_MISMATCH", null);
+  }
+
+  const firstBar = evidence.bars[0];
+  const lastBar = evidence.bars.at(-1);
+  if (
+    evidenceValidation.hasInternalGap || firstBar === undefined || lastBar === undefined ||
+    firstBar.open_epoch > candidate.zone_active_from_epoch ||
+    lastBar.close_epoch < candidate.source_bar.close_epoch
+  ) {
+    return result(candidate, evidence.evidence_id, capability, "DATA_GAP", evidenceValidation.hasInternalGap
+      ? "BROKER_EVIDENCE_GAP"
+      : "BROKER_EVIDENCE_MISSING", null);
   }
 
   const sourceTickUnits = parseTickSizeToPriceUnits(candidate.source_tick_size);
@@ -210,6 +303,16 @@ export async function reconstructBrokerGeometryV1(
     );
     return difference > maximum ? difference : maximum;
   }, 0n);
+  const sourceRiskDistance = priceUnits(candidate.risk_distance_ticks, sourceTickUnits);
+  const brokerRiskDistance = risk * brokerTickUnits;
+  const maximumDivergenceWithRisk = [
+    maximumDivergence,
+    absoluteDifference(sourceRiskDistance, brokerRiskDistance),
+  ].reduce((maximum, difference) => difference > maximum ? difference : maximum, 0n);
+  const allowedDivergence = BigInt(capability.divergence_tolerance_source_ticks) * sourceTickUnits;
+  if (maximumDivergenceWithRisk > allowedDivergence) {
+    return result(candidate, evidence.evidence_id, capability, "BLOCKED", "GEOMETRY_MISMATCH", null);
+  }
 
   try {
     return result(candidate, evidence.evidence_id, capability, "MATCH", "NONE", {
@@ -220,7 +323,7 @@ export async function reconstructBrokerGeometryV1(
       broker_stop_ticks: safeBrokerTicks(stop),
       broker_risk_distance_ticks: safeBrokerTicks(risk),
       broker_target_ticks: safeBrokerTicks(target),
-      maximum_divergence_price_units: safeNonnegativeWireUnits(maximumDivergence),
+      maximum_divergence_price_units: safeNonnegativeWireUnits(maximumDivergenceWithRisk),
     });
   } catch (error) {
     if (exactConversionFailure(error)) {
