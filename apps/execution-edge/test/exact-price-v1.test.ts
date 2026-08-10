@@ -48,8 +48,10 @@ describe("exact price v1", () => {
     }
   });
 
-  it("converts only bigint broker ticks that fit the safe wire domain", () => {
-    expect(safeBrokerTicks(BigInt(Number.MIN_SAFE_INTEGER))).toBe(Number.MIN_SAFE_INTEGER);
+  it("converts only positive bigint broker ticks that fit the safe wire domain", () => {
+    for (const value of [0n, -1n, BigInt(Number.MIN_SAFE_INTEGER) - 1n]) {
+      expect(() => safeBrokerTicks(value)).toThrow("EXACT_PRICE_INVALID");
+    }
     expect(safeBrokerTicks(BigInt(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER);
     expect(() => safeBrokerTicks(BigInt(Number.MAX_SAFE_INTEGER) + 1n)).toThrow(
       "EXACT_PRICE_OUT_OF_RANGE",

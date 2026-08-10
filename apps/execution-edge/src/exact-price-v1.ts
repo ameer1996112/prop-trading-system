@@ -34,7 +34,8 @@ export function ceilPriceUnitsToTicks(distanceUnits: bigint, tickSizeUnits: bigi
 }
 
 export function safeBrokerTicks(value: bigint): number {
-  if (value < BigInt(Number.MIN_SAFE_INTEGER) || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+  if (value <= 0n) invalid();
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new Error("EXACT_PRICE_OUT_OF_RANGE");
   }
   return Number(value);
