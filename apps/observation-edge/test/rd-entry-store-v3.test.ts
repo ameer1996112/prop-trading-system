@@ -7,10 +7,6 @@ import {
   appendEntryV3Observation,
   EntryV3StoreConflict,
 } from "../src/rd-entry-store-v3";
-import {
-  selectionIdV3,
-  type EntrySelectionV3,
-} from "../src/rd-entry-domain-v3";
 import { validateEntryV3Payload } from "../src/rd-entry-wire-v3";
 import { parseStrictJson } from "../src/strict-json";
 import type { Env, ValidatedObservation } from "../src/types";
@@ -301,16 +297,34 @@ async function oneCandlePayloadFor(
     }
   }
   const selection = bundle.selection_proposal as Record<string, unknown>;
+  const candidates = bundle.candidates as Array<Record<string, unknown>>;
+  const evidence = bundle.evidence as Array<Record<string, unknown>>;
+  const modelByCandidateId = new Map(
+    candidates.map((candidate) => [
+      candidate.candidate_id as string,
+      candidate.model as string,
+    ]),
+  );
+  for (const candidate of candidates) {
+    candidate.candidate_id = `EDGE_DERIVED:${candidate.model as string}`;
+  }
+  for (const item of evidence) {
+    const model = modelByCandidateId.get(item.candidate_id as string)!;
+    item.candidate_id = `EDGE_DERIVED:${model}`;
+    item.evidence_id = `EDGE_DERIVED:${model}`;
+    item.payload_sha256 = "EDGE_DERIVED";
+  }
+  selection.selection_id = "EDGE_DERIVED";
+  selection.candidate_ids_considered = candidates
+    .map((candidate) => candidate.candidate_id as string)
+    .sort();
   selection.canonical_candidate_id = null;
   selection.canonical_evidence_id = null;
   selection.canonical_model = null;
-  selection.reason = "NO_EXACT_CANDIDATE";
+  selection.reason = "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED";
   selection.action = "SHADOW_ONLY";
   selection.fidelity = null;
   selection.co_triggered_models = [];
-  selection.selection_id = await selectionIdV3(
-    selection as unknown as EntrySelectionV3,
-  );
   return value;
 }
 
@@ -947,6 +961,67 @@ describe("RD entry v3 persistence", () => {
         .run(),
     ).toThrow();
   });
+
+  it.each([
+    ["standard", "SHADOW_ONLY"],
+    ["invalidated", "NONE"],
+    ["zero-candidate", "NONE"],
+  ] as const)(
+    "persists Pine-shaped %s one-candle ingress as effective shadow only",
+    async (variant, expectedPolicyAction) => {
+      const database = new SqliteD1();
+      const payload = await oneCandlePayloadFor("strict_long_boc_only");
+      const bundle = (payload.setups as Array<Record<string, unknown>>)[0]!;
+      if (variant === "invalidated") {
+        (bundle.setup as Record<string, unknown>).invalidated_before_entry = true;
+      } else if (variant === "zero-candidate") {
+        bundle.candidates = [];
+        bundle.evidence = [];
+        (bundle.selection_proposal as Record<string, unknown>)
+          .candidate_ids_considered = [];
+      }
+      const validated = await observation(payload);
+      expect(validated.entryBundles[0]!.evaluation.selection.action).toBe(
+        expectedPolicyAction,
+      );
+      const digest = await payloadDigest(payload);
+
+      const first = await appendEntryV3Observation(
+        env(database),
+        validated,
+        digest,
+      );
+      const replay = await appendEntryV3Observation(
+        env(database),
+        validated,
+        digest,
+      );
+
+      expect(first.evaluations[0]).toMatchObject({
+        effectiveAction: "SHADOW_ONLY",
+        effectiveActionReason: "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
+      });
+      expect(first.paperIntentIds).toEqual([]);
+      expect(replay.inserted).toBe(false);
+      expect(replay.evaluations).toEqual(first.evaluations);
+      expect(replay.paperIntentIds).toEqual([]);
+      expect(
+        database.database
+          .prepare(
+            `SELECT policy_action, action, effective_action_reason
+             FROM observation_entry_v3_selections`,
+          )
+          .get(),
+      ).toEqual({
+        policy_action: expectedPolicyAction,
+        action: "SHADOW_ONLY",
+        effective_action_reason: "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
+      });
+      expect(
+        database.database.prepare("SELECT * FROM paper_trade_intents").all(),
+      ).toHaveLength(0);
+    },
+  );
 
   it.each([
     {
