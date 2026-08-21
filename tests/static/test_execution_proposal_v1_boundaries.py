@@ -11,7 +11,7 @@ WORKER = Path("apps/observation-edge/src/index.ts")
 INGESTION = Path("apps/observation-edge/src/execution-proposal-ingestion.ts")
 DISPATCHER = Path("apps/observation-edge/src/observation-outbox-dispatcher.ts")
 MIGRATION = Path(
-    "apps/observation-edge/migrations/0029_observation_execution_proposal_v1.sql"
+    "apps/observation-edge/migrations/0030_observation_execution_proposal_v1.sql"
 )
 WRANGLER = Path("apps/observation-edge/wrangler.jsonc")
 V1_SCHEMA_BYTES = {

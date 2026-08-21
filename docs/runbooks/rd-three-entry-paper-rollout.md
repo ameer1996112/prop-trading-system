@@ -18,10 +18,12 @@ Record the reviewed commit and local build artifacts before approval:
 - console static artifact: `apps/operations-console/out`;
 - TradingView producer: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`;
 - D1 migrations: `0024_observation_entries_v3.sql`,
-  `0025_observation_entry_v3_decision_order.sql`, and
+  `0025_observation_entry_v3_decision_order.sql`,
   `0026_observation_entry_v3_attempt_order.sql`,
-  `0027_observation_entry_v3_paper_fallback_shadow.sql`, and
-  `0028_observation_entry_v3_liquidity_cohorts.sql`.
+  `0027_observation_entry_v3_paper_fallback_shadow.sql`,
+  `0028_observation_entry_v3_liquidity_cohorts.sql`,
+  `0029_observation_entry_v3_one_candle_reason.sql`, and
+  `0030_observation_execution_proposal_v1.sql`.
 
 The required runtime binding names are listed below without values. The five names marked
 **secret binding** are also listed under `secrets.required` in `wrangler.jsonc`, but that field is
@@ -38,6 +40,10 @@ The five secret names must never appear under plaintext `vars`:
 - `RD_ENTRY_V3_DETECTOR_CODE_HASH` (**secret binding**)
 - `RD_ENTRY_V3_SETTINGS_HASH` (**secret binding**, legacy single-profile fallback)
 - `RD_ENTRY_V3_SETTINGS_HASHES_JSON` (**secret binding**, preferred exact-ticker map)
+- `RD_EXECUTION_PROPOSAL_V1_REVIEWED_IDENTITIES_JSON`
+- `RD_EXECUTION_CANDIDATE_EMISSION_ENABLED` (must remain `false`)
+- `RD_EXECUTION_CANDIDATE_DISPATCH_ENABLED` (must remain `false`)
+- `RD_EXECUTION_RECEIVER_MANIFEST_SHA256` (must remain `INERT_NOT_CONFIGURED`)
 - `NEXT_PUBLIC_API_BASE_URL` (only when the console is built for a different API origin)
 
 Never record a raw ingress or paper-admin credential in Git, shell history, command output, D1, a
@@ -68,20 +74,26 @@ Build the two production artifacts again and retain their output paths:
 
 Do not continue if the working tree differs from the reviewed commit.
 
-## 2. Apply D1 migrations through 0028
+Candidate emission and dispatch are independent controls and both remain disabled. The receiver
+manifest is inert. Proposal persistence is diagnostic paper evidence only: no account or broker
+execution exists, and this rollout does not add a public dispatcher or receiver route.
+
+## 2. Apply D1 migrations through 0030
 
 After explicit deployment approval, apply every pending migration through
-`0028_observation_entry_v3_liquidity_cohorts.sql`:
+`0030_observation_execution_proposal_v1.sql`:
 
 ```sh
 (cd apps/observation-edge && npm run db:migrate:remote)
 ```
 
 The migration output must show that `0024_observation_entries_v3.sql`,
-`0025_observation_entry_v3_decision_order.sql`, and
+`0025_observation_entry_v3_decision_order.sql`,
 `0026_observation_entry_v3_attempt_order.sql`,
-`0027_observation_entry_v3_paper_fallback_shadow.sql`, and
-`0028_observation_entry_v3_liquidity_cohorts.sql` are already applied or were applied successfully.
+`0027_observation_entry_v3_paper_fallback_shadow.sql`,
+`0028_observation_entry_v3_liquidity_cohorts.sql`,
+`0029_observation_entry_v3_one_candle_reason.sql`, and
+`0030_observation_execution_proposal_v1.sql` are already applied or were applied successfully.
 Do not delete, rename, or roll back any of these migrations.
 
 ## 3. Review and bind detector/settings identities
@@ -336,7 +348,9 @@ first `ONE_CANDLE` metrics row exist, report the experiment as **not yet collect
 The rollout is accepted only when all of the following are recorded:
 
 - local `make verify-observation` passed at the deployed commit;
-- D1 is migrated through 0028;
+- D1 is migrated through 0030;
+- candidate emission and dispatch remain disabled, the receiver manifest remains inert, and no
+  account or broker execution exists;
 - detector and settings digests match across source, edge, and Pine;
 - the paper account and risk configuration are reviewed;
 - Pine compiled, was added to the five-minute chart, and produced an actual realtime event;
@@ -356,7 +370,7 @@ The rollout is accepted only when all of the following are recorded:
 2. Leave version 3 rows immutable.
 3. Redeploy the previous edge/console release if necessary.
 4. Do not delete migration 0024, migration 0025, migration 0026, migration 0027, migration 0028,
-   or historical paper intents or shadow outcomes.
+   migration 0029, migration 0030, or historical paper intents or shadow outcomes.
 
 Keep the reviewed hashes and failed smoke evidence for diagnosis. Rollback does not authorize
 editing or deleting audit facts.
