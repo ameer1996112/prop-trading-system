@@ -41,6 +41,7 @@ Digests are SHA-256 of the exact candidate bytes in the original checkout. The P
 | --- | --- | --- | --- |
 | V3 Pine dirty diff | `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine` binary diff | `dd22474b0ae3e111a59156379b181d3e8e308e59e25d9d69a7161964d6d98845` | REVIEW_HUNKS_ONLY |
 | Execution proposal schema | `contracts/schema/rd-entry-execution-proposal-v1.schema.json` | `fc4e48c143fbb798d76d24f600e3eb5fb8b6861224e8f33f5107a4b1ab8e7e8e` | RECREATE_AND_COMPARE |
+| Execution candidate schema | `contracts/schema/execution-candidate-v1.schema.json` | `9b679687d0b2e56795d4e675160c29a6d7c2d6d744886ea4187fd8fe6c61ac85` | RECREATE_AND_COMPARE |
 | Execution proposal vector | `contracts/vectors/rd-entry-execution-proposal-v1.json` | `befa7307332e6ed3604910e59a660529632298d10f783c314025c9d341773076` | RECREATE_AND_COMPARE |
 | Proposal parser/domain | `apps/observation-edge/src/execution-proposal-v1.ts` | `43e309c18ffeb38808fe82b76e76301e290a4d7aacb9e6efdbd4e44fc49777ce` | RECREATE_AND_COMPARE |
 | Proposal ingestion | `apps/observation-edge/src/execution-proposal-ingestion.ts` | `0caea012bf4872a26b135bda2bfee6a4823008156e68cc904d3c9ab844545523` | RECREATE_AND_COMPARE |
@@ -62,7 +63,7 @@ Before any candidate is recreated, the implementation must pass all of the follo
 1. Re-run the exact baseline command and account only for the seven classified failures until the migration is implemented.
 2. Recompute every listed SHA-256 digest directly from the unchanged original checkout; any mismatch requires review and stops adoption.
 3. Keep Pine proposal authority independent from legacy V3 entry emission, closed-candle/realtime eligibility exact, direction/geometry frozen, and risk geometry exactly four-R.
-4. Validate the proposal schema/vector bytes and parser, ingestion, outbox, and migration behavior with focused tests, including account-free private transport boundaries.
+4. Validate the proposal and execution-candidate schema/vector bytes, plus parser, ingestion, outbox, and migration behavior with focused tests, including account-free private transport boundaries.
 5. Preserve migration ordering and prove the new migration follows 0028 without changing prior migrations.
 6. Re-run `git diff --check` and the targeted static tests; failures outside the seven baseline failures block the migration.
 
