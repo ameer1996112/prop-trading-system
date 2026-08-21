@@ -25,6 +25,7 @@ const string BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED = "BOC_DISCRETIONARY_CONTEXT
 const string AMBIGUOUS_SAME_BAR_EXIT = "AMBIGUOUS_SAME_BAR_EXIT"
 const int ENTRY_MAX_PAYLOAD_CHARS = 35000
 const int ENTRY_MAX_ATTEMPTS = 120
+const int EXECUTION_PROPOSAL_V1_MAX_PAYLOAD_CHARS = 35000
 
 const string DIRECTION_DEMAND = "DEMAND"
 const string DIRECTION_SUPPLY = "SUPPLY"
@@ -113,6 +114,10 @@ emitEntryV3Events = input.bool(false, "Emit contract-v3 entry events", group = "
 entryV3Credential = input.string("", "Contract-v3 ingress credential", group = "Automation")
 detectorCodeHash = input.string("", "Reviewed detector SHA-256", group = "Automation")
 settingsHash = input.string("", "Reviewed settings SHA-256", group = "Automation")
+emitExecutionProposalV1 = input.bool(false, "Emit execution proposal v1", group = "Automation")
+executionProposalV1Credential = input.string("", "Execution proposal v1 credential", group = "Automation")
+executionProposalV1ProvenanceSha256 = input.string("", "Execution proposal v1 provenance SHA-256", group = "Automation")
+executionProposalV1SourceTickCapabilitySha256 = input.string("", "Execution proposal v1 source tick capability SHA-256", group = "Automation")
 entryStopTicks = input.int(100, "Stop distance (ticks)", minval = 1, group = "Automation")
 entryTargetTicks = input.int(200, "Target distance (ticks)", minval = 1, group = "Automation")
 validationCapture = input.bool(false, "Validation capture", group = "Validation")
@@ -1962,6 +1967,7 @@ emitSetupExportIncremental(array<string> transitions, int sequence) =>
 // retained for parity and audit.
 varip EntryAttempt[] entryAttempts = array.new<EntryAttempt>()
 varip int[] entrySequenceState = array.new<int>(1, 0)
+var array<int> executionProposalV1SequenceState = array.new<int>(1, 0)
 varip int entryProducerStartedAt = timenow
 varip int tickSequence = 0
 varip bool entryRetentionBlocked = false
@@ -2632,6 +2638,125 @@ emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitE
             emitted := true
     else if emitEntryV3Events and str.length(entryV3Credential) > 0
         log.error("ENTRY_V3_CREDENTIAL_UNSAFE")
+    emitted
+
+executionProposalV1ReviewedHashesValid() =>
+    reviewedProducerHashesValid() and
+     isReviewedSha256(executionProposalV1ProvenanceSha256) and
+     isReviewedSha256(executionProposalV1SourceTickCapabilitySha256)
+
+executionProposalV1SupportedSymbol() =>
+    string sourceSymbol = setupContractIdentifier(syminfo.ticker)
+    sourceSymbol == "EURUSD" or sourceSymbol == "GBPJPY" or sourceSymbol == "USDJPY" or sourceSymbol == "XAUUSD" or sourceSymbol == "NAS100"
+
+executionProposalV1CredentialSafe() =>
+    int credentialLength = str.length(executionProposalV1Credential)
+    string allowed = str.match(executionProposalV1Credential, "^[A-Za-z0-9._~+/=:-]+$")
+    credentialLength > 0 and credentialLength <= 1024 and allowed == executionProposalV1Credential
+
+executionProposalV1BufferTicks() =>
+    string sourceSymbol = setupContractIdentifier(syminfo.ticker)
+    int bufferTicks = sourceSymbol == "EURUSD" ? 2 : sourceSymbol == "GBPJPY" ? 3 : sourceSymbol == "USDJPY" ? 2 : sourceSymbol == "XAUUSD" ? 5 : sourceSymbol == "NAS100" ? 10 : na
+    bufferTicks
+
+executionProposalV1Eligible(EntryAttempt attempt) =>
+    int observedAtEpoch = entryClockEpoch()
+    barstate.isrealtime and
+     barstate.isconfirmed and
+     executionProposalV1CredentialSafe() and
+     attempt.directionalClose.closeEmitted and
+     attempt.core.liquidityCohort == LIQUIDITY_COHORT_TWO_PLUS and
+     attempt.core.commonRulesPass and
+     executionProposalV1ReviewedHashesValid() and
+     executionProposalV1SupportedSymbol() and
+     attempt.core.engagementEpoch - attempt.core.referenceOpenEpoch == 300 and
+     attempt.directionalClose.closeEventEpoch - attempt.directionalClose.closeOpenEpoch == 300 and
+     attempt.core.engagementEpoch <= attempt.directionalClose.closeEventEpoch and
+     observedAtEpoch >= attempt.directionalClose.closeEventEpoch and
+     observedAtEpoch <= attempt.directionalClose.closeEventEpoch + 30
+
+executionProposalV1ClosedCandle(int openEpoch, int closeEpoch, int openTicks, int highTicks, int lowTicks, int closeTicks) =>
+    "{" +
+     "\"open_epoch\":" + str.tostring(openEpoch) + "," +
+     "\"close_epoch\":" + str.tostring(closeEpoch) + "," +
+     "\"open_ticks\":" + str.tostring(openTicks) + "," +
+     "\"high_ticks\":" + str.tostring(highTicks) + "," +
+     "\"low_ticks\":" + str.tostring(lowTicks) + "," +
+     "\"close_ticks\":" + str.tostring(closeTicks) + "," +
+     "\"closed\":true}"
+
+executionProposalV1Payload(EntryAttempt attempt, int producerSequence) =>
+    string proposalVersion = "rd-entry-execution-proposal-v1"
+    string executionMode = "PAPER_ONLY"
+    string deliveryKind = "LIVE"
+    string ingestIntegrity = "LIVE_CONTIGUOUS"
+    string proposalTimeframe = "M5"
+    string entryModel = "DIR_CLOSE"
+    string liquidityCohort = "TWO_PLUS_CANDLES"
+    string selectionFidelity = "EXACT"
+    string selectionAction = "PAPER_ELIGIBLE"
+    string evidenceReplayability = "REPLAYABLE"
+    string bufferPolicyVersion = "rd-entry-wick-buffer-v1"
+    int observedAtEpoch = entryClockEpoch()
+    int entryTicks = attempt.directionalClose.closeCloseTicks
+    int bufferTicks = executionProposalV1BufferTicks()
+    int wickReferenceTicks = attempt.core.demand ? attempt.core.referenceLowTicks : attempt.core.referenceHighTicks
+    int stopTicks = attempt.core.demand ? wickReferenceTicks - bufferTicks : wickReferenceTicks + bufferTicks
+    int riskDistanceTicks = math.abs(entryTicks - stopTicks)
+    int targetTicks = attempt.core.demand ? entryTicks + riskDistanceTicks * 4 : entryTicks - riskDistanceTicks * 4
+    string selectionId = attempt.core.setupId + ":DIR_CLOSE:" + str.tostring(attempt.directionalClose.closeEventEpoch)
+    string engagementCandle = executionProposalV1ClosedCandle(attempt.core.referenceOpenEpoch, attempt.core.engagementEpoch, attempt.core.referenceOpenTicks, attempt.core.referenceHighTicks, attempt.core.referenceLowTicks, attempt.core.referenceCloseTicks)
+    string sourceBar = executionProposalV1ClosedCandle(attempt.directionalClose.closeOpenEpoch, attempt.directionalClose.closeEventEpoch, attempt.directionalClose.closeOpenTicks, attempt.directionalClose.closeHighTicks, attempt.directionalClose.closeLowTicks, attempt.directionalClose.closeCloseTicks)
+    "{" +
+     "\"schema_version\":" + jsonString(proposalVersion) + "," +
+     "\"strategy_version\":" + jsonString(proposalVersion) + "," +
+     "\"execution_mode\":" + jsonString(executionMode) + "," +
+     "\"producer_instance_id\":" + jsonString(entryProducerInstanceId + ":proposal-v1") + "," +
+     "\"producer_sequence\":" + str.tostring(producerSequence) + "," +
+     "\"delivery_kind\":" + jsonString(deliveryKind) + "," +
+     "\"ingest_integrity\":" + jsonString(ingestIntegrity) + "," +
+     "\"ticker_id\":" + jsonString(setupContractIdentifier(syminfo.tickerid)) + "," +
+     "\"source_symbol\":" + jsonString(setupContractIdentifier(syminfo.ticker)) + "," +
+     "\"source_feed\":" + jsonString(setupContractIdentifier(syminfo.prefix)) + "," +
+     "\"timeframe\":" + jsonString(proposalTimeframe) + "," +
+     "\"source_tick_size\":" + jsonString(str.tostring(syminfo.mintick, format.mintick)) + "," +
+     "\"source_tick_capability_sha256\":" + jsonString(executionProposalV1SourceTickCapabilitySha256) + "," +
+     "\"detector_code_sha256\":" + jsonString(detectorCodeHash) + "," +
+     "\"settings_sha256\":" + jsonString(settingsHash) + "," +
+     "\"provenance_sha256\":" + jsonString(executionProposalV1ProvenanceSha256) + "," +
+     "\"setup_id\":" + jsonString(attempt.core.setupId) + "," +
+     "\"setup_revision\":1," +
+     "\"selection_id\":" + jsonString(selectionId) + "," +
+     "\"entry_model\":" + jsonString(entryModel) + "," +
+     "\"liquidity_cohort\":" + jsonString(liquidityCohort) + "," +
+     "\"selection_fidelity\":" + jsonString(selectionFidelity) + "," +
+     "\"selection_action\":" + jsonString(selectionAction) + "," +
+     "\"evidence_replayability\":" + jsonString(evidenceReplayability) + "," +
+     "\"direction\":" + jsonString(attempt.core.demand ? "LONG" : "SHORT") + "," +
+     "\"zone_top_ticks\":" + str.tostring(attempt.core.zoneTopTicks) + "," +
+     "\"zone_bottom_ticks\":" + str.tostring(attempt.core.zoneBottomTicks) + "," +
+     "\"engagement_candle\":" + engagementCandle + "," +
+     "\"source_bar\":" + sourceBar + "," +
+     "\"wick_reference\":" + jsonString(attempt.core.demand ? "LOW" : "HIGH") + "," +
+     "\"wick_reference_ticks\":" + str.tostring(wickReferenceTicks) + "," +
+     "\"buffer_policy_version\":" + jsonString(bufferPolicyVersion) + "," +
+     "\"buffer_ticks\":" + str.tostring(bufferTicks) + "," +
+     "\"entry_ticks\":" + str.tostring(entryTicks) + "," +
+     "\"stop_ticks\":" + str.tostring(stopTicks) + "," +
+     "\"risk_distance_ticks\":" + str.tostring(riskDistanceTicks) + "," +
+     "\"target_ticks\":" + str.tostring(targetTicks) + "," +
+     "\"observed_at_epoch\":" + str.tostring(observedAtEpoch) + "}"
+
+emitExecutionProposalV1ForAttempt(EntryAttempt attempt) =>
+    bool emitted = false
+    if emitExecutionProposalV1 and executionProposalV1Eligible(attempt)
+        int nextSequence = array.get(executionProposalV1SequenceState, 0) + 1
+        string payload = executionProposalV1Payload(attempt, nextSequence)
+        string envelope = "{\"credential\":" + jsonString(executionProposalV1Credential) + ",\"payload\":" + payload + "}"
+        if str.length(envelope) < EXECUTION_PROPOSAL_V1_MAX_PAYLOAD_CHARS
+            alert(envelope, alert.freq_all)
+            array.set(executionProposalV1SequenceState, 0, nextSequence)
+            emitted := true
     emitted
 
 drawActionableEntry(EntryAttempt attempt) =>
@@ -3464,6 +3589,7 @@ if isFiveMinute and validationReady and entryZoneCount > 0
                 actionablePaperExitThisUpdate := actionablePaperExitThisUpdate or actionableExit
                 if actionableExit
                     drawActionableExit(attempt, exitReason, exitTicks)
+            emitExecutionProposalV1ForAttempt(attempt)
             array.set(entryAttempts, attemptIndex, attempt)
 
 // These named conditions are deliberately separate from the alert function.

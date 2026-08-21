@@ -1503,8 +1503,8 @@ def test_pine_v3_serializer_has_task3_nullable_evidence_keys() -> None:
 def test_pine_v3_has_only_schema_v3_alert_surface() -> None:
     pine = source()
 
-    assert pine.count("alert(") == 2
-    assert pine.count("alert(envelope, alert.freq_all)") == 1
+    assert pine.count("alert(") == 3
+    assert pine.count("alert(envelope, alert.freq_all)") == 2
     assert pine.count("alert(envelope, alert.freq_once_per_bar_close)") == 1
 
 

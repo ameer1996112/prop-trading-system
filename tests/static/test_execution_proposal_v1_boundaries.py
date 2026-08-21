@@ -44,6 +44,19 @@ def test_both_execution_authority_flags_are_independent_and_default_false() -> N
         'emitEntryV3Events = input.bool(false, "Emit contract-v3 entry events", '
         'group = "Automation")'
     ) in pine
+    assert (
+        'executionProposalV1Credential = input.string("", '
+        '"Execution proposal v1 credential", group = "Automation")'
+    ) in pine
+    assert (
+        'executionProposalV1ProvenanceSha256 = input.string("", '
+        '"Execution proposal v1 provenance SHA-256", group = "Automation")'
+    ) in pine
+    assert (
+        'executionProposalV1SourceTickCapabilitySha256 = input.string("", '
+        '"Execution proposal v1 source tick capability SHA-256", '
+        'group = "Automation")'
+    ) in pine
     assert wrangler["vars"]["RD_EXECUTION_CANDIDATE_EMISSION_ENABLED"] == "false"
     assert wrangler["vars"]["RD_EXECUTION_CANDIDATE_DISPATCH_ENABLED"] == "false"
     assert wrangler["vars"]["RD_EXECUTION_RECEIVER_MANIFEST_SHA256"] == (
@@ -53,6 +66,11 @@ def test_both_execution_authority_flags_are_independent_and_default_false() -> N
 
 def test_pine_proposal_is_closed_realtime_exact_dir_close_only() -> None:
     pine = PINE.read_text(encoding="utf-8")
+    v3_emitter = section(
+        pine,
+        "emitEntryPayload(",
+        "executionProposalV1Eligible(",
+    )
     eligibility = section(
         pine,
         "executionProposalV1Eligible(",
@@ -80,12 +98,18 @@ def test_pine_proposal_is_closed_realtime_exact_dir_close_only() -> None:
         "attempt.core.engagementEpoch - attempt.core.referenceOpenEpoch == 300",
         "attempt.directionalClose.closeEventEpoch - attempt.directionalClose.closeOpenEpoch == 300",
         "attempt.core.engagementEpoch <= attempt.directionalClose.closeEventEpoch",
+        "observedAtEpoch >= attempt.directionalClose.closeEventEpoch",
         "observedAtEpoch <= attempt.directionalClose.closeEventEpoch + 30",
     ):
         assert invariant in eligibility
     assert '\\"closed\\":true' in closed_candle
     assert "executionProposalV1Payload(" in emitter
-    assert "alert(envelope, alert.freq_all)" in emitter
+    assert v3_emitter.count("alert(") == 2
+    assert emitter.count("alert(") == 1
+    assert emitter.count("alert(envelope, alert.freq_all)") == 1
+    assert "alert(envelope, alert.freq_once_per_bar_close)" not in emitter
+    assert pine.count("alert(") == 3
+    assert "executionProposalV1CredentialSafe()" in eligibility
     assert "nextSequence = array.get(executionProposalV1SequenceState, 0) + 1" in emitter
     assert emitter.index("str.length(envelope) < EXECUTION_PROPOSAL_V1_MAX_PAYLOAD_CHARS") < emitter.index(
         "array.set(executionProposalV1SequenceState, 0, nextSequence)"
@@ -133,6 +157,14 @@ def test_pine_proposal_serializes_frozen_geometry_and_exact_four_r() -> None:
     assert "riskDistanceTicks = math.abs(entryTicks - stopTicks)" in payload
     assert "targetTicks = attempt.core.demand ? entryTicks + riskDistanceTicks * 4 : entryTicks - riskDistanceTicks * 4" in payload
     assert '\\"setup_revision\\":1' in payload
+
+    schema = json.loads(
+        Path("contracts/schema/rd-entry-execution-proposal-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    serialized_keys = set(re.findall(r'\\\"([a-z0-9_]+)\\\"', payload))
+    assert serialized_keys == set(schema["required"])
 
 
 def test_proposal_path_cannot_mutate_or_promote_legacy_v3() -> None:
