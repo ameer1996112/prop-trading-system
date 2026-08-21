@@ -20,12 +20,31 @@ def assigned_expression(text: str, target: str) -> str:
     return match.group(1).strip()
 
 
+def sibling_order_from_pine_unshifts(materializer: str) -> list[str]:
+    source_insertions = sorted(
+        [
+            (materializer.index("array.unshift(zoneItems, standardZone)"), "standard"),
+            (materializer.index("array.unshift(zoneItems, accuracyZone)"), "accuracy"),
+        ]
+    )
+    zone_order: list[str] = []
+    for _, geometry in source_insertions:
+        zone_order.insert(0, geometry)
+    return zone_order
+
+
 def test_pine_v3_materializes_standard_and_accuracy_variants_from_one_confirmation() -> None:
     pine = source()
     raw_zone = section(pine, "type RawZone", "type EntryCore")
     assert "appendConfirmedZoneVariants(" in pine
+    formation_id = section(
+        pine, "candidateFormationId(", "candidateHasAccuracyGeometry("
+    )
+    builder = section(pine, "buildConfirmedZone(", "appendConfirmedZoneVariants(")
     materializer = section(
         pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice("
+    )
+    diagnostics = section(pine, "diagnosticPayload(", "validationBatch("
     )
     confirmations = section(
         pine,
@@ -35,13 +54,21 @@ def test_pine_v3_materializes_standard_and_accuracy_variants_from_one_confirmati
 
     assert "string formationId" in raw_zone
     assert "candidateFormationId(" in pine
+    assert '"RD3_FORMATION:"' in formation_id
+    assert "syminfo.tickerid" in formation_id
+    assert "timeframe.period" in formation_id
+    assert 'demand ? "D:" : "S:"' in formation_id
+    assert "candidate.originTime" in formation_id
+    assert "originBar" not in formation_id
     assert (
         "buildConfirmedZone(Candidate candidate, bool demand, int zoneId, "
         "string formation, string formationId, bool accuracy)"
         in pine
     )
+    assert "zone.formationId := formationId" in builder
     assert confirmations.count("appendConfirmedZoneVariants(") == 2
     assert confirmations.count("eventZone := standardZone") == 2
+    assert confirmations.count("nextZoneId += createdCount") == 2
     assert materializer.count(
         "buildConfirmedZone(candidate, demand, nextZoneId, formation, "
         "formationId, false)"
@@ -56,6 +83,75 @@ def test_pine_v3_materializes_standard_and_accuracy_variants_from_one_confirmati
     assert "int createdCount = 1" in materializer
     assert "createdCount := 2" in materializer
     assert "[standardZone, createdCount]" in materializer
+    assert sibling_order_from_pine_unshifts(materializer) == ["standard", "accuracy"]
+    for fresh_array in (
+        "zone.liquidityIndexes := array.new<int>()",
+        "zone.structureLiquidityIndexes := array.new<int>()",
+        "zone.setupExportFromStates := array.new<string>()",
+        "zone.setupExportToStates := array.new<string>()",
+        "zone.setupExportReasons := array.new<string>()",
+    ):
+        assert fresh_array in builder
+    for fresh_drawing in (
+        "zone.zoneBox := na",
+        "zone.liquidityLine := na",
+        "zone.ownExtremeLine := na",
+        "zone.structureLiquidityLine := na",
+        "zone.liquidityLabel := na",
+        "zone.debugLabel := na",
+    ):
+        assert fresh_drawing in builder
+    assert '"\\"formation_id\\":\\"" + zone.formationId + "\\","' in diagnostics
+
+
+def test_pine_v3_standard_sibling_claims_the_final_attempt_slot_at_119_of_120() -> None:
+    pine = source()
+    materializer = section(
+        pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice("
+    )
+    attempt_scan = section(
+        pine, "materializeEngagedEntryAttempts(", "commonRuleResultsPayload("
+    )
+    cap_match = re.search(r"const int ENTRY_MAX_ATTEMPTS = (\d+)", pine)
+
+    assert cap_match is not None
+    assert "for zoneIndex = 0 to zoneCount - 1" in attempt_scan
+    assert "RawZone zone = array.get(zoneItems, zoneIndex)" in attempt_scan
+    assert attempt_scan.index("array.get(zoneItems, zoneIndex)") < attempt_scan.index(
+        "ensureEntryAttempt(zone)"
+    )
+
+    cap = int(cap_match.group(1))
+    attempt_count = cap - 1
+    accepted: list[str] = []
+    for geometry in sibling_order_from_pine_unshifts(materializer):
+        if attempt_count < cap:
+            accepted.append(geometry)
+            attempt_count += 1
+
+    assert cap == 120
+    assert accepted == ["standard"]
+    assert attempt_count == cap
+
+
+def test_pine_v3_standard_sibling_survives_one_zone_retention() -> None:
+    pine = source()
+    materializer = section(
+        pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice("
+    )
+    eviction = section(
+        pine, "evictOldestUnprotectedZone(", "if barstate.isfirst"
+    )
+
+    assert "int scanIndex = array.size(zoneItems) - 1" in eviction
+    assert "array.remove(zoneItems, scanIndex)" in eviction
+
+    retained = sibling_order_from_pine_unshifts(materializer)
+    while len(retained) > 1:
+        scan_index = len(retained) - 1
+        retained.pop(scan_index)
+
+    assert retained == ["standard"]
 
 
 def test_pine_v3_clean_view_keeps_tapped_standard_zone_at_its_touch_endpoint() -> None:

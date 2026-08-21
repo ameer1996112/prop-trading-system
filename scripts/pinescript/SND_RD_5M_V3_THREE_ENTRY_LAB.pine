@@ -540,7 +540,7 @@ candidateFormation(Candidate candidate, bool demand) =>
     result
 
 candidateFormationId(Candidate candidate, bool demand) =>
-    (demand ? "D:" : "S:") + str.tostring(candidate.originTime) + ":" + str.tostring(candidate.originBar)
+    "RD3_FORMATION:" + syminfo.tickerid + ":" + timeframe.period + ":" + (demand ? "D:" : "S:") + str.tostring(candidate.originTime)
 
 candidateHasAccuracyGeometry(Candidate candidate, bool demand) =>
     demand ? candidate.originHigh > candidate.firstDepartureHigh : candidate.originLow < candidate.firstDepartureLow
@@ -635,12 +635,12 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
 appendConfirmedZoneVariants(Candidate candidate, bool demand, int nextZoneId, string formation, array<RawZone> zoneItems) =>
     string formationId = candidateFormationId(candidate, demand)
     RawZone standardZone = buildConfirmedZone(candidate, demand, nextZoneId, formation, formationId, false)
-    array.unshift(zoneItems, standardZone)
     int createdCount = 1
     if candidateHasAccuracyGeometry(candidate, demand)
         RawZone accuracyZone = buildConfirmedZone(candidate, demand, nextZoneId + 1, formation, formationId, true)
         array.unshift(zoneItems, accuracyZone)
         createdCount := 2
+    array.unshift(zoneItems, standardZone)
     [standardZone, createdCount]
 
 zoneDistanceFromPrice(RawZone zone) =>
@@ -1032,6 +1032,7 @@ diagnosticPayload(string eventName, RawZone zone) =>
      "\"feed\":\"" + syminfo.prefix + "\"," +
      "\"timeframe\":\"" + timeframe.period + "\"," +
      "\"zone_id\":" + str.tostring(zone.id) + "," +
+     "\"formation_id\":\"" + zone.formationId + "\"," +
      "\"object_id\":\"" + str.tostring(zone.id) + "\"," +
      "\"model\":\"" + zone.geometry + "_" + zone.formation + "\"," +
      "\"zone_type\":\"" + (zone.demand ? "demand" : "supply") + "\"," +
