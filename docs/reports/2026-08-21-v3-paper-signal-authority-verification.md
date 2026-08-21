@@ -1,7 +1,7 @@
 # V3 paper signal authority verification — `NOT_PROVEN` [artifact: implementation `1e66f714ea81c927ab01cbd6ffd3857bad2a6f23`]
 
-- Date and refreshed local verification window: `2026-08-21`, `2026-08-21T15:41:06Z` through `2026-08-21T15:42:15Z`. [command: `date -u '+%Y-%m-%dT%H:%M:%SZ'`, exit `0`]
-- Overall result: `NOT_PROVEN`; focused in-scope checks completed successfully, the full Python suite retained two failures for deliberately excluded execution-edge fixtures, and the required TradingView compile, chart, reload, and continuous realtime evidence could not be captured because the Mac remained locked. [command result: focused verification exited `0`; full pytest exited `1` with `749 passed, 2 failed`; UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
+- Date and refreshed verification window: `2026-08-21`, `2026-08-21T15:41:06Z` through `2026-08-21T15:53:03Z`. [command: `date -u '+%Y-%m-%dT%H:%M:%SZ'`, exit `0`]
+- Overall result: `NOT_PROVEN`; focused in-scope checks completed successfully, the full Python suite retained two failures for deliberately excluded execution-edge fixtures, and the exact committed Pine bytes could not be compiled after the unlocked TradingView tab exposed contradictory stale dialog and editor state. [command result: focused verification exited `0`; full pytest exited `1` with `749 passed, 2 failed`; UI result: chart context read successfully, exact LAB editor load not verified]
 - Verification artifact commit before this report refresh: `1e66f714ea81c927ab01cbd6ffd3857bad2a6f23` on `codex/v3-paper-signal-authority-design`. [command: `git rev-parse HEAD`, exit `0`]
 
 ## Frozen artifacts [artifact: implementation `1e66f714ea81c927ab01cbd6ffd3857bad2a6f23`]
@@ -43,21 +43,22 @@
 
 ## TradingView compile and chart acceptance [artifact: LAB `bc987de543b0442a379145bb189ec6e37ccf436f1466a13c9d52cb8769ba7876`; release `a519cb44ceb7a27a8f9182074e4c28eec4e8caf2382bf5fd2023da3985fc16f5`]
 
-- LAB Pine compile result: `NOT_PROVEN`; Pine Editor could not be reached and no compiler output was captured. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- LAB add-to-chart result: `NOT_PROVEN`; no chart mutation occurred. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- Release Pine compile result: `NOT_PROVEN`; Pine Editor could not be reached and no compiler output was captured. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- Release add-to-chart result: `NOT_PROVEN`; no chart mutation occurred. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- TradingView context result: ticker ID, reviewed feed, tick size, five-minute timeframe confirmation, input snapshot, compiler timestamp, and script-title commit annotation are `NOT_PROVEN` because the UI session could not be unlocked. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- Persistent-alert result: no TradingView alert was created because no UI control was acquired. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
+- LAB Pine compile result: `NOT_PROVEN`; the Pine Editor opened as an unsaved `Untitled script`, but the accessibility value remained TradingView's six-line placeholder after the exact `220317`-byte LAB load attempt, so no compiler result was accepted as evidence. [UI result: editor value still began with TradingView's Mozilla-license placeholder; command: `wc -c scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`, result `220317`]
+- LAB add-to-chart result: `NOT_PROVEN`; `Add to chart` was visible but was not clicked because the exact editor bytes were not proven. [UI result: `Add to chart` button visible; exact LAB load unverified]
+- Release Pine compile result: `NOT_PROVEN`; fail-closed acceptance stopped before loading release after the exact LAB editor state could not be proven. [UI result: no release compiler output captured]
+- Release add-to-chart result: `NOT_PROVEN`; no release chart mutation occurred. [UI result: release artifact not loaded]
+- TradingView context result: `VANTAGE:USDJPY`, market-open state, and the selected five-minute interval are proven; tick size, input snapshot, compiler timestamp, and current-implementation script annotation remain `NOT_PROVEN`. [UI result: chart reported `Chart for VANTAGE:USDJPY, 5 minutes`, `Vantage`, and `Market open`]
+- Existing-chart provenance was not substituted for current acceptance: the loaded `SND RD 5M V3 THREE ENTRY LAB` legend showed revision `45c5effa8fbab45544ef5747bd5993540de5fb2b63948239ca506bbd2f17967d` with `unverified` evidence fields, not implementation `1e66f714ea81c927ab01cbd6ffd3857bad2a6f23`. [UI result: existing indicator legend text]
+- Persistent-alert result: no TradingView alert was created; no script was saved and no verified script was added to the chart. [UI result: compile acceptance stopped before any of those actions]
 
 ## TradingView reload and realtime chronology [artifact: implementation `1e66f714ea81c927ab01cbd6ffd3857bad2a6f23`]
 
-- Confirmed `DIR_CLOSE` before-reload versus after-reload parity: `NOT_PROVEN`; no chart was loaded or reloaded. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- Historical OHLC-only BOC/HTF_FLIP classification as `UNRESOLVED` or absent: `NOT_PROVEN`; no TradingView chart evidence was available. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- Live ordered BOC chronology as `LIVE_EXACT_NON_REPLAYABLE`: `NOT_PROVEN`; continuous realtime tick evidence was unavailable. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- Live ordered HTF_FLIP chronology as `LIVE_EXACT_NON_REPLAYABLE`: `NOT_PROVEN`; continuous realtime tick evidence was unavailable. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- Same-event BOC/HTF_FLIP co-trigger retention: `NOT_PROVEN`; no realtime co-trigger evidence was captured. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
-- One-candle enabled observation as `SHADOW_ONLY / ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`: `NOT_PROVEN` in TradingView realtime evidence; the local static boundary remains successful. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`; command result: focused Python suite exit `0`]
+- Confirmed `DIR_CLOSE` before-reload versus after-reload parity: `NOT_PROVEN`; the exact current script was never established on chart, so no acceptance reload was performed. [UI result: exact LAB editor load unverified]
+- Historical OHLC-only BOC/HTF_FLIP classification as `UNRESOLVED` or absent: `NOT_PROVEN`; the visible chart contained an older unverified LAB revision and was not accepted as current evidence. [UI result: existing legend revision `45c5effa8fbab45544ef5747bd5993540de5fb2b63948239ca506bbd2f17967d`]
+- Live ordered BOC chronology as `LIVE_EXACT_NON_REPLAYABLE`: `NOT_PROVEN`; continuous realtime tick evidence for the current artifact was unavailable. [UI result: market-open chart observed, current artifact not compiled]
+- Live ordered HTF_FLIP chronology as `LIVE_EXACT_NON_REPLAYABLE`: `NOT_PROVEN`; continuous realtime tick evidence for the current artifact was unavailable. [UI result: market-open chart observed, current artifact not compiled]
+- Same-event BOC/HTF_FLIP co-trigger retention: `NOT_PROVEN`; no current-artifact realtime co-trigger evidence was captured. [UI result: exact LAB editor load unverified]
+- One-candle enabled observation as `SHADOW_ONLY / ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`: `NOT_PROVEN` in TradingView realtime evidence; the local static boundary remains successful. [UI result: exact LAB editor load unverified; command result: focused Python suite exit `0`]
 - Historical replay and synthetic HTTP evidence were not substituted for missing continuous realtime evidence. [artifact boundary: Task 9 plan `docs/superpowers/plans/2026-08-21-v3-paper-signal-authority.md`, lines 1178–1180]
 
 ## Original-checkout isolation [artifact: Task 1 inventory `docs/reports/2026-08-21-v3-migration-source-inventory.md`]
@@ -69,5 +70,5 @@
 ## Final determination [artifact: implementation `1e66f714ea81c927ab01cbd6ffd3857bad2a6f23`]
 
 - Local focused source, contract, edge, generated-artifact, authority-boundary, and secret checks completed successfully; the repository-wide Python suite remains incomplete only at the two absent, deliberately excluded execution-edge fixtures recorded above. [command result: focused pytest, edge lint/typecheck/test/build, generated, frozen, boundary, and secret commands exited `0`; full pytest exited `1` with `749 passed, 2 failed`]
-- TradingView acceptance remains `NOT_PROVEN` because both script compiles, both add-to-chart operations, reload parity, live BOC, live HTF_FLIP, same-event co-trigger, and one-candle realtime evidence are missing. [UI command result: repeated `The Mac is locked and automatic unlock could not unlock it`]
+- TradingView acceptance remains `NOT_PROVEN` because both exact-artifact compiles, both add-to-chart operations, reload parity, live BOC, live HTF_FLIP, same-event co-trigger, and one-candle realtime evidence are missing; the unlocked chart/feed/timeframe observation does not satisfy those gates. [UI result: `VANTAGE:USDJPY` five-minute chart proven; exact LAB editor load unverified]
 - Final Task 9 result is `NOT_PROVEN`; no alert, deployment, merge, candidate emission, candidate dispatch, historical replay substitution, or synthetic HTTP substitution occurred. [artifact: implementation `1e66f714ea81c927ab01cbd6ffd3857bad2a6f23`; command result: Wrangler dry-run emission/dispatch flags `false`]
