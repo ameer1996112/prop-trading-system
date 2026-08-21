@@ -3067,6 +3067,21 @@ describe("observation edge Worker", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
     applyObservationMigrationsThrough(database, root, 28);
+    expect(database.prepare("PRAGMA foreign_keys").get()).toEqual({
+      foreign_keys: 1,
+    });
+    database
+      .prepare(
+        `INSERT INTO paper_accounts (
+          account_id, mode, label, currency_code, currency_scale,
+          opening_balance_minor, idempotency_key, payload_sha256, created_at
+        ) VALUES (
+          'reason-migration-account', 'PAPER_ONLY', 'Reason migration', 'USD',
+          2, 5000000, 'paper-account:reason-migration-account', ?,
+          '2026-08-21T00:00:00Z'
+        )`,
+      )
+      .run("0".repeat(64));
     database
       .prepare(
         `INSERT INTO observation_receipts (
@@ -3099,6 +3114,19 @@ describe("observation edge Worker", () => {
       .run("2".repeat(64), "3".repeat(64), "1".repeat(64));
     database
       .prepare(
+        `INSERT INTO paper_trade_intents (
+          intent_id, idempotency_key, payload_sha256, symbol, side,
+          entry_price, stop_loss, take_profit, risk_bps, created_at
+        ) VALUES (
+          'reason-migration-intent',
+          'paper-intent:reason-migration-intent', ?, 'EURUSD', 'BUY',
+          '1.10000', '1.09000', '1.14000', 50,
+          '2026-08-21T00:00:00Z'
+        )`,
+      )
+      .run("4".repeat(64));
+    database
+      .prepare(
         `INSERT INTO observation_entry_v3_candidates (
           candidate_id, logical_candidate_id, event_id, setup_id, model,
           state, direction, event_anchor_epoch, trigger_ordinal, boc_tier,
@@ -3124,9 +3152,10 @@ describe("observation edge Worker", () => {
         ) VALUES (
           'reason-migration-selection', 'reason-logical-selection',
           'reason-migration-event', 'reason-migration-setup', 'INITIAL',
-          'rd-entry-arbitration-v3', 0, NULL, NULL, NULL, 'NO_CANDIDATE', NULL,
-          'NONE', 'NONE', NULL, '[]', 1, NULL, NULL, 100, 90, 140, '{}',
-          'TWO_PLUS_CANDLES', 0
+          'rd-entry-arbitration-v3', 0, 'reason-migration-candidate',
+          'reason-migration-evidence', 'BOC', 'ONLY_EXACT_TRIGGER', 'EXACT',
+          'PAPER_ELIGIBLE', 'PAPER_ELIGIBLE', NULL, '[]', 1, 1, 1,
+          100, 90, 140, '{}', 'TWO_PLUS_CANDLES', 0
         )`,
       )
       .run();
@@ -3152,6 +3181,36 @@ describe("observation edge Worker", () => {
         )`,
       )
       .run();
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_paper_links (
+          setup_id, attempt_kind, selection_id, intent_id, direction,
+          trigger_epoch, trigger_sequence, evaluated_at_epoch, entry_ticks,
+          stop_ticks, target_ticks, created_at
+        ) VALUES (
+          'reason-migration-setup', 'INITIAL', 'reason-migration-selection',
+          'reason-migration-intent', 'LONG', 1, 1, 1, 100, 90, 140,
+          '2026-08-21T00:00:00Z'
+        )`,
+      )
+      .run();
+
+    // This is the reviewer reproduction for the previous migration design:
+    // deferring checks does not make dropping a populated FK parent safe.
+    expect(() => {
+      database.exec("BEGIN");
+      database.exec("PRAGMA defer_foreign_keys = ON");
+      database.exec(
+        `DROP TRIGGER observation_entry_v3_paper_links_authorization_guard;
+         DROP TRIGGER observation_entry_v3_shadow_positions_authorization_guard;
+         DROP TABLE observation_entry_v3_selections;
+         COMMIT;`,
+      );
+    }).toThrow(/FOREIGN KEY constraint failed/u);
+    database.exec("ROLLBACK");
+    expect(database.prepare("PRAGMA foreign_keys").get()).toEqual({
+      foreign_keys: 1,
+    });
 
     database.exec("BEGIN");
     database.exec(
@@ -3161,26 +3220,90 @@ describe("observation edge Worker", () => {
       ),
     );
     database.exec("COMMIT");
+    expect(database.prepare("PRAGMA foreign_keys").get()).toEqual({
+      foreign_keys: 1,
+    });
 
     expect(
       database
         .prepare(
-          `SELECT selection_id, reason, liquidity_cohort, one_candle_enabled
+          `SELECT selection_id, canonical_candidate_id,
+                  canonical_evidence_id, canonical_model, reason, fidelity,
+                  policy_action, action, effective_action_reason,
+                  liquidity_cohort, one_candle_enabled
            FROM observation_entry_v3_selections`,
         )
         .get(),
     ).toEqual({
       selection_id: "reason-migration-selection",
-      reason: "NO_CANDIDATE",
+      canonical_candidate_id: "reason-migration-candidate",
+      canonical_evidence_id: "reason-migration-evidence",
+      canonical_model: "BOC",
+      reason: "ONLY_EXACT_TRIGGER",
+      fidelity: "EXACT",
+      policy_action: "PAPER_ELIGIBLE",
+      action: "PAPER_ELIGIBLE",
+      effective_action_reason: null,
       liquidity_cohort: "TWO_PLUS_CANDLES",
       one_candle_enabled: 0,
     });
     expect(
-      database.prepare("SELECT * FROM observation_entry_v3_selection_members").all(),
-    ).toHaveLength(1);
+      database
+        .prepare(
+          `SELECT selection_id, object_kind, object_id
+           FROM observation_entry_v3_selection_members`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        selection_id: "reason-migration-selection",
+        object_kind: "CANDIDATE",
+        object_id: "reason-migration-candidate",
+      },
+    ]);
     expect(
-      database.prepare("SELECT * FROM observation_entry_v3_parity").all(),
-    ).toHaveLength(1);
+      database
+        .prepare(
+          `SELECT parity_id, event_id, selection_id, parity_status,
+                  mismatch_reason, compared_at
+           FROM observation_entry_v3_parity`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        parity_id: "reason-migration-parity",
+        event_id: "reason-migration-event",
+        selection_id: "reason-migration-selection",
+        parity_status: "MATCH",
+        mismatch_reason: null,
+        compared_at: "2026-08-21T00:00:00Z",
+      },
+    ]);
+    expect(
+      database
+        .prepare(
+          `SELECT setup_id, attempt_kind, selection_id, intent_id, direction,
+                  trigger_epoch, trigger_sequence, evaluated_at_epoch,
+                  entry_ticks, stop_ticks, target_ticks, created_at
+           FROM observation_entry_v3_paper_links`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        setup_id: "reason-migration-setup",
+        attempt_kind: "INITIAL",
+        selection_id: "reason-migration-selection",
+        intent_id: "reason-migration-intent",
+        direction: "LONG",
+        trigger_epoch: 1,
+        trigger_sequence: 1,
+        evaluated_at_epoch: 1,
+        entry_ticks: 100,
+        stop_ticks: 90,
+        target_ticks: 140,
+        created_at: "2026-08-21T00:00:00Z",
+      },
+    ]);
     expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(
       database
@@ -3196,6 +3319,57 @@ describe("observation edge Worker", () => {
         }),
       ]),
     );
+    const indexOrigins = (table: string): string[] =>
+      (
+        database.prepare(`PRAGMA index_list('${table}')`).all() as Array<{
+          origin: string;
+        }>
+      )
+        .map((item) => item.origin)
+        .sort();
+    expect(indexOrigins("observation_entry_v3_selection_members")).toEqual([
+      "pk",
+    ]);
+    expect(indexOrigins("observation_entry_v3_parity")).toEqual(["pk", "u"]);
+    expect(indexOrigins("observation_entry_v3_paper_links")).toEqual([
+      "pk",
+      "u",
+      "u",
+    ]);
+    const foreignKeys = (table: string) =>
+      database.prepare(`PRAGMA foreign_key_list('${table}')`).all();
+    expect(foreignKeys("observation_entry_v3_selection_members")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_v3_selections",
+          from: "selection_id",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_v3_parity")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_v3_selections",
+          from: "selection_id",
+        }),
+        expect.objectContaining({
+          table: "observation_entry_v3_events",
+          from: "event_id",
+        }),
+      ]),
+    );
+    expect(foreignKeys("observation_entry_v3_paper_links")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "observation_entry_v3_selections",
+          from: "selection_id",
+        }),
+        expect.objectContaining({
+          table: "paper_trade_intents",
+          from: "intent_id",
+        }),
+      ]),
+    );
     expect(() =>
       database
         .prepare(
@@ -3205,6 +3379,50 @@ describe("observation edge Worker", () => {
         )
         .run(),
     ).toThrow(/append-only table/u);
+    for (const sql of [
+      `UPDATE observation_entry_v3_selection_members
+       SET object_id = object_id`,
+      `UPDATE observation_entry_v3_parity
+       SET compared_at = compared_at`,
+      `UPDATE observation_entry_v3_paper_links
+       SET created_at = created_at`,
+      `DELETE FROM observation_entry_v3_selections
+       WHERE selection_id = 'reason-migration-selection'`,
+      `DELETE FROM observation_entry_v3_selection_members
+       WHERE selection_id = 'reason-migration-selection'`,
+      `DELETE FROM observation_entry_v3_parity
+       WHERE parity_id = 'reason-migration-parity'`,
+      `DELETE FROM observation_entry_v3_paper_links
+       WHERE setup_id = 'reason-migration-setup'`,
+    ]) {
+      expect(() => database.prepare(sql).run()).toThrow(/append-only table/u);
+    }
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_selection_members (
+            selection_id, object_kind, object_id
+          ) VALUES (
+            'reason-migration-selection', 'CANDIDATE',
+            'reason-migration-candidate'
+          )`,
+        )
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_parity (
+            parity_id, event_id, selection_id, parity_status,
+            mismatch_reason, compared_at
+          ) VALUES (
+            'reason-migration-parity-duplicate', 'reason-migration-event',
+            'reason-migration-selection', 'MATCH', NULL,
+            '2026-08-21T00:00:00Z'
+          )`,
+        )
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/u);
     expect(() =>
       database
         .prepare(
@@ -3214,7 +3432,32 @@ describe("observation edge Worker", () => {
             stop_ticks, target_ticks, created_at
           ) VALUES (
             'reason-migration-setup', 'INITIAL', 'reason-migration-selection',
-            'missing-intent', 'LONG', 1, 1, 1, 100, 90, 140,
+            'reason-migration-intent', 'LONG', 1, 1, 1, 100, 90, 140,
+            '2026-08-21T00:00:00Z'
+          )`,
+        )
+        .run(),
+    ).toThrow(/UNIQUE constraint failed/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_selection_members (
+            selection_id, object_kind, object_id
+          ) VALUES ('missing-selection', 'CANDIDATE', 'missing-object')`,
+        )
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_paper_links (
+            setup_id, attempt_kind, selection_id, intent_id, direction,
+            trigger_epoch, trigger_sequence, evaluated_at_epoch, entry_ticks,
+            stop_ticks, target_ticks, created_at
+          ) VALUES (
+            'reason-migration-wrong-setup', 'INITIAL',
+            'reason-migration-selection', 'reason-migration-intent', 'LONG',
+            1, 1, 1, 100, 90, 140,
             '2026-08-21T00:00:00Z'
           )`,
         )

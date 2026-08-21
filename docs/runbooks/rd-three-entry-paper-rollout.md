@@ -128,10 +128,13 @@ EXPERIMENT:
   one-candle economic action = SHADOW_ONLY
 ```
 
-The experiment flag does not authorize paper or live trading. `ONE_CANDLE` is never
-`PAPER_ELIGIBLE`: an actionable selection is `SHADOW_ONLY`, while an invalidated or candidate-less
-selection remains `NONE`. Neither result can create a paper intent. No broker/live execution path
-exists.
+The experiment flag does not authorize paper or live trading. For `ONE_CANDLE`, canonical edge
+arbitration records `policy_action = SHADOW_ONLY` when a candidate can be observed and
+`policy_action = NONE` when the setup is invalidated or candidate-less. The persisted and API
+effective `action` is always `SHADOW_ONLY` with
+`effective_action_reason = ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`. Policy action is audit evidence;
+effective action is the economic authorization boundary. No one-candle result can create a paper
+intent, actionable Pine marker/alert, broker order, or live execution.
 
 For each exact ticker ID, preserve distinct owner-reviewed canonical settings JSON and SHA-256
 digests for `STRICT` and `EXPERIMENT`; never reuse one profile's settings hash for the other.
@@ -336,9 +339,11 @@ outcomes:
 
 4. Query authenticated `GET /api/v1/rd-entry-cohort-metrics` and require the first
    `liquidity_cohort: "ONE_CANDLE"` row for that approved symbol.
-5. Confirm `ONE_CANDLE` was never `PAPER_ELIGIBLE`: an actionable decision is `SHADOW_ONLY`, while
-   an invalidated or candidate-less decision is `NONE`. Confirm no paper intent was created and no
-   broker or live execution surface exists.
+5. Confirm `ONE_CANDLE` was never effectively `PAPER_ELIGIBLE`. Candidate-bearing decisions have
+   canonical `policy_action = SHADOW_ONLY`; invalidated or candidate-less decisions have canonical
+   `policy_action = NONE`. Every persisted/API row must have effective `action = SHADOW_ONLY` and
+   `effective_action_reason = ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`. Confirm no paper intent,
+   actionable Pine marker/alert, broker order, or live execution surface exists.
 
 A delivered TradingView alert alone is insufficient. Until both stored 2xx receipt proof and the
 first `ONE_CANDLE` metrics row exist, report the experiment as **not yet collecting outcomes**.
@@ -360,8 +365,11 @@ The rollout is accepted only when all of the following are recorded:
   profile active per ticker;
 - a stored 2xx experiment receipt and first `ONE_CANDLE` cohort-metrics row are recorded before
   collection is claimed;
-- `ONE_CANDLE` is never `PAPER_ELIGIBLE`; actionable selections are `SHADOW_ONLY` and invalidated
-  or candidate-less selections are `NONE`, with no paper intent; and
+- `ONE_CANDLE` is never effectively `PAPER_ELIGIBLE`; canonical `policy_action` is `SHADOW_ONLY`
+  for candidate-bearing observations and `NONE` for invalidated or candidate-less observations,
+  while persisted/API effective `action` is always `SHADOW_ONLY` with
+  `effective_action_reason = ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`, and no paper intent or actionable
+  Pine marker/alert exists; and
 - broker/live execution remains disabled.
 
 ## Rollback
