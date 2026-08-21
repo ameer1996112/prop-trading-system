@@ -1,5 +1,5 @@
 import type { CanonicalObject } from "./types";
-import { isStrictJsonNumber } from "./strict-json";
+import { isStrictJsonNumber, parseStrictJson } from "./strict-json";
 
 export const EXECUTION_PROPOSAL_V1 = Object.freeze({
   schemaVersion: "rd-entry-execution-proposal-v1",
@@ -174,6 +174,15 @@ function invalid(): never {
   throw new ExecutionProposalV1ValidationError();
 }
 
+function strictJsonInput(value: unknown): unknown {
+  if (!(value instanceof Uint8Array)) return value;
+  try {
+    return parseStrictJson(value);
+  } catch {
+    return invalid();
+  }
+}
+
 function objectValue(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return invalid();
@@ -291,7 +300,7 @@ function direction(value: unknown): ExecutionProposalV1Direction {
 function reviewedIdentity(
   value: unknown,
 ): Readonly<ExecutionProposalV1ReviewedIdentity> {
-  const input = objectValue(value);
+  const input = objectValue(strictJsonInput(value));
   exactKeys(input, REVIEWED_IDENTITY_KEYS);
   return Object.freeze({
     ticker_id: identifier(input.ticker_id),
@@ -315,7 +324,7 @@ export function validateExecutionProposalV1(
   value: unknown,
   reviewedIdentityValue: unknown,
 ): ExecutionProposalV1 {
-  const input = objectValue(value);
+  const input = objectValue(strictJsonInput(value));
   exactKeys(input, PROPOSAL_KEYS);
   const binding = reviewedIdentity(reviewedIdentityValue);
   const symbol = sourceSymbol(input.source_symbol);

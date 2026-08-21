@@ -23,6 +23,11 @@ The public candidate-derivation function accepts untrusted `unknown` input plus 
 binding and performs full runtime validation itself before hashing. A TypeScript assertion or a
 previous validation call cannot bypass the check.
 
+When either public validation input is a raw `Uint8Array`, it is decoded with the strict JSON
+parser before exact-key validation. Duplicate keys, unsafe integers, and fractional or exponent
+tokens in integer fields therefore fail closed. Already-parsed strict values and ordinary object
+inputs remain supported for bounded ingress paths that parse centrally.
+
 ## Geometry
 
 - Long: engagement `LOW` is the wick reference; `stop = low - buffer`,
@@ -66,6 +71,11 @@ signal.
 The shared vector document contains literal acceptance, rejection, and same-identity conflict
 cases. Its reviewed identities and numeric policies are test fixtures only; their repeated-letter
 digests are intentionally unmistakable non-production values and convey no execution approval.
+Because the reviewed vector bytes are immutable, the focused runtime test adds a supplemental
+rejection matrix. The frozen vectors and that matrix jointly cover every closed authority
+constant, both disallowed entry-model alternatives, shadow-only selection, stale timing, invalid
+wick evidence, reviewed-identity mismatches, unsafe arithmetic, historical delivery, and unknown
+keys without changing any frozen digest.
 
 ## Contract artifacts
 
