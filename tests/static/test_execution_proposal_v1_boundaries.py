@@ -167,13 +167,81 @@ def test_pine_proposal_serializes_frozen_geometry_and_exact_four_r() -> None:
     assert serialized_keys == set(schema["required"])
 
 
+def test_pine_proposal_requires_canonical_exact_dir_close_selection() -> None:
+    pine = PINE.read_text(encoding="utf-8")
+    selection = section(
+        pine,
+        "executionProposalV1DirCloseSelected(",
+        "executionProposalV1Eligible(",
+    )
+    eligibility = section(
+        pine,
+        "executionProposalV1Eligible(",
+        "executionProposalV1ClosedCandle(",
+    )
+
+    for invariant in (
+        "attempt.core.commonRulesPass and executionProposalV1ReviewedHashesValid()",
+        'attempt.boc.bocFidelity == "EXACT"',
+        "attempt.boc.bocTriggerCausal",
+        "attempt.directionalClose.closeEmitted",
+        'attempt.flip.flipFidelity == "EXACT"',
+        "attempt.flip.flipTriggerCausal",
+        "attempt.flip.flipLifecycleCausal",
+        "attempt.boc.bocEventEpoch == attempt.directionalClose.closeEventEpoch",
+        "attempt.boc.bocEventSequence == attempt.directionalClose.closeEventSequence",
+        "attempt.flip.flipEventEpoch == attempt.directionalClose.closeEventEpoch",
+        "attempt.flip.flipEventSequence == attempt.directionalClose.closeEventSequence",
+        "attempt.boc.bocEventTicks != attempt.directionalClose.closeEventTicks",
+        "attempt.flip.flipEventTicks != attempt.directionalClose.closeEventTicks",
+    ):
+        assert invariant in selection
+    assert "executionProposalV1DirCloseSelected(attempt)" in eligibility
+    for forbidden in (
+        ":=",
+        "array.set(",
+        "entrySelectionPayload(",
+        "entrySelectedFacts(",
+        "entryPlanFacts(",
+        "paperDecisionEmitted",
+    ):
+        assert forbidden not in selection
+
+    def dir_close_selected(
+        close: tuple[int, int, int] | None,
+        boc: tuple[int, int, int] | None = None,
+        flip: tuple[int, int, int] | None = None,
+    ) -> bool:
+        if close is None:
+            return False
+        close_clock = close[:2]
+        exact_candidates = [
+            (clock, model)
+            for model, candidate in (("BOC", boc), ("DIR_CLOSE", close), ("HTF_FLIP", flip))
+            if candidate is not None
+            for clock in (candidate[:2],)
+        ]
+        canonical_model = min(exact_candidates)[1]
+        same_event = [candidate for candidate in (boc, close, flip) if candidate is not None and candidate[:2] == close_clock]
+        price_conflict = any(candidate[2] != close[2] for candidate in same_event)
+        return canonical_model == "DIR_CLOSE" and len(same_event) == 1 and not price_conflict
+
+    close = (1_800_000_300, 20, 1100)
+    assert dir_close_selected(close)
+    assert not dir_close_selected(close, boc=(1_800_000_299, 19, 1099))
+    assert not dir_close_selected(close, flip=(1_800_000_299, 19, 1099))
+    assert dir_close_selected(close, boc=(1_800_000_301, 21, 1101))
+    assert not dir_close_selected(close, boc=(1_800_000_300, 20, 1100))
+    assert not dir_close_selected(close, flip=(1_800_000_300, 20, 1101))
+
+
 def test_proposal_path_cannot_mutate_or_promote_legacy_v3() -> None:
     pine = PINE.read_text(encoding="utf-8")
     plan = section(pine, "entryPlanFacts(", "entryHasPaperEligibleSelection(")
     v3_payload = section(pine, "entryPayload(", "emitEntryPayload(")
     proposal = section(
         pine,
-        "executionProposalV1Eligible(",
+        "executionProposalV1DirCloseSelected(",
         "drawActionableEntry(",
     )
     main = section(
@@ -203,6 +271,14 @@ def test_proposal_path_cannot_mutate_or_promote_legacy_v3() -> None:
     assert main.index("monitorAttemptExit(") < main.index(
         "emitExecutionProposalV1ForAttempt(attempt)"
     )
+    bundle_ready = section(
+        main,
+        "            if bundleReady\n",
+        "            array.set(entryAttempts, attemptIndex, attempt)",
+    )
+    assert bundle_ready.count("emitExecutionProposalV1ForAttempt(attempt)") == 1
+    assert "\n                emitExecutionProposalV1ForAttempt(attempt)" in bundle_ready
+    assert "\n            emitExecutionProposalV1ForAttempt(attempt)" not in main
     assert main.index("emitExecutionProposalV1ForAttempt(attempt)") < main.index(
         "array.set(entryAttempts, attemptIndex, attempt)"
     )

@@ -2659,6 +2659,19 @@ executionProposalV1BufferTicks() =>
     int bufferTicks = sourceSymbol == "EURUSD" ? 2 : sourceSymbol == "GBPJPY" ? 3 : sourceSymbol == "USDJPY" ? 2 : sourceSymbol == "XAUUSD" ? 5 : sourceSymbol == "NAS100" ? 10 : na
     bufferTicks
 
+executionProposalV1DirCloseSelected(EntryAttempt attempt) =>
+    bool commonExact = attempt.core.commonRulesPass and executionProposalV1ReviewedHashesValid()
+    bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact
+    bool closeExact = attempt.directionalClose.closeEmitted and commonExact
+    bool flipExact = attempt.flip.flipEmitted and attempt.flip.flipFidelity == "EXACT" and attempt.flip.flipTriggerCausal and attempt.flip.flipLifecycleCausal and commonExact
+    bool bocSameEvent = bocExact and attempt.boc.bocEventEpoch == attempt.directionalClose.closeEventEpoch and attempt.boc.bocEventSequence == attempt.directionalClose.closeEventSequence
+    bool flipSameEvent = flipExact and attempt.flip.flipEventEpoch == attempt.directionalClose.closeEventEpoch and attempt.flip.flipEventSequence == attempt.directionalClose.closeEventSequence
+    bool priceConflict = (bocSameEvent and attempt.boc.bocEventTicks != attempt.directionalClose.closeEventTicks) or (flipSameEvent and attempt.flip.flipEventTicks != attempt.directionalClose.closeEventTicks)
+    bool closeBeforeBoc = not bocExact or attempt.directionalClose.closeEventEpoch < attempt.boc.bocEventEpoch or attempt.directionalClose.closeEventEpoch == attempt.boc.bocEventEpoch and attempt.directionalClose.closeEventSequence < attempt.boc.bocEventSequence
+    bool closeBeforeFlip = not flipExact or attempt.directionalClose.closeEventEpoch < attempt.flip.flipEventEpoch or attempt.directionalClose.closeEventEpoch == attempt.flip.flipEventEpoch and attempt.directionalClose.closeEventSequence < attempt.flip.flipEventSequence
+    bool coTriggerAmbiguous = bocSameEvent or flipSameEvent
+    closeExact and closeBeforeBoc and closeBeforeFlip and not coTriggerAmbiguous and not priceConflict
+
 executionProposalV1Eligible(EntryAttempt attempt) =>
     int observedAtEpoch = entryClockEpoch()
     barstate.isrealtime and
@@ -2668,6 +2681,7 @@ executionProposalV1Eligible(EntryAttempt attempt) =>
      attempt.core.liquidityCohort == LIQUIDITY_COHORT_TWO_PLUS and
      attempt.core.commonRulesPass and
      executionProposalV1ReviewedHashesValid() and
+     executionProposalV1DirCloseSelected(attempt) and
      executionProposalV1SupportedSymbol() and
      attempt.core.engagementEpoch - attempt.core.referenceOpenEpoch == 300 and
      attempt.directionalClose.closeEventEpoch - attempt.directionalClose.closeOpenEpoch == 300 and
@@ -3589,7 +3603,7 @@ if isFiveMinute and validationReady and entryZoneCount > 0
                 actionablePaperExitThisUpdate := actionablePaperExitThisUpdate or actionableExit
                 if actionableExit
                     drawActionableExit(attempt, exitReason, exitTicks)
-            emitExecutionProposalV1ForAttempt(attempt)
+                emitExecutionProposalV1ForAttempt(attempt)
             array.set(entryAttempts, attemptIndex, attempt)
 
 // These named conditions are deliberately separate from the alert function.
