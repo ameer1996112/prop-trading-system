@@ -98,7 +98,7 @@ showLiquidityPriceLabels = input.bool(false, "Show liquidity price labels", grou
 showActionableTradeMarkers = input.bool(true, "Show actionable paper entry/exit markers", group = "Display", tooltip = "Marks only PAPER_ELIGIBLE selections and their exits. Shadow-only diagnostic observations remain webhook telemetry and are not shown as trades.")
 showStatusPanel = input.bool(false, "Show status panel", group = "Display")
 liquidityPivotStrength = input.int(2, "Liquidity pivot strength", minval = 1, maxval = 10, group = "Liquidity")
-enableOneCandleLiquidity = input.bool(true, "Enable one-candle liquidity", group = "Liquidity")
+enableOneCandleLiquidity = input.bool(false, "Enable one-candle liquidity", group = "Liquidity")
 enableMicroRetracementLiquidity = input.bool(false, "Enable micro-retracement liquidity (display only)", group = "Liquidity")
 liquidityStructureMaxDistancePercent = input.float(30.0, "Bigger structure max distance (% of move)", minval = 1.0, maxval = 100.0, step = 1.0, group = "Liquidity")
 liquidityStructureStrictBos = input.bool(false, "Strict structural BOS (close beyond level)", group = "Liquidity")
@@ -2467,15 +2467,8 @@ entrySelectionPayload(EntryAttempt attempt) =>
         evidenceId := "null"
         model := "null"
         fidelity := "null"
-        if attempt.core.invalidatedBeforeEntry
-            reason := "SETUP_INVALIDATED"
-            action := "NONE"
-        else if not anyCandidateEmitted
-            reason := "NO_CANDIDATE"
-            action := "NONE"
-        else
-            reason := "NO_EXACT_CANDIDATE"
-            action := "SHADOW_ONLY"
+        reason := "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"
+        action := "SHADOW_ONLY"
     string coModels = sameEventCount > 1 and not priceConflict ? (bocSameEvent and closeSameEvent and flipSameEvent ? "[\"BOC\",\"DIR_CLOSE\",\"HTF_FLIP\"]" : bocSameEvent and closeSameEvent ? "[\"BOC\",\"DIR_CLOSE\"]" : bocSameEvent and flipSameEvent ? "[\"BOC\",\"HTF_FLIP\"]" : "[\"DIR_CLOSE\",\"HTF_FLIP\"]") : "[]"
     if oneCandleExperiment
         coModels := "[]"

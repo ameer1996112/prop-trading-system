@@ -1141,9 +1141,8 @@ describe("RD entry v3 persistence", () => {
     ).toHaveLength(0);
   });
 
-  it("fails closed before preparing a paper insert for one-candle liquidity", async () => {
+  it("downgrades a forged one-candle paper promotion before paper checks", async () => {
     const database = new SqliteD1();
-    installPaperAccount(database);
     const payload = await oneCandlePayloadFor("strict_long_boc_only");
     const validated = await observation(payload);
     const bundle = validated.entryBundles[0]!;
@@ -1163,13 +1162,39 @@ describe("RD entry v3 persistence", () => {
       },
     );
 
-    await expect(
-      appendEntryV3Observation(
-        env(database),
-        validated,
-        await payloadDigest(payload),
-      ),
-    ).rejects.toThrow("one-candle v3 paper intent forbidden");
+    const result = await appendEntryV3Observation(
+      env(database, { RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64) }),
+      validated,
+      await payloadDigest(payload),
+    );
+
+    expect(result.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
+    });
+    expect(result.paperIntentIds).toEqual([]);
+    const replay = await appendEntryV3Observation(
+      env(database, { RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64) }),
+      validated,
+      await payloadDigest(payload),
+    );
+    expect(replay.inserted).toBe(false);
+    expect(replay.evaluations[0]).toMatchObject({
+      effectiveAction: "SHADOW_ONLY",
+      effectiveActionReason: "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
+    });
+    expect(replay.paperIntentIds).toEqual([]);
+    expect(
+      database.database
+        .prepare(
+          `SELECT action, effective_action_reason
+           FROM observation_entry_v3_selections`,
+        )
+        .get(),
+    ).toEqual({
+      action: "SHADOW_ONLY",
+      effective_action_reason: "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
+    });
     expect(
       database.database
         .prepare("SELECT * FROM paper_trade_intents")

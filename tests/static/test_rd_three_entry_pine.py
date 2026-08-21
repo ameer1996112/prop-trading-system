@@ -813,10 +813,10 @@ def test_pine_v3_prefers_one_canonical_structure_liquidity_line_per_zone() -> No
     assert "structureDistinctFromStrict" not in zone_drawing
 
 
-def test_pine_v3_one_candle_liquidity_is_enabled_by_default() -> None:
+def test_pine_v3_one_candle_liquidity_defaults_off() -> None:
     pine = source()
     assert (
-        'enableOneCandleLiquidity = input.bool(true, '
+        'enableOneCandleLiquidity = input.bool(false, '
         '"Enable one-candle liquidity", group = "Liquidity")'
     ) in pine
     assert (
@@ -1394,16 +1394,10 @@ def test_pine_v3_one_candle_selection_has_canonical_terminal_precedence() -> Non
     ) in selection
     one_candle_override = section(selection, "if oneCandleExperiment", "string coModels")
     assert (
-        "if attempt.core.invalidatedBeforeEntry\n"
-        '            reason := "SETUP_INVALIDATED"\n'
-        '            action := "NONE"\n'
-        "        else if not anyCandidateEmitted\n"
-        '            reason := "NO_CANDIDATE"\n'
-        '            action := "NONE"\n'
-        "        else\n"
-        '            reason := "NO_EXACT_CANDIDATE"\n'
-        '            action := "SHADOW_ONLY"'
-    ) in one_candle_override
+        'reason := "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"'
+        in one_candle_override
+    )
+    assert 'action := "SHADOW_ONLY"' in one_candle_override
     for field in ("candidateId", "evidenceId", "model", "fidelity"):
         assert f'{field} := "null"' in one_candle_override
     assert "PAPER_ELIGIBLE" not in one_candle_override

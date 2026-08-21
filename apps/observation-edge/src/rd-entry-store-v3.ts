@@ -77,6 +77,7 @@ type EntryV3Observation = Extract<
 >;
 
 type EffectiveActionReason =
+  | "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"
   | "PROMOTION_IDENTITY_MISMATCH"
   | "PAPER_CONFIGURATION_UNAVAILABLE"
   | "NOT_SELECTED_ALREADY_OPEN"
@@ -925,6 +926,7 @@ async function appendEntryV3ObservationAttempt(
     for (const bundle of observation.entryBundles) {
       const evidence = selectedEvidence(bundle);
       if (
+        bundle.setup.liquidity_cohort === "ONE_CANDLE" ||
         bundle.evaluation.selection.action !== "PAPER_ELIGIBLE" ||
         existingLinks.get(bundle.setup.setup_id) !== null ||
         experimentalShadowOwners.get(bundle.setup.setup_id) === true ||
@@ -1040,7 +1042,13 @@ async function appendEntryV3ObservationAttempt(
     let effectiveAction = selection.action;
     let effectiveActionReason: EffectiveActionReason = null;
     const evidence = selectedEvidence(bundle);
-    if (selection.action === "PAPER_ELIGIBLE") {
+    if (
+      selection.action === "PAPER_ELIGIBLE" &&
+      bundle.setup.liquidity_cohort === "ONE_CANDLE"
+    ) {
+      effectiveAction = "SHADOW_ONLY";
+      effectiveActionReason = "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED";
+    } else if (selection.action === "PAPER_ELIGIBLE") {
       if (!identityMatches) {
         effectiveAction = "SHADOW_ONLY";
         effectiveActionReason = "PROMOTION_IDENTITY_MISMATCH";
