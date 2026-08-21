@@ -29,8 +29,15 @@ V1_SCHEMA_BYTES = {
 
 
 def test_lab_and_release_pines_remain_paper_only_observation_producers() -> None:
-    for path in (PINE, RELEASE_PINE):
+    expected_titles = {
+        PINE: "SND RD 5M V3 THREE ENTRY LAB",
+        RELEASE_PINE: "SND RD 5M V3 RELEASE",
+    }
+    for path, expected_title in expected_titles.items():
         pine = path.read_text(encoding="utf-8")
+        assert re.findall(r'^indicator\("([^"]+)"', pine, re.MULTILINE) == [
+            expected_title
+        ]
         assert 'const string ENTRY_EXECUTION_MODE = "PAPER_ONLY"' in pine
         assert "emitEntryPayload(" in pine
         assert "emitExecutionProposalV1ForAttempt(" in pine

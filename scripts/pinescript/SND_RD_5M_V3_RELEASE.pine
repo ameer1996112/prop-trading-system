@@ -3641,6 +3641,4 @@ if drawCount > 0
         RawZone zone = array.get(zones, index)
         updateZoneDrawing(zone, zones)
         array.set(zones, index, zone)
-// Boxes are painted during the loop above. On the final chart bar, re-copy
-// liquidity objects so every primary line and label sits above every zone.
 updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)

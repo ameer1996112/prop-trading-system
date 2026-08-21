@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "scripts/generate_rd_v3_release.py"
 LAB = ROOT / "scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine"
 RELEASE = ROOT / "scripts/pinescript/SND_RD_5M_V3_RELEASE.pine"
+PROTECTED_REGION_SHA256 = "2b95ed73eb58928291f2a9f94324da67bc0a93cee44a7b42101febac110f2069"
 
 
 @pytest.mark.parametrize(
@@ -53,7 +54,7 @@ def test_generate_release_preserves_every_outside_byte_and_removes_marked_bytes(
 
 def test_generate_release_accepts_properly_nested_unique_sections() -> None:
     source = (
-        "before\n"
+        'indicator("SND RD 5M V3 THREE ENTRY LAB")\n'
         "// @lab-only-begin outer\n"
         "outer bytes\n"
         "// @lab-only-begin inner\n"
@@ -63,7 +64,31 @@ def test_generate_release_accepts_properly_nested_unique_sections() -> None:
         "after\n"
     )
 
-    assert generate_release(source) == "before\nafter\n"
+    assert generate_release(source) == ('indicator("SND RD 5M V3 RELEASE")\nafter\n')
+
+
+@pytest.mark.parametrize(
+    ("source", "count"),
+    [
+        ("//@version=6\nplot(close)\n", 0),
+        ('// indicator("SND RD 5M V3 THREE ENTRY LAB")\n', 0),
+        ('  indicator("SND RD 5M V3 THREE ENTRY LAB")\n', 0),
+        (
+            'indicator("SND RD 5M V3 THREE ENTRY LAB")\n'
+            'indicator("SND RD 5M V3 THREE ENTRY LAB", overlay = true)\n',
+            2,
+        ),
+    ],
+)
+def test_generate_release_requires_one_anchored_lab_indicator(
+    source: str,
+    count: int,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=re.escape(f"expected exactly one LAB indicator declaration, found {count}"),
+    ):
+        generate_release(source)
 
 
 @pytest.mark.parametrize(
@@ -145,6 +170,50 @@ def test_cli_writes_release_and_check_detects_then_accepts_drift(
     assert clean.returncode == 0, clean.stderr
 
 
+@pytest.mark.parametrize("check", [False, True])
+@pytest.mark.parametrize("alias_kind", ["same-path", "symlink"])
+def test_cli_rejects_source_destination_alias_without_modifying_lab(
+    tmp_path: Path,
+    alias_kind: str,
+    check: bool,
+) -> None:
+    lab = tmp_path / "lab.pine"
+    original = (
+        b'indicator("SND RD 5M V3 THREE ENTRY LAB")\n'
+        b"// @lab-only-begin panel\n"
+        b"diagnostic bytes\n"
+        b"// @lab-only-end panel\n"
+    )
+    lab.write_bytes(original)
+    if alias_kind == "same-path":
+        release = lab
+    else:
+        release = tmp_path / "release.pine"
+        release.symlink_to(lab)
+
+    command = [
+        sys.executable,
+        str(GENERATOR),
+        "--lab",
+        str(lab),
+        "--release",
+        str(release),
+    ]
+    if check:
+        command.append("--check")
+    result = subprocess.run(
+        command,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "source and destination refer to the same file" in result.stderr
+    assert lab.read_bytes() == original
+
+
 def _protected_region(source: str) -> bytes:
     start = source.index('const string ENTRY_MODEL_BOC = "BOC"')
     final_call = "                emitExecutionProposalV1ForAttempt(attempt)\n"
@@ -160,7 +229,5 @@ def test_generated_artifact_matches_generator_and_protected_semantic_digest() ->
     assert release == generated
     assert not release.endswith("\n\n")
     normalized_lab = generate_release(lab)
-    assert (
-        sha256(_protected_region(normalized_lab)).hexdigest()
-        == sha256(_protected_region(release)).hexdigest()
-    )
+    assert sha256(_protected_region(normalized_lab)).hexdigest() == (PROTECTED_REGION_SHA256)
+    assert sha256(_protected_region(release)).hexdigest() == PROTECTED_REGION_SHA256

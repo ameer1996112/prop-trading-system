@@ -10,8 +10,9 @@ from pathlib import Path
 
 BEGIN = re.compile(r"^// @lab-only-begin ([a-z0-9-]+)\n$")
 END = re.compile(r"^// @lab-only-end ([a-z0-9-]+)\n$")
-LAB_TITLE = 'indicator("SND RD 5M V3 THREE ENTRY LAB"'
-RELEASE_TITLE = 'indicator("SND RD 5M V3 RELEASE"'
+LAB_INDICATOR = re.compile(r'^indicator\("SND RD 5M V3 THREE ENTRY LAB"(?=[,)])', re.MULTILINE)
+RELEASE_INDICATOR = re.compile(r'^indicator\("SND RD 5M V3 RELEASE"(?=[,)])', re.MULTILINE)
+RELEASE_INDICATOR_PREFIX = 'indicator("SND RD 5M V3 RELEASE"'
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAB = REPOSITORY_ROOT / "scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine"
 DEFAULT_RELEASE = REPOSITORY_ROOT / "scripts/pinescript/SND_RD_5M_V3_RELEASE.pine"
@@ -42,7 +43,28 @@ def generate_release(source: str) -> str:
             output.append(line)
     if stack:
         raise ValueError(f"unclosed lab-only section: {stack[-1]}")
-    return "".join(output).replace(LAB_TITLE, RELEASE_TITLE, 1)
+    lab_indicators = list(LAB_INDICATOR.finditer(source))
+    if len(lab_indicators) != 1:
+        raise ValueError(
+            f"expected exactly one LAB indicator declaration, found {len(lab_indicators)}"
+        )
+    release = LAB_INDICATOR.sub(RELEASE_INDICATOR_PREFIX, "".join(output), count=1)
+    release_indicator_count = len(RELEASE_INDICATOR.findall(release))
+    lab_indicator_count = len(LAB_INDICATOR.findall(release))
+    if release_indicator_count != 1 or lab_indicator_count != 0:
+        raise ValueError(
+            "generated release must contain exactly one RELEASE indicator "
+            "declaration and no LAB indicator declaration"
+        )
+    return release
+
+
+def _paths_refer_to_same_file(source: Path, destination: Path) -> bool:
+    if source.resolve() == destination.resolve():
+        return True
+    if source.exists() and destination.exists():
+        return source.samefile(destination)
+    return False
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -60,6 +82,8 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if _paths_refer_to_same_file(args.lab, args.release):
+            raise ValueError("source and destination refer to the same file")
         generated = generate_release(args.lab.read_bytes().decode("utf-8"))
     except (OSError, UnicodeError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
