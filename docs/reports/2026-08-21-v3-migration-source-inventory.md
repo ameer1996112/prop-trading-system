@@ -14,6 +14,113 @@ implementation HEAD: 607a7770110f98b488e5df9fd8b49d3e95a9e569
 original: ## codex/fix-liquidity-display-arbitration
 ```
 
+The immutable original-checkout status snapshot (captured with the exact command below, including its trailing newline) is:
+
+```text
+## codex/fix-liquidity-display-arbitration
+ M PLAN-REVIEW-LOG.md
+ M PLAN.md
+ M apps/observation-edge/src/index.ts
+ M apps/observation-edge/src/types.ts
+ M apps/observation-edge/vitest.config.ts
+ M apps/observation-edge/wrangler.jsonc
+ M docs/runbooks/rd-three-entry-paper-rollout.md
+ M scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine
+ M tests/static/test_migration_foundation.py
+ M tests/static/test_rd_three_entry_pine.py
+?? LIQUIDITY-PLAN-REVIEW-LOG.md
+?? LIQUIDITY-PLAN.md
+?? TradeOps-Windows-Task7-20260811.zip
+?? apps/execution-edge/migrations/
+?? apps/execution-edge/node_modules
+?? apps/execution-edge/package-lock.json
+?? apps/execution-edge/package.json
+?? apps/execution-edge/src/account-coordinator.ts
+?? apps/execution-edge/src/agent-installation-v1.ts
+?? apps/execution-edge/src/agent-sync-v1.ts
+?? apps/execution-edge/src/candidate-delivery-v1.ts
+?? apps/execution-edge/src/candidate-inbox.ts
+?? apps/execution-edge/src/canonical.ts
+?? apps/execution-edge/src/contracts-v1.ts
+?? apps/execution-edge/src/execution-audit.ts
+?? apps/execution-edge/src/index.ts
+?? apps/execution-edge/src/types.ts
+?? apps/execution-edge/test/account-coordinator.test.ts
+?? apps/execution-edge/test/account-profile-contracts-v1.test.ts
+?? apps/execution-edge/test/agent-sync-coordinator.test.ts
+?? apps/execution-edge/test/agent-sync-http.test.ts
+?? apps/execution-edge/test/audit-delivery.test.ts
+?? apps/execution-edge/test/candidate-inbox.test.ts
+?? apps/execution-edge/test/candidate-receiver.test.ts
+?? apps/execution-edge/test/candidate-routing.test.ts
+?? apps/execution-edge/test/execution-contracts-v1.test.ts
+?? apps/execution-edge/test/support/agent-sync-fixture.ts
+?? apps/execution-edge/test/support/candidate-fixture.ts
+?? apps/execution-edge/test/support/cloudflare-workers.ts
+?? apps/execution-edge/test/support/sqlite-d1.ts
+?? apps/execution-edge/test/support/sqlite-durable-state.ts
+?? apps/execution-edge/tsconfig.json
+?? apps/execution-edge/vitest.config.ts
+?? apps/execution-edge/wrangler.jsonc
+?? apps/observation-edge/migrations/0029_observation_execution_proposal_v1.sql
+?? apps/observation-edge/src/execution-proposal-ingestion.ts
+?? apps/observation-edge/src/execution-proposal-v1.ts
+?? apps/observation-edge/src/observation-outbox-dispatcher.ts
+?? apps/observation-edge/test/execution-proposal-ingestion.test.ts
+?? apps/observation-edge/test/execution-proposal-v1.test.ts
+?? apps/observation-edge/test/observation-outbox-dispatcher.test.ts
+?? apps/observation-edge/test/support/
+?? config/phase_c/
+?? contracts/schema/account-profile-v1.schema.json
+?? contracts/schema/agent-event-v1.schema.json
+?? contracts/schema/agent-sync-request-v1.schema.json
+?? contracts/schema/agent-sync-response-v1.schema.json
+?? contracts/schema/broker-bar-evidence-v1.schema.json
+?? contracts/schema/execution-candidate-v1.schema.json
+?? contracts/schema/execution-decision-v1.schema.json
+?? contracts/schema/news-calendar-pack-v1.schema.json
+?? contracts/schema/phase-c-shadow-observation-v1.schema.json
+?? contracts/schema/prop-rule-pack-v1.schema.json
+?? contracts/schema/rd-entry-execution-proposal-v1.schema.json
+?? contracts/schema/routing-manifest-v1.schema.json
+?? contracts/schema/signed-account-profile-v1.schema.json
+?? contracts/schema/trade-command-v1.schema.json
+?? contracts/vectors/execution-edge-v1.json
+?? contracts/vectors/rd-entry-execution-proposal-v1.json
+?? docs/rd-entry-execution-proposal-v1.md
+?? docs/reports/
+?? docs/runbooks/phase-c-shadow-observation.md
+?? docs/runbooks/tradingview-paper-bridge.md
+?? docs/superpowers/plans/01-source-reconciliation-and-durability.md
+?? docs/superpowers/plans/2026-08-10-broker-geometry-reconstruction-v2.md
+?? docs/superpowers/plans/2026-08-12-phase-c-shadow-observation.md
+?? docs/superpowers/specs/2026-08-10-broker-geometry-reconstruction-v2-design.md
+?? docs/superpowers/specs/2026-08-12-phase-c-shadow-observation-design.md
+?? phase-c-shadow-windows.zip
+?? scripts/build_phase_c_shadow_report.py
+?? scripts/phase_c_shadow.py
+?? src/prop_trading/domain/liquidity_display_oracle.py
+?? tests/fixtures/liquidity_display_cases_v1.json
+?? tests/fixtures/phase_c_shadow_news.json
+?? tests/fixtures/phase_c_shadow_ten_session_synthetic.jsonl
+?? tests/fixtures/phase_c_shadow_valid_records.jsonl
+?? tests/static/test_phase_c_shadow_boundaries.py
+?? tests/static/test_phase_c_shadow_safety.py
+?? tests/unit/test_liquidity_display_oracle.py
+?? tests/unit/test_phase_c_shadow_cli.py
+?? tests/unit/test_phase_c_shadow_evaluator.py
+?? tests/unit/test_phase_c_shadow_journal.py
+?? tests/unit/test_phase_c_shadow_models.py
+?? tests/unit/test_phase_c_shadow_report.py
+?? tools/phase_c_shadow/
+```
+
+Snapshot digest (SHA-256 over the exact status bytes) is `3d81f2b6c9fbcc11658b50294e02b6b027e1396e6fcd348c112eff381ca54b76`. It is reproducible with:
+
+```text
+git -C /Users/ameeramer/dev/projects/galilsoftware/sources/prop-trading-system status --short --branch | shasum -a 256
+```
+
 The original checkout has user-owned modified and untracked paths. No source file was copied from it and no command in this inventory modified it.
 
 The exact baseline command was:
@@ -35,7 +142,11 @@ No failure outside these two categories occurred. The warning about the unknown 
 
 ## Candidate evidence and dispositions
 
-Digests are SHA-256 of the exact candidate bytes in the original checkout. The Pine digest is the required binary git-diff digest (`git diff --binary ... | shasum -a 256`), not a digest of a copied file.
+Digests are SHA-256 of the exact candidate bytes in the original checkout. The Pine digest is the required binary git-diff digest, not a digest of a copied file. It is reproducible with:
+
+```text
+git -C /Users/ameeramer/dev/projects/galilsoftware/sources/prop-trading-system diff --binary -- scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine | shasum -a 256
+```
 
 | Evidence category | Candidate path or diff | SHA-256 | Disposition |
 | --- | --- | --- | --- |
@@ -61,10 +172,10 @@ This exclusion includes account, broker, MT5, node_modules, ZIP, and Phase C sco
 Before any candidate is recreated, the implementation must pass all of the following gates:
 
 1. Re-run the exact baseline command and account only for the seven classified failures until the migration is implemented.
-2. Recompute every listed SHA-256 digest directly from the unchanged original checkout; any mismatch requires review and stops adoption.
+2. Preserve the frozen original-checkout status snapshot and digest; any status-byte mismatch requires review before adoption. Recompute every listed candidate SHA-256 digest directly from the unchanged original checkout; any mismatch stops adoption.
 3. Keep Pine proposal authority independent from legacy V3 entry emission, closed-candle/realtime eligibility exact, direction/geometry frozen, and risk geometry exactly four-R.
 4. Validate the proposal and execution-candidate schema/vector bytes, plus parser, ingestion, outbox, and migration behavior with focused tests, including account-free private transport boundaries.
 5. Preserve migration ordering and prove the new migration follows 0028 without changing prior migrations.
 6. Re-run `git diff --check` and the targeted static tests; failures outside the seven baseline failures block the migration.
 
-The original checkout remains unchanged, and this report is the sole artifact created by this inventory task.
+The original checkout remains unchanged relative to the frozen status snapshot and digest, and this report is the sole artifact created by this inventory task.
