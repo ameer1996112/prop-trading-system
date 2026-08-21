@@ -652,22 +652,14 @@ describe("RD entry v3 wire", () => {
     ["invalidated", "SETUP_INVALIDATED"],
     ["zero-candidate", "NO_CANDIDATE"],
   ] as const)(
-    "accepts a concrete-identity %s one-candle payload as NONE",
+    "rejects a concrete-identity %s one-candle alternate terminal",
     async (_name, reason) => {
       const value = await concreteOneCandleNonePayload(reason);
       expect(JSON.stringify(value)).not.toContain("EDGE_DERIVED");
 
-      const result = await validateEntryV3Payload(
-        strict(value),
-        reviewedHashes,
-      );
-
-      expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
-        action: "NONE",
-        reason,
-        canonical_candidate_id: null,
-        canonical_evidence_id: null,
-      });
+      await expect(
+        validateEntryV3Payload(strict(value), reviewedHashes),
+      ).rejects.toBeInstanceOf(EntryV3ValidationError);
     },
   );
 
@@ -685,6 +677,53 @@ describe("RD entry v3 wire", () => {
         selection: Record<string, unknown>,
       ) => {
         selection.action = "PAPER_ELIGIBLE";
+      },
+    ],
+    [
+      "none action",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.action = "NONE";
+      },
+    ],
+    [
+      "alternate reason",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.reason = "NO_EXACT_CANDIDATE";
+      },
+    ],
+    [
+      "canonical pointers",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.canonical_candidate_id = "EDGE_DERIVED:BOC";
+        selection.canonical_evidence_id = "EDGE_DERIVED:BOC";
+        selection.canonical_model = "BOC";
+      },
+    ],
+    [
+      "fidelity",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.fidelity = "EXACT";
+      },
+    ],
+    [
+      "co-trigger",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.co_triggered_models = ["BOC"];
       },
     ],
   ])("rejects unsafe one-candle payload: %s", async (_name, mutate) => {

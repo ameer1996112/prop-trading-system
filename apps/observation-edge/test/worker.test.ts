@@ -3062,6 +3062,183 @@ describe("observation edge Worker", () => {
     database.close();
   });
 
+  it("preserves populated v3 selection children through the one-candle reason migration", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const database = new DatabaseSync(":memory:");
+    database.exec("PRAGMA foreign_keys = ON");
+    applyObservationMigrationsThrough(database, root, 28);
+    database
+      .prepare(
+        `INSERT INTO observation_receipts (
+          receipt_id, received_at, idempotency_key, payload_sha256,
+          schema_version, strategy_id, strategy_version, producer_instance_id,
+          sequence, symbol, ticker_id, feed, timeframe, kind
+        ) VALUES (
+          'reason-migration-receipt', '2026-08-21T00:00:00Z',
+          'reason-migration-receipt', ?, '3.1',
+          'rd_liquidity_sd_5m_v1', '3.1.0-contract3',
+          'reason-migration-producer', 1, 'EURUSD', 'OANDA:EURUSD', 'OANDA',
+          '5', 'incremental'
+        )`,
+      )
+      .run("1".repeat(64));
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_events (
+          event_id, receipt_id, producer_instance_id, producer_sequence,
+          strategy_version, rule_contract_version, event_role, is_realtime,
+          symbol, tick_size, detector_code_hash, settings_hash,
+          validated_payload_json, payload_sha256, observed_at_epoch, recorded_at
+        ) VALUES (
+          'reason-migration-event', 'reason-migration-receipt',
+          'reason-migration-producer', 1, '3.1.0-contract3', '3.1.0',
+          'ENTRY_DECISION', 1, 'EURUSD', '0.00001', ?, ?, '{}', ?, 1,
+          '2026-08-21T00:00:00Z'
+        )`,
+      )
+      .run("2".repeat(64), "3".repeat(64), "1".repeat(64));
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_candidates (
+          candidate_id, logical_candidate_id, event_id, setup_id, model,
+          state, direction, event_anchor_epoch, trigger_ordinal, boc_tier,
+          reference_candle_open_epoch, source_claim_ids_json, candidate_json,
+          observed_at_epoch
+        ) VALUES (
+          'reason-migration-candidate', 'reason-logical-candidate',
+          'reason-migration-event', 'reason-migration-setup', 'BOC', 'MATCHED',
+          'LONG', 1, 1, 'HTF_TIMED', 1, '[]', '{}', 1
+        )`,
+      )
+      .run();
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_selections (
+          selection_id, logical_selection_id, event_id, setup_id, attempt_kind,
+          policy_version, revision, canonical_candidate_id,
+          canonical_evidence_id, canonical_model, reason, fidelity,
+          policy_action, action, effective_action_reason,
+          co_triggered_models_json, evaluated_at_epoch, selected_trigger_epoch,
+          selected_trigger_sequence, entry_ticks, stop_ticks, target_ticks,
+          selection_json, liquidity_cohort, one_candle_enabled
+        ) VALUES (
+          'reason-migration-selection', 'reason-logical-selection',
+          'reason-migration-event', 'reason-migration-setup', 'INITIAL',
+          'rd-entry-arbitration-v3', 0, NULL, NULL, NULL, 'NO_CANDIDATE', NULL,
+          'NONE', 'NONE', NULL, '[]', 1, NULL, NULL, 100, 90, 140, '{}',
+          'TWO_PLUS_CANDLES', 0
+        )`,
+      )
+      .run();
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_selection_members (
+          selection_id, object_kind, object_id
+        ) VALUES (
+          'reason-migration-selection', 'CANDIDATE',
+          'reason-migration-candidate'
+        )`,
+      )
+      .run();
+    database
+      .prepare(
+        `INSERT INTO observation_entry_v3_parity (
+          parity_id, event_id, selection_id, parity_status, mismatch_reason,
+          compared_at
+        ) VALUES (
+          'reason-migration-parity', 'reason-migration-event',
+          'reason-migration-selection', 'MATCH', NULL,
+          '2026-08-21T00:00:00Z'
+        )`,
+      )
+      .run();
+
+    database.exec("BEGIN");
+    database.exec(
+      readFileSync(
+        `${root}/migrations/0029_observation_entry_v3_one_candle_reason.sql`,
+        "utf8",
+      ),
+    );
+    database.exec("COMMIT");
+
+    expect(
+      database
+        .prepare(
+          `SELECT selection_id, reason, liquidity_cohort, one_candle_enabled
+           FROM observation_entry_v3_selections`,
+        )
+        .get(),
+    ).toEqual({
+      selection_id: "reason-migration-selection",
+      reason: "NO_CANDIDATE",
+      liquidity_cohort: "TWO_PLUS_CANDLES",
+      one_candle_enabled: 0,
+    });
+    expect(
+      database.prepare("SELECT * FROM observation_entry_v3_selection_members").all(),
+    ).toHaveLength(1);
+    expect(
+      database.prepare("SELECT * FROM observation_entry_v3_parity").all(),
+    ).toHaveLength(1);
+    expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    expect(
+      database
+        .prepare("PRAGMA index_list('observation_entry_v3_selections')")
+        .all(),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "idx_observation_entry_v3_selections_decision_order",
+        }),
+        expect.objectContaining({
+          name: "idx_observation_entry_v3_selections_attempt_order",
+        }),
+      ]),
+    );
+    expect(() =>
+      database
+        .prepare(
+          `UPDATE observation_entry_v3_selections
+           SET action = 'SHADOW_ONLY'
+           WHERE selection_id = 'reason-migration-selection'`,
+        )
+        .run(),
+    ).toThrow(/append-only table/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_paper_links (
+            setup_id, attempt_kind, selection_id, intent_id, direction,
+            trigger_epoch, trigger_sequence, evaluated_at_epoch, entry_ticks,
+            stop_ticks, target_ticks, created_at
+          ) VALUES (
+            'reason-migration-setup', 'INITIAL', 'reason-migration-selection',
+            'missing-intent', 'LONG', 1, 1, 1, 100, 90, 140,
+            '2026-08-21T00:00:00Z'
+          )`,
+        )
+        .run(),
+    ).toThrow(/v3 paper link authorization rejected/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO observation_entry_v3_shadow_positions (
+            candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
+            trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
+            target_ticks, state, exit_event_id, outcome_r_millis, created_at,
+            terminal_at, liquidity_cohort, one_candle_enabled
+          ) VALUES (
+            'reason-migration-candidate', 'reason-migration-setup', 'INITIAL',
+            'LONG', 1, 1, 1, 100, 90, 140, 'OPEN', NULL, NULL,
+            '2026-08-21T00:00:00Z', NULL, 'TWO_PLUS_CANDLES', 0
+          )`,
+        )
+        .run(),
+    ).toThrow(/v3 shadow position authorization rejected/u);
+    database.close();
+  });
+
   it.each([
     ["BOC", "strict_long_boc_only"],
     ["DIR_CLOSE", "close_fallback_after_blocked_aggressive_models"],

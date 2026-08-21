@@ -2523,6 +2523,7 @@ entryPlanFacts(EntryAttempt attempt) =>
     [frozenEntryTicks, frozenStopTicks, frozenTargetTicks]
 
 entryHasPaperEligibleSelection(EntryAttempt attempt) =>
+    bool twoPlusCandleLiquidity = attempt.core.liquidityCohort == LIQUIDITY_COHORT_TWO_PLUS
     bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
     bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact
     bool closeExact = attempt.directionalClose.closeEmitted and commonExact
@@ -2531,7 +2532,7 @@ entryHasPaperEligibleSelection(EntryAttempt attempt) =>
     bool bocConflict = bocExact and attempt.boc.bocEventEpoch == selectedEpoch and attempt.boc.bocEventSequence == selectedSequence and attempt.boc.bocEventTicks != selectedTicks
     bool closeConflict = closeExact and attempt.directionalClose.closeEventEpoch == selectedEpoch and attempt.directionalClose.closeEventSequence == selectedSequence and attempt.directionalClose.closeEventTicks != selectedTicks
     bool flipConflict = flipExact and attempt.flip.flipEventEpoch == selectedEpoch and attempt.flip.flipEventSequence == selectedSequence and attempt.flip.flipEventTicks != selectedTicks
-    not na(selectedEpoch) and (bocExact or closeExact or flipExact) and not (bocConflict or closeConflict or flipConflict)
+    twoPlusCandleLiquidity and not na(selectedEpoch) and (bocExact or closeExact or flipExact) and not (bocConflict or closeConflict or flipConflict)
 
 entryBundleReadyToEmit(EntryAttempt attempt) =>
     not attempt.boc.bocAuditPending and not attempt.flip.flipAuditPending and

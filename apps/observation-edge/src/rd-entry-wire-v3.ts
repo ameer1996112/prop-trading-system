@@ -1025,22 +1025,19 @@ async function parseBundle(
     setup.facts.liquidity_cohort,
   );
   const producerSelection = object(result.selection_proposal);
-  const truthfulOneCandleNone =
-    producerSelection.action === "NONE" &&
-    canonicalSelection.action === "NONE" &&
-    (canonicalSelection.reason === "SETUP_INVALIDATED" ||
-      canonicalSelection.reason === "NO_CANDIDATE") &&
-    producerSelection.reason === canonicalSelection.reason;
-  const truthfulOneCandleShadow =
+  const truthfulOneCandleTerminal =
     producerSelection.action === "SHADOW_ONLY" &&
-    (canonicalSelection.action === "SHADOW_ONLY" ||
-      canonicalSelection.action === "NONE");
+    producerSelection.reason === "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED" &&
+    producerSelection.canonical_candidate_id === null &&
+    producerSelection.canonical_evidence_id === null &&
+    producerSelection.canonical_model === null &&
+    producerSelection.fidelity === null &&
+    values(producerSelection.co_triggered_models, 0, 3).length === 0;
   if (
     setup.facts.liquidity_cohort === "ONE_CANDLE" &&
-    !truthfulOneCandleNone &&
-    !truthfulOneCandleShadow
+    !truthfulOneCandleTerminal
   ) {
-    fail("ENTRY_V3_ONE_CANDLE_PAPER_ACTION");
+    fail("ENTRY_V3_ONE_CANDLE_TERMINAL_MISMATCH");
   }
   if (
     !usesEdgeDerivedIdentity &&

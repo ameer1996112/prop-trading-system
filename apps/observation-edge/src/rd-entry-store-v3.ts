@@ -1042,10 +1042,7 @@ async function appendEntryV3ObservationAttempt(
     let effectiveAction = selection.action;
     let effectiveActionReason: EffectiveActionReason = null;
     const evidence = selectedEvidence(bundle);
-    if (
-      selection.action === "PAPER_ELIGIBLE" &&
-      bundle.setup.liquidity_cohort === "ONE_CANDLE"
-    ) {
+    if (bundle.setup.liquidity_cohort === "ONE_CANDLE") {
       effectiveAction = "SHADOW_ONLY";
       effectiveActionReason = "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED";
     } else if (selection.action === "PAPER_ELIGIBLE") {

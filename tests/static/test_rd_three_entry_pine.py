@@ -1219,6 +1219,50 @@ def test_pine_v3_separates_shadow_telemetry_from_actionable_human_alerts() -> No
     assert 'alertcondition(actionablePaperExitThisUpdate, "SND RD | Actionable paper exit"' in pine
 
 
+def test_pine_v3_actionable_paper_path_requires_two_plus_liquidity() -> None:
+    pine = source()
+    eligibility = section(
+        pine,
+        "entryHasPaperEligibleSelection(",
+        "entryBundleReadyToEmit(",
+    )
+    entry_loop = section(
+        pine,
+        "// Entry candidates are evaluated",
+        "int drawCount = array.size(zones)",
+    )
+
+    assert (
+        "bool twoPlusCandleLiquidity = "
+        "attempt.core.liquidityCohort == LIQUIDITY_COHORT_TWO_PLUS"
+    ) in eligibility
+    assert (
+        "twoPlusCandleLiquidity and not na(selectedEpoch) and "
+        "(bocExact or closeExact or flipExact)"
+    ) in eligibility
+    assert (
+        "if not attempt.core.paperDecisionEmitted and "
+        "entryHasPaperEligibleSelection(attempt)"
+    ) in entry_loop
+    assert entry_loop.count("attempt.core.paperDecisionEmitted := true") == 1
+    actionable_branch = section(
+        entry_loop,
+        "if not attempt.core.paperDecisionEmitted",
+        "bool intrabarCandidate",
+    )
+    assert "actionablePaperEntryThisUpdate := true" in actionable_branch
+    assert "drawActionableEntry(attempt)" in actionable_branch
+    assert "actionableExit := attempt.core.paperDecisionEmitted" in section(
+        pine, "monitorAttemptExit(", "deleteZone("
+    )
+
+    def locally_actionable(cohort: str, exact: bool, conflict: bool) -> bool:
+        return cohort == "TWO_PLUS_CANDLES" and exact and not conflict
+
+    assert not locally_actionable("ONE_CANDLE", exact=True, conflict=False)
+    assert locally_actionable("TWO_PLUS_CANDLES", exact=True, conflict=False)
+
+
 def test_pine_v3_actionable_chart_markers_use_the_frozen_plan() -> None:
     pine = source()
     entry_marker = section(pine, "drawActionableEntry(", "drawActionableExit(")
