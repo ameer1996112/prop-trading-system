@@ -611,6 +611,7 @@ const SELECTION_REASONS_V3 = new Set([
   "CO_TRIGGER_SAME_EVENT",
   "CO_TRIGGER_PRICE_CONFLICT",
   "NO_EXACT_CANDIDATE",
+  "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
   "SETUP_INVALIDATED",
   "NO_CANDIDATE",
 ]);
@@ -932,6 +933,10 @@ function validateUnreviewedBundle(
   const producerSelection = object(producerSelectionValue);
   const producerAction = producerSelection.action;
   const producerReason = producerSelection.reason;
+  const expectedShadowReason =
+    setup.liquidity_cohort === "ONE_CANDLE"
+      ? "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"
+      : "NO_EXACT_CANDIDATE";
   if (
     setup.common_fidelity !== "UNRESOLVED" ||
     candidates.some((candidate) => candidate.state === "MATCHED") ||
@@ -944,7 +949,7 @@ function validateUnreviewedBundle(
     ) ||
     (producerAction !== "SHADOW_ONLY" && producerAction !== "NONE") ||
     (producerAction === "SHADOW_ONLY"
-      ? producerReason !== "NO_EXACT_CANDIDATE"
+      ? producerReason !== expectedShadowReason
       : producerReason !== "SETUP_INVALIDATED" &&
         producerReason !== "NO_CANDIDATE") ||
     producerSelection.canonical_candidate_id !== null ||
@@ -1028,7 +1033,8 @@ async function parseBundle(
     producerSelection.reason === canonicalSelection.reason;
   const truthfulOneCandleShadow =
     producerSelection.action === "SHADOW_ONLY" &&
-    canonicalSelection.action === "SHADOW_ONLY";
+    (canonicalSelection.action === "SHADOW_ONLY" ||
+      canonicalSelection.action === "NONE");
   if (
     setup.facts.liquidity_cohort === "ONE_CANDLE" &&
     !truthfulOneCandleNone &&

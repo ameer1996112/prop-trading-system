@@ -1394,6 +1394,7 @@ interface DecisionSelectionRow {
   readonly policy_action: SelectionActionV3;
   readonly action: SelectionActionV3;
   readonly effective_action_reason:
+    | "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"
     | "PROMOTION_IDENTITY_MISMATCH"
     | "PAPER_CONFIGURATION_UNAVAILABLE"
     | "NOT_SELECTED_ALREADY_OPEN"

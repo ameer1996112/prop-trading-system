@@ -446,7 +446,7 @@ function oneCandlePayload(): Record<string, unknown> {
   selection.canonical_candidate_id = null;
   selection.canonical_evidence_id = null;
   selection.canonical_model = null;
-  selection.reason = "NO_EXACT_CANDIDATE";
+  selection.reason = "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED";
   selection.fidelity = null;
   selection.action = "SHADOW_ONLY";
   selection.co_triggered_models = [];
@@ -582,10 +582,44 @@ describe("RD entry v3 wire", () => {
       one_candle_enabled: true,
       common_fidelity: "DISCRETIONARY",
     });
-    expect(result.entryBundles[0]!.evaluation.selection.action).toBe(
-      "SHADOW_ONLY",
-    );
+    expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
+      action: "SHADOW_ONLY",
+      reason: "NO_EXACT_CANDIDATE",
+      canonical_candidate_id: null,
+      canonical_evidence_id: null,
+    });
   });
+
+  it.each([
+    ["invalidated", "SETUP_INVALIDATED"],
+    ["zero-candidate", "NO_CANDIDATE"],
+  ] as const)(
+    "accepts a Pine-shaped %s one-candle override and derives NONE",
+    async (_name, expectedReason) => {
+      const value = oneCandlePayload();
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      if (expectedReason === "SETUP_INVALIDATED") {
+        (bundle.setup as Record<string, unknown>).invalidated_before_entry = true;
+      } else {
+        bundle.candidates = [];
+        bundle.evidence = [];
+        (bundle.selection_proposal as Record<string, unknown>)
+          .candidate_ids_considered = [];
+      }
+
+      const result = await validateEntryV3Payload(
+        strict(value),
+        reviewedHashes,
+      );
+
+      expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
+        action: "NONE",
+        reason: expectedReason,
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+      });
+    },
+  );
 
   it.each([
     ["invalidated", "SETUP_INVALIDATED"],
