@@ -35,6 +35,24 @@ CREATE TABLE observation_execution_proposal_v1_events (
     )
 ) STRICT;
 
+CREATE INDEX idx_observation_execution_proposal_v1_logical_candidate
+    ON observation_execution_proposal_v1_events(
+        logical_candidate_id,
+        candidate_body_sha256
+    );
+
+CREATE TRIGGER observation_execution_proposal_v1_candidate_conflict_guard
+BEFORE INSERT ON observation_execution_proposal_v1_events
+WHEN EXISTS (
+    SELECT 1
+    FROM observation_execution_proposal_v1_events AS existing
+    WHERE existing.logical_candidate_id = NEW.logical_candidate_id
+      AND existing.candidate_body_sha256 <> NEW.candidate_body_sha256
+)
+BEGIN
+    SELECT RAISE(ABORT, 'logical candidate body conflict');
+END;
+
 CREATE TABLE observation_execution_proposal_v1_paper_results (
     event_id TEXT PRIMARY KEY NOT NULL
         REFERENCES observation_execution_proposal_v1_events(event_id) ON DELETE RESTRICT,
@@ -95,7 +113,7 @@ CREATE TABLE observation_execution_candidate_v1_payloads (
         json_valid(payload_json) AND json_type(payload_json) = 'object'
     ),
     created_at_epoch INTEGER NOT NULL CHECK (created_at_epoch >= 0),
-    expires_at_epoch INTEGER NOT NULL CHECK (expires_at_epoch > created_at_epoch)
+    expires_at_epoch INTEGER NOT NULL CHECK (expires_at_epoch >= 0)
 ) STRICT;
 
 CREATE TABLE observation_execution_candidate_v1_deliveries (
@@ -109,17 +127,28 @@ CREATE TABLE observation_execution_candidate_v1_deliveries (
     next_attempt_at_epoch INTEGER NOT NULL CHECK (next_attempt_at_epoch >= 0),
     lease_owner TEXT,
     lease_expires_at_epoch INTEGER,
+    claim_token TEXT CHECK (claim_token IS NULL OR length(claim_token) = 64),
     acknowledged_at_epoch INTEGER,
     receiver_status INTEGER CHECK (
         receiver_status IS NULL OR receiver_status BETWEEN 100 AND 599
     ),
     last_error TEXT,
     created_at_epoch INTEGER NOT NULL CHECK (created_at_epoch >= 0),
-    expires_at_epoch INTEGER NOT NULL CHECK (expires_at_epoch > created_at_epoch),
+    expires_at_epoch INTEGER NOT NULL CHECK (expires_at_epoch >= 0),
     updated_at_epoch INTEGER NOT NULL CHECK (updated_at_epoch >= created_at_epoch),
     CHECK (
-        (status = 'CLAIMED' AND lease_owner IS NOT NULL AND lease_expires_at_epoch IS NOT NULL)
-        OR (status <> 'CLAIMED' AND lease_owner IS NULL AND lease_expires_at_epoch IS NULL)
+        (
+            status = 'CLAIMED'
+            AND lease_owner IS NOT NULL
+            AND lease_expires_at_epoch IS NOT NULL
+            AND claim_token IS NOT NULL
+        )
+        OR (
+            status <> 'CLAIMED'
+            AND lease_owner IS NULL
+            AND lease_expires_at_epoch IS NULL
+            AND claim_token IS NULL
+        )
     ),
     CHECK (
         (status = 'ACKNOWLEDGED' AND acknowledged_at_epoch IS NOT NULL)
@@ -134,6 +163,10 @@ CREATE INDEX idx_observation_execution_candidate_delivery_claim
         created_at_epoch,
         logical_candidate_id
     );
+
+CREATE UNIQUE INDEX idx_observation_execution_candidate_delivery_claim_token
+    ON observation_execution_candidate_v1_deliveries(claim_token)
+    WHERE claim_token IS NOT NULL;
 
 CREATE TRIGGER observation_execution_candidate_v1_deliveries_update_guard
 BEFORE UPDATE ON observation_execution_candidate_v1_deliveries

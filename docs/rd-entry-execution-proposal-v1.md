@@ -68,6 +68,12 @@ with SHA-256. Geometry is excluded from that identity. The canonical candidate-b
 stored separately, so changed geometry under the same logical signal is a conflict and never a new
 signal.
 
+Ingress also derives `proposal_sha256` from the canonical semantic JSON returned by strict runtime
+validation, with the validator's fixed property order and normalized decoded string values. It is
+not a digest of raw transport bytes. Whitespace, object-key ordering, and JSON escape-only changes
+therefore replay identically; any different validated canonical content under the same producer
+sequence is a body conflict.
+
 The shared vector document contains literal acceptance, rejection, and same-identity conflict
 cases. Its reviewed identities and numeric policies are test fixtures only; their repeated-letter
 digests are intentionally unmistakable non-production values and convey no execution approval.

@@ -22,6 +22,7 @@ export interface ObservationCandidateDeliveryClaim {
   readonly attempt_count: number;
   readonly lease_owner: string;
   readonly lease_expires_at_epoch: number;
+  readonly claim_token: string;
   readonly expires_at_epoch: number;
 }
 
@@ -60,6 +61,28 @@ function validNow(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
 }
 
+async function claimToken(): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(crypto.randomUUID()),
+  );
+  return Array.from(new Uint8Array(digest), (item) =>
+    item.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function freshCompletionEpoch(
+  preSendEpoch: number,
+  clock: () => number,
+): number {
+  try {
+    const fresh = clock();
+    return validNow(fresh) ? Math.max(preSendEpoch, fresh) : preSendEpoch;
+  } catch {
+    return preSendEpoch;
+  }
+}
+
 async function expireStaleDeliveries(
   env: Env,
   nowEpoch: number,
@@ -70,6 +93,7 @@ async function expireStaleDeliveries(
        SET status = 'EXPIRED',
            lease_owner = NULL,
            lease_expires_at_epoch = NULL,
+           claim_token = NULL,
            acknowledged_at_epoch = NULL,
            receiver_status = NULL,
            last_error = 'candidate expired before private delivery',
@@ -95,6 +119,7 @@ export async function claimObservationCandidateDelivery(
     return null;
   }
   const leaseExpiresAtEpoch = nowEpoch + LEASE_SECONDS;
+  const token = await claimToken();
   const results = await env.DB.batch([
     env.DB
       .prepare(
@@ -102,6 +127,7 @@ export async function claimObservationCandidateDelivery(
          SET status = 'EXPIRED',
              lease_owner = NULL,
              lease_expires_at_epoch = NULL,
+             claim_token = NULL,
              acknowledged_at_epoch = NULL,
              receiver_status = NULL,
              last_error = 'candidate expired before private delivery',
@@ -113,9 +139,27 @@ export async function claimObservationCandidateDelivery(
     env.DB
       .prepare(
         `UPDATE observation_execution_candidate_v1_deliveries
+         SET status = 'FAILED_TERMINAL',
+             lease_owner = NULL,
+             lease_expires_at_epoch = NULL,
+             claim_token = NULL,
+             acknowledged_at_epoch = NULL,
+             receiver_status = NULL,
+             last_error = 'final private delivery lease expired',
+             updated_at_epoch = ?
+         WHERE status = 'CLAIMED'
+           AND lease_expires_at_epoch <= ?
+           AND attempt_count >= ?
+           AND expires_at_epoch > ?`,
+      )
+      .bind(nowEpoch, nowEpoch, MAX_ATTEMPTS, nowEpoch),
+    env.DB
+      .prepare(
+        `UPDATE observation_execution_candidate_v1_deliveries
          SET status = 'RETRY',
              lease_owner = NULL,
              lease_expires_at_epoch = NULL,
+             claim_token = NULL,
              acknowledged_at_epoch = NULL,
              receiver_status = NULL,
              last_error = 'private delivery lease expired',
@@ -123,9 +167,10 @@ export async function claimObservationCandidateDelivery(
              updated_at_epoch = ?
          WHERE status = 'CLAIMED'
            AND lease_expires_at_epoch <= ?
+           AND attempt_count < ?
            AND expires_at_epoch > ?`,
       )
-      .bind(nowEpoch, nowEpoch, nowEpoch, nowEpoch),
+      .bind(nowEpoch, nowEpoch, nowEpoch, MAX_ATTEMPTS, nowEpoch),
     env.DB
       .prepare(
         `UPDATE observation_execution_candidate_v1_deliveries
@@ -133,6 +178,7 @@ export async function claimObservationCandidateDelivery(
              attempt_count = attempt_count + 1,
              lease_owner = ?,
              lease_expires_at_epoch = ?,
+             claim_token = ?,
              acknowledged_at_epoch = NULL,
              receiver_status = NULL,
              last_error = NULL,
@@ -154,6 +200,7 @@ export async function claimObservationCandidateDelivery(
       .bind(
         leaseOwner,
         leaseExpiresAtEpoch,
+        token,
         nowEpoch,
         MAX_ATTEMPTS,
         nowEpoch,
@@ -170,19 +217,18 @@ export async function claimObservationCandidateDelivery(
                 delivery.attempt_count,
                 delivery.lease_owner,
                 delivery.lease_expires_at_epoch,
+                delivery.claim_token,
                 delivery.expires_at_epoch
          FROM observation_execution_candidate_v1_deliveries AS delivery
          JOIN observation_execution_candidate_v1_payloads AS payload
            ON payload.logical_candidate_id = delivery.logical_candidate_id
          WHERE delivery.status = 'CLAIMED'
-           AND delivery.lease_owner = ?
-           AND delivery.lease_expires_at_epoch = ?
-         ORDER BY delivery.updated_at_epoch DESC, delivery.logical_candidate_id
+           AND delivery.claim_token = ?
          LIMIT 1`,
       )
-      .bind(leaseOwner, leaseExpiresAtEpoch),
+      .bind(token),
   ]);
-  const claim = results[3]?.results[0] as
+  const claim = results[4]?.results[0] as
     | ObservationCandidateDeliveryClaim
     | undefined;
   return claim ?? null;
@@ -201,17 +247,20 @@ export async function finalizeObservationCandidateDelivery(
         `UPDATE observation_execution_candidate_v1_deliveries
          SET status = 'EXPIRED', lease_owner = NULL,
              lease_expires_at_epoch = NULL, acknowledged_at_epoch = NULL,
+             claim_token = NULL,
              receiver_status = NULL,
              last_error = 'candidate expired during private delivery',
              updated_at_epoch = ?
          WHERE logical_candidate_id = ? AND status = 'CLAIMED'
-           AND lease_owner = ? AND lease_expires_at_epoch = ?`,
+           AND lease_owner = ? AND lease_expires_at_epoch = ?
+           AND claim_token = ?`,
       )
       .bind(
         nowEpoch,
         claim.logical_candidate_id,
         claim.lease_owner,
         claim.lease_expires_at_epoch,
+        claim.claim_token,
       )
       .run();
     return Number(result.meta.changes ?? 0) === 1
@@ -219,15 +268,47 @@ export async function finalizeObservationCandidateDelivery(
       : { status: "EMPTY" };
   }
 
+  if (nowEpoch >= claim.lease_expires_at_epoch) {
+    const terminal = claim.attempt_count >= MAX_ATTEMPTS;
+    const result = await env.DB
+      .prepare(
+        `UPDATE observation_execution_candidate_v1_deliveries
+         SET status = ?, lease_owner = NULL,
+             lease_expires_at_epoch = NULL, claim_token = NULL,
+             acknowledged_at_epoch = NULL, receiver_status = NULL,
+             last_error = ?, next_attempt_at_epoch = ?, updated_at_epoch = ?
+         WHERE logical_candidate_id = ? AND status = 'CLAIMED'
+           AND lease_owner = ? AND lease_expires_at_epoch = ?
+           AND claim_token = ?`,
+      )
+      .bind(
+        terminal ? "FAILED_TERMINAL" : "RETRY",
+        terminal
+          ? "final private delivery lease expired"
+          : "private delivery lease expired",
+        nowEpoch,
+        nowEpoch,
+        claim.logical_candidate_id,
+        claim.lease_owner,
+        claim.lease_expires_at_epoch,
+        claim.claim_token,
+      )
+      .run();
+    if (Number(result.meta.changes ?? 0) !== 1) return { status: "EMPTY" };
+    return terminal ? { status: "FAILED_TERMINAL" } : { status: "RETRY" };
+  }
+
   if (finalization.kind === "ACKNOWLEDGED") {
     const result = await env.DB
       .prepare(
         `UPDATE observation_execution_candidate_v1_deliveries
          SET status = 'ACKNOWLEDGED', lease_owner = NULL,
-             lease_expires_at_epoch = NULL, acknowledged_at_epoch = ?,
+             lease_expires_at_epoch = NULL, claim_token = NULL,
+             acknowledged_at_epoch = ?,
              receiver_status = ?, last_error = NULL, updated_at_epoch = ?
          WHERE logical_candidate_id = ? AND status = 'CLAIMED'
-           AND lease_owner = ? AND lease_expires_at_epoch = ?`,
+           AND lease_owner = ? AND lease_expires_at_epoch = ?
+           AND claim_token = ?`,
       )
       .bind(
         nowEpoch,
@@ -236,6 +317,7 @@ export async function finalizeObservationCandidateDelivery(
         claim.logical_candidate_id,
         claim.lease_owner,
         claim.lease_expires_at_epoch,
+        claim.claim_token,
       )
       .run();
     return Number(result.meta.changes ?? 0) === 1
@@ -254,10 +336,12 @@ export async function finalizeObservationCandidateDelivery(
       .prepare(
         `UPDATE observation_execution_candidate_v1_deliveries
          SET status = 'FAILED_TERMINAL', lease_owner = NULL,
-             lease_expires_at_epoch = NULL, acknowledged_at_epoch = NULL,
+             lease_expires_at_epoch = NULL, claim_token = NULL,
+             acknowledged_at_epoch = NULL,
              receiver_status = ?, last_error = ?, updated_at_epoch = ?
          WHERE logical_candidate_id = ? AND status = 'CLAIMED'
-           AND lease_owner = ? AND lease_expires_at_epoch = ?`,
+           AND lease_owner = ? AND lease_expires_at_epoch = ?
+           AND claim_token = ?`,
       )
       .bind(
         receiverStatus,
@@ -266,6 +350,7 @@ export async function finalizeObservationCandidateDelivery(
         claim.logical_candidate_id,
         claim.lease_owner,
         claim.lease_expires_at_epoch,
+        claim.claim_token,
       )
       .run();
     return Number(result.meta.changes ?? 0) === 1
@@ -281,11 +366,13 @@ export async function finalizeObservationCandidateDelivery(
     .prepare(
       `UPDATE observation_execution_candidate_v1_deliveries
        SET status = 'RETRY', lease_owner = NULL,
-           lease_expires_at_epoch = NULL, acknowledged_at_epoch = NULL,
+           lease_expires_at_epoch = NULL, claim_token = NULL,
+           acknowledged_at_epoch = NULL,
            receiver_status = NULL, last_error = ?,
            next_attempt_at_epoch = ?, updated_at_epoch = ?
        WHERE logical_candidate_id = ? AND status = 'CLAIMED'
-         AND lease_owner = ? AND lease_expires_at_epoch = ?`,
+         AND lease_owner = ? AND lease_expires_at_epoch = ?
+         AND claim_token = ?`,
     )
     .bind(
       finalization.detail.slice(0, 512),
@@ -294,6 +381,7 @@ export async function finalizeObservationCandidateDelivery(
       claim.logical_candidate_id,
       claim.lease_owner,
       claim.lease_expires_at_epoch,
+      claim.claim_token,
     )
     .run();
   return Number(result.meta.changes ?? 0) === 1
@@ -306,6 +394,7 @@ export async function dispatchObservationOutboxOnce(
   leaseOwner: string,
   nowEpoch: number,
   send: PrivateCandidateSender,
+  completionClock: () => number = () => Math.floor(Date.now() / 1_000),
 ): Promise<ObservationOutboxOutcome> {
   if (!validNow(nowEpoch)) return { status: "DISABLED" };
   const expired = await expireStaleDeliveries(env, nowEpoch);
@@ -322,12 +411,13 @@ export async function dispatchObservationOutboxOnce(
     const manifest = env.RD_EXECUTION_RECEIVER_MANIFEST_SHA256;
     if (manifest === undefined) return { status: "DISABLED" };
     const response = await send(claim.payload_json, manifest);
+    const completedAtEpoch = freshCompletionEpoch(nowEpoch, completionClock);
     if (response.status >= 200 && response.status < 300) {
       return finalizeObservationCandidateDelivery(
         env,
         claim,
         { kind: "ACKNOWLEDGED", receiver_status: response.status },
-        nowEpoch,
+        completedAtEpoch,
       );
     }
     if (
@@ -340,7 +430,7 @@ export async function dispatchObservationOutboxOnce(
         env,
         claim,
         { kind: "TRANSIENT_FAILURE", detail: `receiver status ${response.status}` },
-        nowEpoch,
+        completedAtEpoch,
       );
     }
     return finalizeObservationCandidateDelivery(
@@ -351,14 +441,15 @@ export async function dispatchObservationOutboxOnce(
         receiver_status: response.status,
         detail: `receiver status ${response.status}`,
       },
-      nowEpoch,
+      completedAtEpoch,
     );
   } catch {
+    const completedAtEpoch = freshCompletionEpoch(nowEpoch, completionClock);
     return finalizeObservationCandidateDelivery(
       env,
       claim,
       { kind: "TRANSIENT_FAILURE", detail: "private receiver request failed" },
-      nowEpoch,
+      completedAtEpoch,
     );
   }
 }

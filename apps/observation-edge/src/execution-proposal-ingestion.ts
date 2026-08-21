@@ -56,6 +56,10 @@ interface StoredCandidate {
   readonly candidate_body_sha256: string;
 }
 
+interface StoredCandidateEvent {
+  readonly candidate_body_sha256: string;
+}
+
 function responseHeaders(): Headers {
   return new Headers({
     "cache-control": "no-store",
@@ -192,6 +196,41 @@ async function replayResponse(env: Env, eventId: string): Promise<Response | nul
   return storedResponse(stored.response_json, stored.status_code);
 }
 
+async function expectedProducerSequence(
+  env: Env,
+  producerInstanceId: string,
+): Promise<number> {
+  const checkpoint = await env.DB
+    .prepare(
+      `SELECT producer_sequence
+       FROM observation_execution_producer_checkpoints
+       WHERE producer_instance_id = ?
+       ORDER BY producer_sequence DESC
+       LIMIT 1`,
+    )
+    .bind(producerInstanceId)
+    .first<StoredCheckpoint>();
+  return (checkpoint?.producer_sequence ?? 0) + 1;
+}
+
+async function conflictingCandidateEvent(
+  env: Env,
+  logicalCandidateId: string,
+  candidateBodySha256: string,
+): Promise<StoredCandidateEvent | null> {
+  return env.DB
+    .prepare(
+      `SELECT candidate_body_sha256
+       FROM observation_execution_proposal_v1_events
+       WHERE logical_candidate_id = ?
+         AND candidate_body_sha256 <> ?
+       ORDER BY received_at_epoch, event_id
+       LIMIT 1`,
+    )
+    .bind(logicalCandidateId, candidateBodySha256)
+    .first<StoredCandidateEvent>();
+}
+
 async function recordIncident(
   env: Env,
   proposal: ExecutionProposalV1,
@@ -305,6 +344,15 @@ async function ingestValidatedExecutionProposalV1(
     );
   }
   const { proposal, candidate } = validated;
+  const marketExpiresAtEpoch =
+    proposal.observed_at_epoch + CANDIDATE_TTL_SECONDS;
+  if (!Number.isSafeInteger(marketExpiresAtEpoch)) {
+    return errorResponse(
+      422,
+      "EXECUTION_PROPOSAL_V1_INVALID",
+      "Execution proposal market expiry is outside the safe integer range",
+    );
+  }
   const proposalJson = JSON.stringify(proposal);
   const candidateJson = JSON.stringify(candidate);
   const proposalSha256 = await sha256(proposalJson);
@@ -333,12 +381,16 @@ async function ingestValidatedExecutionProposalV1(
         "Stored proposal result is unavailable",
       );
     }
+    const expectedSequence = await expectedProducerSequence(
+      env,
+      proposal.producer_instance_id,
+    );
     const incidentId = await recordIncident(
       env,
       proposal,
       proposalSha256,
       "BODY_CONFLICT",
-      proposal.producer_sequence,
+      expectedSequence,
       existing.proposal_sha256,
       receivedAtEpoch,
     );
@@ -349,17 +401,15 @@ async function ingestValidatedExecutionProposalV1(
     );
   }
 
-  const checkpoint = await env.DB
-    .prepare(
-      `SELECT producer_sequence
-       FROM observation_execution_producer_checkpoints
-       WHERE producer_instance_id = ?
-       ORDER BY producer_sequence DESC
-       LIMIT 1`,
-    )
-    .bind(proposal.producer_instance_id)
-    .first<StoredCheckpoint>();
-  const expectedSequence = (checkpoint?.producer_sequence ?? 0) + 1;
+  const candidateConflict = await conflictingCandidateEvent(
+    env,
+    candidate.logical_candidate_id,
+    candidate.candidate_body_sha256,
+  );
+  const expectedSequence = await expectedProducerSequence(
+    env,
+    proposal.producer_instance_id,
+  );
   if (proposal.producer_sequence !== expectedSequence) {
     const kind = proposal.producer_sequence > expectedSequence
       ? "SEQUENCE_GAP"
@@ -381,9 +431,26 @@ async function ingestValidatedExecutionProposalV1(
       "Producer sequence is not the next contiguous value",
     );
   }
+  if (candidateConflict !== null) {
+    const incidentId = await recordIncident(
+      env,
+      proposal,
+      proposalSha256,
+      "CANDIDATE_CONFLICT",
+      expectedSequence,
+      candidateConflict.candidate_body_sha256,
+      receivedAtEpoch,
+    );
+    return quarantineResponse(
+      "EXECUTION_CANDIDATE_BODY_CONFLICT",
+      incidentId,
+      "Logical candidate was already used for different content",
+    );
+  }
 
   const emissionEnabled = candidateEmissionEnabled(env);
   const dispatchEnabled = candidateDispatchEnabled(env);
+  let candidateAlreadyStored = false;
   if (emissionEnabled) {
     const storedCandidate = await env.DB
       .prepare(
@@ -393,24 +460,25 @@ async function ingestValidatedExecutionProposalV1(
       )
       .bind(candidate.logical_candidate_id)
       .first<StoredCandidate>();
-    if (
-      storedCandidate !== null &&
-      storedCandidate.candidate_body_sha256 !== candidate.candidate_body_sha256
-    ) {
-      const incidentId = await recordIncident(
-        env,
-        proposal,
-        proposalSha256,
-        "CANDIDATE_CONFLICT",
-        expectedSequence,
-        storedCandidate.candidate_body_sha256,
-        receivedAtEpoch,
-      );
-      return quarantineResponse(
-        "EXECUTION_CANDIDATE_BODY_CONFLICT",
-        incidentId,
-        "Logical candidate was already used for different content",
-      );
+    if (storedCandidate !== null) {
+      if (storedCandidate.candidate_body_sha256 === candidate.candidate_body_sha256) {
+        candidateAlreadyStored = true;
+      } else {
+        const incidentId = await recordIncident(
+          env,
+          proposal,
+          proposalSha256,
+          "CANDIDATE_CONFLICT",
+          expectedSequence,
+          storedCandidate.candidate_body_sha256,
+          receivedAtEpoch,
+        );
+        return quarantineResponse(
+          "EXECUTION_CANDIDATE_BODY_CONFLICT",
+          incidentId,
+          "Logical candidate was already used for different content",
+        );
+      }
     }
   }
 
@@ -422,10 +490,8 @@ async function ingestValidatedExecutionProposalV1(
       proposalSha256,
     ].join("\u0000"),
   );
-  const expiresAtEpoch = Math.max(
-    receivedAtEpoch + 1,
-    proposal.observed_at_epoch + CANDIDATE_TTL_SECONDS,
-  );
+  const expiresAtEpoch = marketExpiresAtEpoch;
+  const staleAtIngress = receivedAtEpoch >= expiresAtEpoch;
   const result: ExecutionProposalIngestionResponse = {
     schema_version: "rd-entry-execution-proposal-ingestion-v1",
     status: "RECORDED",
@@ -492,7 +558,7 @@ async function ingestValidatedExecutionProposalV1(
         receivedAtEpoch,
       ),
   ];
-  if (emissionEnabled) {
+  if (emissionEnabled && !candidateAlreadyStored) {
     statements.push(
       env.DB
         .prepare(
@@ -514,14 +580,18 @@ async function ingestValidatedExecutionProposalV1(
         .prepare(
           `INSERT INTO observation_execution_candidate_v1_deliveries (
              logical_candidate_id, status, attempt_count,
-             next_attempt_at_epoch, lease_owner, lease_expires_at_epoch,
+             next_attempt_at_epoch, lease_owner, lease_expires_at_epoch, claim_token,
              acknowledged_at_epoch, receiver_status, last_error,
              created_at_epoch, expires_at_epoch, updated_at_epoch
-           ) VALUES (?, 'PENDING', 0, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?)`,
+           ) VALUES (?, ?, 0, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`,
         )
         .bind(
           candidate.logical_candidate_id,
+          staleAtIngress ? "EXPIRED" : "PENDING",
           receivedAtEpoch,
+          staleAtIngress
+            ? "candidate expired before private delivery"
+            : null,
           receivedAtEpoch,
           expiresAtEpoch,
           receivedAtEpoch,
@@ -544,6 +614,31 @@ async function ingestValidatedExecutionProposalV1(
     if (concurrent?.proposal_sha256 === proposalSha256) {
       const replay = await replayResponse(env, concurrent.event_id);
       if (replay !== null) return replay;
+    }
+    const concurrentCandidateConflict = await conflictingCandidateEvent(
+      env,
+      candidate.logical_candidate_id,
+      candidate.candidate_body_sha256,
+    );
+    if (concurrentCandidateConflict !== null) {
+      const concurrentExpectedSequence = await expectedProducerSequence(
+        env,
+        proposal.producer_instance_id,
+      );
+      const incidentId = await recordIncident(
+        env,
+        proposal,
+        proposalSha256,
+        "CANDIDATE_CONFLICT",
+        concurrentExpectedSequence,
+        concurrentCandidateConflict.candidate_body_sha256,
+        receivedAtEpoch,
+      );
+      return quarantineResponse(
+        "EXECUTION_CANDIDATE_BODY_CONFLICT",
+        incidentId,
+        "Logical candidate was concurrently used for different content",
+      );
     }
     return errorResponse(
       503,
