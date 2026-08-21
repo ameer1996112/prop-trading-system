@@ -1,5 +1,5 @@
 //@version=6
-indicator("SND RD 5M V3 THREE ENTRY LAB", overlay = true, max_bars_back = 5000, max_boxes_count = 300, max_labels_count = 300, max_lines_count = 500)
+indicator("SND RD 5M V3 RELEASE", overlay = true, max_bars_back = 5000, max_boxes_count = 300, max_labels_count = 300, max_lines_count = 500)
 
 // Contract-v3 evidence producer. It observes three independent entry models and
 // emits PAPER_ONLY diagnostic proposals; the edge remains authoritative.
@@ -99,17 +99,11 @@ showStructureLiquidityLines = input.bool(true, "Show bigger-structure liquidity 
 liquidityPrimaryLineWidth = input.int(2, "Primary liquidity line width", minval = 1, maxval = 3, group = "Display")
 showLiquidityPriceLabels = input.bool(false, "Show liquidity price labels", group = "Display")
 showActionableTradeMarkers = input.bool(true, "Show actionable paper entry/exit markers", group = "Display", tooltip = "Marks only PAPER_ELIGIBLE selections and their exits. Shadow-only diagnostic observations remain webhook telemetry and are not shown as trades.")
-// @lab-only-begin status-panel-input
-showStatusPanel = input.bool(false, "Show status panel", group = "Display")
-// @lab-only-end status-panel-input
 liquidityPivotStrength = input.int(2, "Liquidity pivot strength", minval = 1, maxval = 10, group = "Liquidity")
 enableOneCandleLiquidity = input.bool(false, "Enable one-candle liquidity", group = "Liquidity")
 enableMicroRetracementLiquidity = input.bool(false, "Enable micro-retracement liquidity (display only)", group = "Liquidity")
 liquidityStructureMaxDistancePercent = input.float(30.0, "Bigger structure max distance (% of move)", minval = 1.0, maxval = 100.0, step = 1.0, group = "Liquidity")
 liquidityStructureStrictBos = input.bool(false, "Strict structural BOS (close beyond level)", group = "Liquidity")
-// @lab-only-begin debug-zone-label-input
-showLabels = input.bool(false, "Show diagnostic labels", group = "Diagnostics")
-// @lab-only-end debug-zone-label-input
 emitDiagnostics = input.bool(false, "Emit non-executable diagnostic alerts", group = "Diagnostics")
 const bool exportSetupEvents = false
 setupExportCredential = input.string("", "Setup export credential", group = "Automation", tooltip = "Required dedicated Phase 1 ingress credential. No setup payload is emitted while empty.")
@@ -811,17 +805,6 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
         box.set_text_size(zone.zoneBox, size.tiny)
         box.set_text_halign(zone.zoneBox, text.align_right)
         box.set_text_valign(zone.zoneBox, text.align_center)
-// @lab-only-begin debug-zone-labels
-        bool diagnosticLabelsVisible = not premiumVisuals and displayMode == DISPLAY_RAW_AUDIT and showLabels
-        if diagnosticLabelsVisible
-            if na(zone.debugLabel)
-                zone.debugLabel := label.new(leftBar, zone.demand ? zone.bottom : zone.top, zoneText(zone), xloc = xloc.bar_index, style = zone.demand ? label.style_label_up : label.style_label_down, color = color.new(color.black, 15), textcolor = color.white, size = size.tiny)
-            else
-                label.set_text(zone.debugLabel, zoneText(zone))
-        else if not na(zone.debugLabel)
-            label.delete(zone.debugLabel)
-            zone.debugLabel := na
-// @lab-only-end debug-zone-labels
     else
         if not na(zone.zoneBox)
             box.delete(zone.zoneBox)
@@ -3660,36 +3643,4 @@ if drawCount > 0
         array.set(zones, index, zone)
 // Boxes are painted during the loop above. On the final chart bar, re-copy
 // liquidity objects so every primary line and label sits above every zone.
-// @lab-only-begin verbose-audit-z-order
-if barstate.islast and drawCount > 0
-    for index = 0 to drawCount - 1
-        RawZone zone = array.get(zones, index)
-        if not na(zone.ownExtremeLine)
-            line raisedOwnExtremeLine = line.copy(zone.ownExtremeLine)
-            line.delete(zone.ownExtremeLine)
-            zone.ownExtremeLine := raisedOwnExtremeLine
-        if not na(zone.structureLiquidityLine)
-            line raisedStructureLiquidityLine = line.copy(zone.structureLiquidityLine)
-            line.delete(zone.structureLiquidityLine)
-            zone.structureLiquidityLine := raisedStructureLiquidityLine
-        if not na(zone.liquidityLine)
-            line raisedLiquidityLine = line.copy(zone.liquidityLine)
-            line.delete(zone.liquidityLine)
-            zone.liquidityLine := raisedLiquidityLine
-        if not na(zone.liquidityLabel)
-            label raisedLiquidityLabel = label.copy(zone.liquidityLabel)
-            label.delete(zone.liquidityLabel)
-            zone.liquidityLabel := raisedLiquidityLabel
-        array.set(zones, index, zone)
-// @lab-only-end verbose-audit-z-order
 updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)
-// @lab-only-begin status-panel-rendering
-var table statusTable = table.new(position.top_right, 1, 2, border_width = 0)
-if barstate.islast
-    if showStatusPanel
-        table.cell(statusTable, 0, 0, isFiveMinute ? "SND RD | " + str.upper(displayMode) : "5m chart required", text_color = color.white, bgcolor = isFiveMinute ? color.new(color.black, 58) : color.new(color.red, 25), text_size = size.small)
-        table.cell(statusTable, 0, 1, premiumVisuals ? "" : lastDecision, text_color = color.white, bgcolor = premiumVisuals ? color.new(color.black, 100) : color.new(color.black, 28), text_size = size.tiny)
-    else
-        table.cell(statusTable, 0, 0, "", bgcolor = color.new(color.black, 100))
-        table.cell(statusTable, 0, 1, "", bgcolor = color.new(color.black, 100))
-// @lab-only-end status-panel-rendering

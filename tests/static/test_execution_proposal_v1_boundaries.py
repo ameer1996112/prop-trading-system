@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 PINE = Path("scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine")
+RELEASE_PINE = Path("scripts/pinescript/SND_RD_5M_V3_RELEASE.pine")
 WORKER = Path("apps/observation-edge/src/index.ts")
 INGESTION = Path("apps/observation-edge/src/execution-proposal-ingestion.ts")
 DISPATCHER = Path("apps/observation-edge/src/observation-outbox-dispatcher.ts")
@@ -25,6 +26,18 @@ V1_SCHEMA_BYTES = {
         "befa7307332e6ed3604910e59a660529632298d10f783c314025c9d341773076"
     ),
 }
+
+
+def test_lab_and_release_pines_remain_paper_only_observation_producers() -> None:
+    for path in (PINE, RELEASE_PINE):
+        pine = path.read_text(encoding="utf-8")
+        assert 'const string ENTRY_EXECUTION_MODE = "PAPER_ONLY"' in pine
+        assert "emitEntryPayload(" in pine
+        assert "emitExecutionProposalV1ForAttempt(" in pine
+        assert "strategy.entry" not in pine
+        assert "strategy.order" not in pine
+        assert "strategy.exit" not in pine
+        assert re.search(r"\b(account|broker|mt5|command)\b", pine, re.IGNORECASE) is None
 
 
 def section(text: str, start: str, end: str) -> str:

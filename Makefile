@@ -53,6 +53,7 @@ edge-checks: frontend-checks
 	cd $(EDGE) && npm run build
 
 verify-generated: contract-v3-check
+	$(PYTHON) scripts/generate_rd_v3_release.py --check
 	$(PYTHON) scripts/build_phase0_evidence.py --output evidence/phase0/evidence-registry.json --check
 	$(PYTHON) scripts/build_golden_vectors.py --output contracts/vectors/canonical-json-v1.json --check
 	$(PYTHON) scripts/build_rd_entry_oracle_vectors.py \
