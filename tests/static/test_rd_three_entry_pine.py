@@ -20,6 +20,68 @@ def assigned_expression(text: str, target: str) -> str:
     return match.group(1).strip()
 
 
+def test_pine_v3_materializes_standard_and_accuracy_variants_from_one_confirmation() -> None:
+    pine = source()
+    raw_zone = section(pine, "type RawZone", "type EntryCore")
+    assert "appendConfirmedZoneVariants(" in pine
+    materializer = section(
+        pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice("
+    )
+    confirmations = section(
+        pine,
+        "int direction = candleDirection(0)",
+        "// Capture finalized same-bar transitions",
+    )
+
+    assert "string formationId" in raw_zone
+    assert "candidateFormationId(" in pine
+    assert (
+        "buildConfirmedZone(Candidate candidate, bool demand, int zoneId, "
+        "string formation, string formationId, bool accuracy)"
+        in pine
+    )
+    assert confirmations.count("appendConfirmedZoneVariants(") == 2
+    assert confirmations.count("eventZone := standardZone") == 2
+    assert materializer.count(
+        "buildConfirmedZone(candidate, demand, nextZoneId, formation, "
+        "formationId, false)"
+    ) == 1
+    assert materializer.count("candidateHasAccuracyGeometry(candidate, demand)") == 1
+    assert materializer.count(
+        "buildConfirmedZone(candidate, demand, nextZoneId + 1, formation, "
+        "formationId, true)"
+    ) == 1
+    assert "array.unshift(zoneItems, standardZone)" in materializer
+    assert "array.unshift(zoneItems, accuracyZone)" in materializer
+    assert "int createdCount = 1" in materializer
+    assert "createdCount := 2" in materializer
+    assert "[standardZone, createdCount]" in materializer
+
+
+def test_pine_v3_clean_view_keeps_tapped_standard_zone_at_its_touch_endpoint() -> None:
+    pine = source()
+    curated_view = section(
+        pine, "zoneIncludedInCuratedView(", "setupZoneRanksAhead("
+    )
+    zone_visible = section(pine, "zoneVisible(", "zoneBaseColor(")
+
+    assert (
+        'showTapped = input.bool(true, "Show tapped zones", group = "Display")'
+        in pine
+    )
+    assert (
+        "bool lifecycleIncluded = zone.state == STATE_FRESH ? showFresh : "
+        "zone.state == STATE_TAPPED ? showTapped : showInvalidated"
+        in curated_view
+    )
+    assert (
+        "lifecycleIncluded and (displayMode != DISPLAY_QUALIFIED_ONLY or "
+        "zone.liquidityQualified)"
+        in curated_view
+    )
+    assert "showFresh and zoneIncludedInCuratedView(zone)" not in zone_visible
+
+
 def test_pine_v3_declares_the_closed_three_model_contract() -> None:
     pine = source()
 

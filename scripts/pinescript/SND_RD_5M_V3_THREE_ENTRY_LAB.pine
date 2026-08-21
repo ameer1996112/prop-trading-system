@@ -88,7 +88,7 @@ premiumVisuals = input.bool(true, "Premium visuals", group = "Display")
 cleanZonesPerLevel = input.int(1, "Clean zones per overlapping level", minval = 1, maxval = 3, group = "Display")
 setupOutcomeBars = input.int(12, "Recent setup outcome bars", minval = 1, maxval = 120, group = "Display")
 showFresh = input.bool(true, "Show fresh zones", group = "Display")
-showTapped = input.bool(false, "Show tapped zones", group = "Display")
+showTapped = input.bool(true, "Show tapped zones", group = "Display")
 showInvalidated = input.bool(false, "Show invalidated zones", group = "Display")
 showLiquidityLines = input.bool(true, "Show liquidity lines", group = "Display")
 showLiquidityProofLines = input.bool(false, "Show liquidity proof lines", group = "Display")
@@ -199,6 +199,7 @@ type StructureLiquidityLevel
 
 type RawZone
     int id
+    string formationId
     bool demand
     string formation
     string geometry
@@ -538,9 +539,13 @@ candidateFormation(Candidate candidate, bool demand) =>
         result := continuation ? FORMATION_CONTINUATION : FORMATION_REVERSAL
     result
 
-buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formation) =>
-    bool accuracyCondition = demand ? candidate.originHigh > candidate.firstDepartureHigh : candidate.originLow < candidate.firstDepartureLow
-    bool accuracy = accuracyCondition
+candidateFormationId(Candidate candidate, bool demand) =>
+    (demand ? "D:" : "S:") + str.tostring(candidate.originTime) + ":" + str.tostring(candidate.originBar)
+
+candidateHasAccuracyGeometry(Candidate candidate, bool demand) =>
+    demand ? candidate.originHigh > candidate.firstDepartureHigh : candidate.originLow < candidate.firstDepartureLow
+
+buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formation, string formationId, bool accuracy) =>
     string geometry = accuracy ? GEOMETRY_ACCURACY : GEOMETRY_STANDARD
     float bodyHigh = math.max(candidate.originOpen, candidate.originClose)
     float bodyLow = math.min(candidate.originOpen, candidate.originClose)
@@ -553,6 +558,7 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
 
     RawZone zone = RawZone.new()
     zone.id := zoneId
+    zone.formationId := formationId
     zone.demand := demand
     zone.formation := formation
     zone.geometry := geometry
@@ -626,6 +632,17 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
     zone.debugLabel := na
     zone
 
+appendConfirmedZoneVariants(Candidate candidate, bool demand, int nextZoneId, string formation, array<RawZone> zoneItems) =>
+    string formationId = candidateFormationId(candidate, demand)
+    RawZone standardZone = buildConfirmedZone(candidate, demand, nextZoneId, formation, formationId, false)
+    array.unshift(zoneItems, standardZone)
+    int createdCount = 1
+    if candidateHasAccuracyGeometry(candidate, demand)
+        RawZone accuracyZone = buildConfirmedZone(candidate, demand, nextZoneId + 1, formation, formationId, true)
+        array.unshift(zoneItems, accuracyZone)
+        createdCount := 2
+    [standardZone, createdCount]
+
 zoneDistanceFromPrice(RawZone zone) =>
     close < zone.bottom ? zone.bottom - close : close > zone.top ? close - zone.top : 0.0
 
@@ -639,7 +656,8 @@ setupIncludedInView(RawZone zone) =>
     armed or recentTerminal
 
 zoneIncludedInCuratedView(RawZone zone) =>
-    displayMode == DISPLAY_SETUPS_ONLY ? setupIncludedInView(zone) : zone.state == STATE_FRESH and (displayMode != DISPLAY_QUALIFIED_ONLY or zone.liquidityQualified)
+    bool lifecycleIncluded = zone.state == STATE_FRESH ? showFresh : zone.state == STATE_TAPPED ? showTapped : showInvalidated
+    displayMode == DISPLAY_SETUPS_ONLY ? setupIncludedInView(zone) : lifecycleIncluded and (displayMode != DISPLAY_QUALIFIED_ONLY or zone.liquidityQualified)
 
 setupZoneRanksAhead(RawZone candidate, RawZone target, float candidateDistance, float targetDistance) =>
     bool ranksAhead = candidateDistance < targetDistance or (candidateDistance == targetDistance and candidate.id > target.id)
@@ -669,7 +687,7 @@ zoneSelectedForCleanView(RawZone target, array<RawZone> allZones) =>
 
 zoneVisible(RawZone zone, array<RawZone> allZones) =>
     bool lifecycleVisible = zone.state == STATE_FRESH ? showFresh : zone.state == STATE_TAPPED ? showTapped : showInvalidated
-    displayMode == DISPLAY_RAW_AUDIT ? lifecycleVisible : displayMode == DISPLAY_SETUPS_ONLY ? setupIncludedInView(zone) and zoneSelectedForCleanView(zone, allZones) : showFresh and zoneIncludedInCuratedView(zone) and zoneSelectedForCleanView(zone, allZones)
+    displayMode == DISPLAY_RAW_AUDIT ? lifecycleVisible : displayMode == DISPLAY_SETUPS_ONLY ? setupIncludedInView(zone) and zoneSelectedForCleanView(zone, allZones) : zoneIncludedInCuratedView(zone) and zoneSelectedForCleanView(zone, allZones)
 
 zoneBaseColor(RawZone zone) =>
     color result = displayMode == DISPLAY_SETUPS_ONLY ? (zone.setupState == SETUP_ARMED ? (zone.demand ? color.teal : color.red) : zone.setupState == SETUP_SHADOW_ONLY ? color.orange : color.gray) : zone.state == STATE_TAPPED ? tappedColor : zone.state == STATE_INVALIDATED ? invalidatedColor : (zone.demand ? demandColor : supplyColor)
@@ -3301,11 +3319,10 @@ if barstate.isconfirmed and isFiveMinute and validationReady
                 if str.length(formation) == 0
                     lastDecision := REJECT_UNKNOWN_APPROACH
                 else
-                    RawZone zone = buildConfirmedZone(demandCandidate, true, nextZoneId, formation)
-                    array.unshift(zones, zone)
-                    nextZoneId += 1
+                    [standardZone, createdCount] = appendConfirmedZoneVariants(demandCandidate, true, nextZoneId, formation, zones)
+                    nextZoneId += createdCount
                     confirmedEvent := true
-                    eventZone := zone
+                    eventZone := standardZone
                     lastDecision := CONFIRM_CLOSE_BEYOND_ORIGIN
                 demandCandidate.reset()
         bool rebasedSupply = supplyCandidate.rebaseInsideFormation(false)
@@ -3322,11 +3339,10 @@ if barstate.isconfirmed and isFiveMinute and validationReady
                 if str.length(formation) == 0
                     lastDecision := REJECT_UNKNOWN_APPROACH
                 else
-                    RawZone zone = buildConfirmedZone(supplyCandidate, false, nextZoneId, formation)
-                    array.unshift(zones, zone)
-                    nextZoneId += 1
+                    [standardZone, createdCount] = appendConfirmedZoneVariants(supplyCandidate, false, nextZoneId, formation, zones)
+                    nextZoneId += createdCount
                     confirmedEvent := true
-                    eventZone := zone
+                    eventZone := standardZone
                     lastDecision := CONFIRM_CLOSE_BEYOND_ORIGIN
                 supplyCandidate.reset()
         bool rebasedDemand = demandCandidate.rebaseInsideFormation(true)
