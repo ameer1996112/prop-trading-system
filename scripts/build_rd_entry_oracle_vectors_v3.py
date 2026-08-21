@@ -258,7 +258,7 @@ def build_vectors(document: dict[str, object]) -> dict[str, object]:
         )
     vectors = {
         "schema_id": "phase0.rd-entry-arbitration-vectors.v3",
-        "rule_contract_version": "3.0.0",
+        "rule_contract_version": "3.1.0",
         "arbitration_policy_version": "rd-entry-arbitration-v3",
         "cases": cases,
     }

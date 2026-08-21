@@ -70,6 +70,24 @@ def test_contract_v3_has_no_live_execution_surface() -> None:
     assert contract["automation_policy"]["real_execution_allowed"] is False
 
 
+def test_v3_contract_identity_is_aligned_across_contract_pine_and_docs() -> None:
+    contract = json.loads(
+        Path("config/phase0/rd-strategy-rule-contract-v3.json").read_text(encoding="utf-8")
+    )
+    pine = Path("scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine").read_text(
+        encoding="utf-8"
+    )
+    docs = Path("docs/rd-strategy-rule-contract-v3.md").read_text(encoding="utf-8")
+
+    assert contract["contract_version"] == "3.1.0"
+    assert contract["producer_strategy_version"] == "3.1.0-contract3"
+    assert 'ENTRY_SCHEMA_VERSION = "3.1"' in pine
+    assert 'ENTRY_STRATEGY_VERSION = "3.1.0-contract3"' in pine
+    assert 'ENTRY_RULE_CONTRACT_VERSION = "3.1.0"' in pine
+    assert "contract version is `3.1.0`" in docs
+    assert "producer version is `3.1.0-contract3`" in docs
+
+
 def test_v3_files_do_not_contain_broker_actions() -> None:
     assert {
         "place_order",

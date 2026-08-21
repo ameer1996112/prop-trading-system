@@ -49,8 +49,8 @@ def test_v3_contract_restores_boc_as_a_distinct_active_model() -> None:
     contract = load_rd_strategy_contract_v3()
     v2_payload = json.loads(V2_CONTRACT_PATH.read_text())
 
-    assert contract.contract_version == "3.0.0"
-    assert contract.producer_strategy_version == "3.0.0-contract3"
+    assert contract.contract_version == "3.1.0"
+    assert contract.producer_strategy_version == "3.1.0-contract3"
     assert contract.base_contract_sha256 == BASE_CONTRACT_SHA256
     assert contract.base_contract_sha256 == sha256(BASE_CONTRACT_PATH.read_bytes()).hexdigest()
     assert contract.inherited_rule_ids == tuple(v2_payload["inherited_rule_ids"])

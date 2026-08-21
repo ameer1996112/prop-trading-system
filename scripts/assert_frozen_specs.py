@@ -15,8 +15,11 @@ RD_BOC_THREE_ENTRY_DESIGN_SHA256 = (
 RD_BOC_THREE_ENTRY_IMPLEMENTATION_PLAN_SHA256 = (
     "7d254addf2b73f42add8230ec2448740f0534335382d2773c7afe65b96638846"
 )
+V3_PAPER_SIGNAL_AUTHORITY_DESIGN_SHA256 = (
+    "ae3eaf99a7b29128662259941aae3969441d87243c713d1be57c5703b3dc69a2"
+)
 RD_STRATEGY_RULE_CONTRACT_V3_SHA256 = (
-    "ec0660523fc91a206de0ae41035baa34e30e1c68f5d56f517950ecd1b5c1183f"
+    "a9960e870fd563eb1e1de62725d0a26579198d7e0992726fd34cbc58a32e1345"
 )
 ACT3_PREFIX = b"\n\n## Act 3 \xe2\x80\x94 Build\n"
 _TOP_LEVEL_ATX_HEADING = re.compile(r" {0,3}#{1,2}(?:[ \t]+|$)")
@@ -50,6 +53,7 @@ def validate_frozen_bytes(plan: bytes, review_log: bytes) -> None:
 def validate_frozen_v3_bytes(
     design: bytes,
     implementation_plan: bytes,
+    paper_signal_authority_design: bytes,
     contract: bytes,
 ) -> None:
     checks = (
@@ -62,6 +66,11 @@ def validate_frozen_v3_bytes(
             implementation_plan,
             RD_BOC_THREE_ENTRY_IMPLEMENTATION_PLAN_SHA256,
             "reviewer-owned frozen file changed: RD BOC three-entry implementation plan",
+        ),
+        (
+            paper_signal_authority_design,
+            V3_PAPER_SIGNAL_AUTHORITY_DESIGN_SHA256,
+            "reviewer-owned frozen file changed: v3 paper signal authority design",
         ),
         (
             contract,
@@ -83,6 +92,9 @@ def main() -> int:
             ).read_bytes(),
             Path(
                 "docs/superpowers/plans/2026-07-28-rd-boc-three-entry-implementation.md"
+            ).read_bytes(),
+            Path(
+                "docs/superpowers/specs/2026-08-21-v3-paper-signal-authority-migration-design.md"
             ).read_bytes(),
             Path("config/phase0/rd-strategy-rule-contract-v3.json").read_bytes(),
         )

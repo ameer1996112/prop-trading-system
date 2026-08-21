@@ -884,7 +884,7 @@ class RDEntryArbitrationVectorCaseV3(ContractModel):
 
 class RDEntryArbitrationVectorsV3(ContractModel):
     schema_id: Literal["phase0.rd-entry-arbitration-vectors.v3"]
-    rule_contract_version: Literal["3.0.0"]
+    rule_contract_version: Literal["3.1.0"]
     arbitration_policy_version: PolicyVersion
     cases: tuple[RDEntryArbitrationVectorCaseV3, ...] = Field(
         min_length=13,

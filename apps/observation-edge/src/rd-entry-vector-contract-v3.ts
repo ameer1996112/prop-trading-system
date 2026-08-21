@@ -21,7 +21,7 @@ export interface RdEntryOracleVectorCaseV3 {
 
 export interface RdEntryOracleVectorDocumentV3 {
   readonly schema_id: "phase0.rd-entry-arbitration-vectors.v3";
-  readonly rule_contract_version: "3.0.0";
+  readonly rule_contract_version: "3.1.0";
   readonly arbitration_policy_version: typeof POLICY_VERSION_V3;
   readonly cases: readonly RdEntryOracleVectorCaseV3[];
 }
@@ -649,7 +649,7 @@ export function parseEntryV3VectorDocument(
   );
   if (
     document.schema_id !== "phase0.rd-entry-arbitration-vectors.v3" ||
-    document.rule_contract_version !== "3.0.0" ||
+    document.rule_contract_version !== "3.1.0" ||
     document.arbitration_policy_version !== POLICY_VERSION_V3
   ) {
     fail("vector document versions are unsupported");
@@ -662,7 +662,7 @@ export function parseEntryV3VectorDocument(
   }
   return {
     schema_id: "phase0.rd-entry-arbitration-vectors.v3",
-    rule_contract_version: "3.0.0",
+    rule_contract_version: "3.1.0",
     arbitration_policy_version: POLICY_VERSION_V3,
     cases,
   };

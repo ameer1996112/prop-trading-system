@@ -2,8 +2,9 @@
 
 Contract v3 is the reviewed, paper-only RD 5-minute entry contract. Its machine-readable source is
 [`config/phase0/rd-strategy-rule-contract-v3.json`](../config/phase0/rd-strategy-rule-contract-v3.json).
-The contract identity is `rd-5m-video-contract-v3`, the contract version is `3.0.0`, the producer
-version is `3.0.0-contract3`, and the arbitration policy is `rd-entry-arbitration-v3`.
+The contract identity is `rd-5m-video-contract-v3`, the contract version is `3.1.0`,
+the producer version is `3.1.0-contract3`, and the arbitration policy is
+`rd-entry-arbitration-v3`.
 
 ## Closed entry-model set
 
