@@ -417,6 +417,141 @@ describe("rd-entry-execution-proposal-v1", () => {
     ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
   });
 
+  it("rejects exotic prototypes on proposal and reviewed identity", () => {
+    const accepted = acceptVector("long_eurusd_same_engagement_close");
+    const binding = reviewedBinding(accepted.reviewed_binding_id);
+    if (binding === undefined) throw new Error("VECTOR_BINDING_MISSING");
+    const exoticProposal = cloneObject(accepted.proposal);
+    const exoticBinding = cloneObject(binding);
+    Object.setPrototypeOf(exoticProposal, { inherited: true });
+    Object.setPrototypeOf(exoticBinding, { inherited: true });
+
+    expect(() =>
+      validateExecutionProposalV1(exoticProposal, binding)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+    expect(() =>
+      validateExecutionProposalV1(accepted.proposal, exoticBinding)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+  });
+
+  it("rejects symbol keys on proposal, reviewed identity, and candles", () => {
+    const accepted = acceptVector("long_eurusd_same_engagement_close");
+    const binding = reviewedBinding(accepted.reviewed_binding_id);
+    if (binding === undefined) throw new Error("VECTOR_BINDING_MISSING");
+    const proposalWithSymbol = cloneObject(accepted.proposal);
+    const bindingWithSymbol = cloneObject(binding);
+    const candleWithSymbol = cloneObject(accepted.proposal);
+    Object.defineProperty(proposalWithSymbol, Symbol("hidden"), {
+      value: true,
+      enumerable: true,
+    });
+    Object.defineProperty(bindingWithSymbol, Symbol("hidden"), {
+      value: true,
+      enumerable: true,
+    });
+    Object.defineProperty(
+      candleWithSymbol.engagement_candle as Record<string | symbol, unknown>,
+      Symbol("hidden"),
+      { value: true, enumerable: true },
+    );
+
+    expect(() =>
+      validateExecutionProposalV1(proposalWithSymbol, binding)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+    expect(() =>
+      validateExecutionProposalV1(accepted.proposal, bindingWithSymbol)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+    expect(() =>
+      validateExecutionProposalV1(candleWithSymbol, binding)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+  });
+
+  it("rejects non-enumerable extra and required properties", () => {
+    const accepted = acceptVector("long_eurusd_same_engagement_close");
+    const binding = reviewedBinding(accepted.reviewed_binding_id);
+    if (binding === undefined) throw new Error("VECTOR_BINDING_MISSING");
+    const hiddenExtra = cloneObject(accepted.proposal);
+    const hiddenRequired = cloneObject(accepted.proposal);
+    const hiddenBindingExtra = cloneObject(binding);
+    Object.defineProperty(hiddenExtra, "hidden", { value: true });
+    Object.defineProperty(hiddenRequired, "schema_version", {
+      value: accepted.proposal.schema_version,
+      enumerable: false,
+    });
+    Object.defineProperty(hiddenBindingExtra, "hidden", { value: true });
+
+    expect(() => validateExecutionProposalV1(hiddenExtra, binding)).toThrow(
+      "EXECUTION_PROPOSAL_V1_INVALID",
+    );
+    expect(() => validateExecutionProposalV1(hiddenRequired, binding)).toThrow(
+      "EXECUTION_PROPOSAL_V1_INVALID",
+    );
+    expect(() =>
+      validateExecutionProposalV1(accepted.proposal, hiddenBindingExtra)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+  });
+
+  it("rejects accessors without invoking attacker-controlled getters", () => {
+    const accepted = acceptVector("long_eurusd_same_engagement_close");
+    const binding = reviewedBinding(accepted.reviewed_binding_id);
+    if (binding === undefined) throw new Error("VECTOR_BINDING_MISSING");
+    const accessorProposal = cloneObject(accepted.proposal);
+    const accessorBinding = cloneObject(binding);
+    const accessorCandle = cloneObject(accepted.proposal);
+    let getterCalls = 0;
+    const getter = () => {
+      getterCalls += 1;
+      return "rd-entry-execution-proposal-v1";
+    };
+    Object.defineProperty(accessorProposal, "schema_version", {
+      get: getter,
+      enumerable: true,
+    });
+    Object.defineProperty(accessorBinding, "ticker_id", {
+      get: getter,
+      enumerable: true,
+    });
+    Object.defineProperty(
+      accessorCandle.engagement_candle as Record<string, unknown>,
+      "closed",
+      { get: getter, enumerable: true },
+    );
+
+    expect(() => validateExecutionProposalV1(accessorProposal, binding)).toThrow(
+      "EXECUTION_PROPOSAL_V1_INVALID",
+    );
+    expect(() =>
+      validateExecutionProposalV1(accepted.proposal, accessorBinding)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+    expect(() => validateExecutionProposalV1(accessorCandle, binding)).toThrow(
+      "EXECUTION_PROPOSAL_V1_INVALID",
+    );
+    expect(getterCalls).toBe(0);
+  });
+
+  it("maps hostile proxy reflection traps to the closed validation error", () => {
+    const accepted = acceptVector("long_eurusd_same_engagement_close");
+    const binding = reviewedBinding(accepted.reviewed_binding_id);
+    if (binding === undefined) throw new Error("VECTOR_BINDING_MISSING");
+    const hostileProposal = new Proxy(accepted.proposal, {
+      ownKeys() {
+        throw new Error("ATTACKER_OWN_KEYS");
+      },
+    });
+    const hostileBinding = new Proxy(binding, {
+      getPrototypeOf() {
+        throw new Error("ATTACKER_PROTOTYPE");
+      },
+    });
+
+    expect(() => validateExecutionProposalV1(hostileProposal, binding)).toThrow(
+      "EXECUTION_PROPOSAL_V1_INVALID",
+    );
+    expect(() =>
+      validateExecutionProposalV1(accepted.proposal, hostileBinding)
+    ).toThrow("EXECUTION_PROPOSAL_V1_INVALID");
+  });
+
   it("checks every reviewed-identity field by exact equality", () => {
     const firstBinding = Object.values(vectors.reviewed_bindings)[0];
     if (firstBinding === undefined) throw new Error("VECTOR_BINDING_MISSING");

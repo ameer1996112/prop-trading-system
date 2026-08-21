@@ -175,8 +175,8 @@ function invalid(): never {
 }
 
 function strictJsonInput(value: unknown): unknown {
-  if (!(value instanceof Uint8Array)) return value;
   try {
+    if (!(value instanceof Uint8Array)) return value;
     return parseStrictJson(value);
   } catch {
     return invalid();
@@ -184,22 +184,54 @@ function strictJsonInput(value: unknown): unknown {
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+  try {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return invalid();
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return invalid();
+
+    const safeValue = Object.create(null) as Record<string, unknown>;
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") return invalid();
+      const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+      if (
+        descriptor === undefined ||
+        !descriptor.enumerable ||
+        !("value" in descriptor)
+      ) {
+        return invalid();
+      }
+      Object.defineProperty(safeValue, key, {
+        value: descriptor.value,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      });
+    }
+    return safeValue;
+  } catch {
     return invalid();
   }
-  return value as Record<string, unknown>;
 }
 
 function exactKeys(
   value: Record<string, unknown>,
   expected: readonly string[],
 ): void {
-  const actual = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
-  if (
-    actual.length !== sortedExpected.length ||
-    actual.some((key, index) => key !== sortedExpected[index])
-  ) {
+  try {
+    const actual = Reflect.ownKeys(value);
+    const sortedExpected = [...expected].sort();
+    if (
+      actual.some((key) => typeof key !== "string") ||
+      actual.length !== sortedExpected.length ||
+      (actual as string[]).sort().some(
+        (key, index) => key !== sortedExpected[index],
+      )
+    ) {
+      invalid();
+    }
+  } catch {
     invalid();
   }
 }
