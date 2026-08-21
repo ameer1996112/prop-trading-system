@@ -252,6 +252,69 @@ describe("execution proposal v1 ingestion", () => {
     expect(count(database, "observation_execution_producer_incidents")).toBe(1);
   });
 
+  it("gives producer-sequence body conflict precedence in concurrent races", async () => {
+    for (const competingChanges of [
+      {
+        setup_id: "different-logical-setup",
+        selection_id: "different-logical-selection",
+      },
+      { observed_at_epoch: 1_800_000_302 },
+    ]) {
+      const database = new ProposalTestD1();
+      const env = proposalEnv(database);
+      const [first, second] = await Promise.all([
+        ingestExecutionProposalV1(env, bytes(proposal(1)), 1_800_000_303),
+        ingestExecutionProposalV1(
+          env,
+          bytes(proposal(1, competingChanges)),
+          1_800_000_303,
+        ),
+      ]);
+      const responses = [first, second];
+
+      expect(responses.filter((item) => item.status === 202)).toHaveLength(1);
+      expect(responses.filter((item) => item.status === 409)).toHaveLength(1);
+      expect(responses.some((item) => item.status === 503)).toBe(false);
+      const quarantined = responses.find((item) => item.status === 409)!;
+      expect(await quarantined.json()).toMatchObject({
+        error: { code: "EXECUTION_PROPOSAL_BODY_CONFLICT" },
+      });
+      expect(count(database, "observation_execution_proposal_v1_events")).toBe(1);
+      expect(count(database, "observation_execution_producer_incidents")).toBe(1);
+      const event = database.database
+        .prepare(
+          `SELECT proposal_sha256
+           FROM observation_execution_proposal_v1_events`,
+        )
+        .get() as { proposal_sha256: string };
+      const incident = database.database
+        .prepare(
+          `SELECT incident_kind, expected_sequence, proposal_sha256,
+                  existing_sha256, incident_json
+           FROM observation_execution_producer_incidents`,
+        )
+        .get() as {
+          incident_kind: string;
+          expected_sequence: number;
+          proposal_sha256: string;
+          existing_sha256: string;
+          incident_json: string;
+        };
+      expect(incident).toMatchObject({
+        incident_kind: "BODY_CONFLICT",
+        expected_sequence: 2,
+        existing_sha256: event.proposal_sha256,
+      });
+      expect(incident.proposal_sha256).not.toBe(incident.existing_sha256);
+      expect(JSON.parse(incident.incident_json)).toMatchObject({
+        incident_kind: "BODY_CONFLICT",
+        expected_sequence: 2,
+        proposal_sha256: incident.proposal_sha256,
+        existing_sha256: event.proposal_sha256,
+      });
+    }
+  });
+
   it("rolls back event, result, checkpoint, payload, and delivery atomically", async () => {
     const database = new ProposalTestD1();
     database.failBatchAtSqlFragment =

@@ -611,9 +611,30 @@ async function ingestValidatedExecutionProposalV1(
       )
       .bind(proposal.producer_instance_id, proposal.producer_sequence)
       .first<StoredEvent>();
-    if (concurrent?.proposal_sha256 === proposalSha256) {
-      const replay = await replayResponse(env, concurrent.event_id);
-      if (replay !== null) return replay;
+    if (concurrent !== null) {
+      if (concurrent.proposal_sha256 === proposalSha256) {
+        const replay = await replayResponse(env, concurrent.event_id);
+        if (replay !== null) return replay;
+      } else {
+        const concurrentExpectedSequence = await expectedProducerSequence(
+          env,
+          proposal.producer_instance_id,
+        );
+        const incidentId = await recordIncident(
+          env,
+          proposal,
+          proposalSha256,
+          "BODY_CONFLICT",
+          concurrentExpectedSequence,
+          concurrent.proposal_sha256,
+          receivedAtEpoch,
+        );
+        return quarantineResponse(
+          "EXECUTION_PROPOSAL_BODY_CONFLICT",
+          incidentId,
+          "Producer sequence was concurrently used for different proposal content",
+        );
+      }
     }
     const concurrentCandidateConflict = await conflictingCandidateEvent(
       env,
