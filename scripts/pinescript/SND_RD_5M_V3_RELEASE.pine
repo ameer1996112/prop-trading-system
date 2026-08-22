@@ -774,6 +774,25 @@ liquidityRanksCloser(RawZone zone, LiquidityLevel candidate, LiquidityLevel prim
     float primaryDistance = liquidityDistanceToZone(zone, primary)
     newer or (sameBar and candidateDistance < primaryDistance - syminfo.mintick * 0.5)
 
+liquidityDisplaySelection(RawZone zone) =>
+    bool strictAvailable = not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar)
+    bool structureAvailable = showStructureLiquidityLines and not na(zone.structureLiquidityPrice) and not na(zone.structureLiquidityBar)
+    float strictDistance = strictAvailable ? liquidityPriceDistanceToZone(zone, zone.liquidityExtreme) : na
+    float structureDistance = structureAvailable ? liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na
+    bool strictEligible = strictAvailable and strictDistance > 0
+    bool structureEligible = structureAvailable and structureDistance > 0
+    bool samePrice = strictEligible and structureEligible and math.abs(zone.liquidityExtreme - zone.structureLiquidityPrice) <= syminfo.mintick * 0.5
+    bool strictCloser = strictEligible and structureEligible and strictDistance < structureDistance - syminfo.mintick * 0.5
+    bool strictEarlierAtSamePrice = samePrice and zone.liquidityExtremeBar <= zone.structureLiquidityBar
+    bool strictSelected = strictEligible and (not structureEligible or strictCloser or strictEarlierAtSamePrice)
+    bool structureSelected = structureEligible and not strictSelected
+    float selectedPrice = strictSelected ? zone.liquidityExtreme : structureSelected ? zone.structureLiquidityPrice : na
+    int selectedBar = strictSelected ? zone.liquidityExtremeBar : structureSelected ? zone.structureLiquidityBar : na
+    bool selectedTaken = strictSelected and not na(zone.liquiditySweptBar)
+    float selectedProofPrice = strictSelected ? zone.liquidityAnchor : na
+    int selectedProofBar = strictSelected ? zone.liquidityAnchorBar : na
+    [strictSelected, structureSelected, selectedPrice, selectedBar, selectedTaken, selectedProofPrice, selectedProofBar]
+
 zoneText(RawZone zone) =>
     string side = zone.demand ? "D" : "S"
     string bounds = "oH " + str.tostring(zone.originHigh, format.mintick) + " oL " + str.tostring(zone.originLow, format.mintick) + " dH " + str.tostring(zone.firstDepartureHigh, format.mintick) + " dL " + str.tostring(zone.firstDepartureLow, format.mintick) + " env " + str.tostring(zone.formationDistal, format.mintick) + " z " + str.tostring(zone.top, format.mintick) + "/" + str.tostring(zone.bottom, format.mintick)
@@ -813,45 +832,47 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
             label.delete(zone.debugLabel)
             zone.debugLabel := na
 
-    bool structureAvailable = not na(zone.structureLiquidityPrice) and not na(zone.structureLiquidityBar)
-    bool structurePreferred = structureAvailable and showStructureLiquidityLines
-    bool zoneLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityAnchor) and not na(zone.liquidityAnchorBar) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar) and not structurePreferred
-    if zoneLiquidityVisible
-        int liquidityRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar(zone, zone.liquidityExtreme, zone.liquidityExtremeBar))
-        int liquidityLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, zone.liquidityExtremeBar))
-        int proofLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, zone.liquidityAnchorBar))
-        bool liquidityTaken = not na(zone.liquiditySweptBar)
-        color primaryColor = liquidityTaken ? liquiditySweptColor : liquidityPendingColor
-        color ownExtremeColor = premiumVisuals ? color.new(color.gray, liquidityTaken ? 45 : 12) : liquiditySecondaryColor
-        string primaryStyle = liquidityTaken ? line.style_dashed : line.style_solid
-        string ownExtremeStyle = liquidityTaken ? line.style_solid : line.style_dashed
+    [strictSelected, structureSelected, selectedPrice, selectedBar, selectedTaken, selectedProofPrice, selectedProofBar] = liquidityDisplaySelection(zone)
+    bool displayLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(selectedPrice) and not na(selectedBar)
+    if displayLiquidityVisible
+        if not na(zone.structureLiquidityLine)
+            line.delete(zone.structureLiquidityLine)
+            zone.structureLiquidityLine := na
+        int displayRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar(zone, selectedPrice, selectedBar))
+        int displayLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, selectedBar))
+        color primaryColor = selectedTaken ? liquiditySweptColor : liquidityPendingColor
+        color ownExtremeColor = premiumVisuals ? color.new(color.gray, selectedTaken ? 45 : 12) : liquiditySecondaryColor
+        string primaryStyle = selectedTaken ? line.style_dashed : line.style_solid
+        string ownExtremeStyle = selectedTaken ? line.style_solid : line.style_dashed
         if na(zone.liquidityLine)
-            zone.liquidityLine := line.new(liquidityLeftBar, zone.liquidityExtreme, liquidityRightBar, zone.liquidityExtreme, xloc = xloc.bar_index, extend = extend.none, color = primaryColor, style = primaryStyle, width = liquidityPrimaryLineWidth)
+            zone.liquidityLine := line.new(displayLeftBar, selectedPrice, displayRightBar, selectedPrice, xloc = xloc.bar_index, extend = extend.none, color = primaryColor, style = primaryStyle, width = liquidityPrimaryLineWidth)
         else
-            line.set_xy1(zone.liquidityLine, liquidityLeftBar, zone.liquidityExtreme)
-            line.set_xy2(zone.liquidityLine, liquidityRightBar, zone.liquidityExtreme)
+            line.set_xy1(zone.liquidityLine, displayLeftBar, selectedPrice)
+            line.set_xy2(zone.liquidityLine, displayRightBar, selectedPrice)
             line.set_color(zone.liquidityLine, primaryColor)
             line.set_style(zone.liquidityLine, primaryStyle)
             line.set_width(zone.liquidityLine, liquidityPrimaryLineWidth)
         if showLiquidityPriceLabels
-            string liquidityLabelText = liquidityPriceLabelText(zone.liquidityExtreme)
-            color liquidityLabelTextColor = liquidityTaken ? color.white : color.black
+            string liquidityLabelText = liquidityPriceLabelText(selectedPrice)
+            color liquidityLabelTextColor = selectedTaken ? color.white : color.black
             if na(zone.liquidityLabel)
-                zone.liquidityLabel := label.new(liquidityRightBar, zone.liquidityExtreme, liquidityLabelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = primaryColor, textcolor = liquidityLabelTextColor, size = size.tiny)
+                zone.liquidityLabel := label.new(displayRightBar, selectedPrice, liquidityLabelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = primaryColor, textcolor = liquidityLabelTextColor, size = size.tiny)
             else
-                label.set_xy(zone.liquidityLabel, liquidityRightBar, zone.liquidityExtreme)
+                label.set_xy(zone.liquidityLabel, displayRightBar, selectedPrice)
                 label.set_text(zone.liquidityLabel, liquidityLabelText)
                 label.set_color(zone.liquidityLabel, primaryColor)
                 label.set_textcolor(zone.liquidityLabel, liquidityLabelTextColor)
         else if not na(zone.liquidityLabel)
             label.delete(zone.liquidityLabel)
             zone.liquidityLabel := na
-        if showLiquidityProofLines
+        bool proofVisible = strictSelected and showLiquidityProofLines and not na(selectedProofPrice) and not na(selectedProofBar)
+        if proofVisible
+            int proofLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, selectedProofBar))
             if na(zone.ownExtremeLine)
-                zone.ownExtremeLine := line.new(proofLeftBar, zone.liquidityAnchor, liquidityRightBar, zone.liquidityAnchor, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = 1)
+                zone.ownExtremeLine := line.new(proofLeftBar, selectedProofPrice, displayRightBar, selectedProofPrice, xloc = xloc.bar_index, extend = extend.none, color = ownExtremeColor, style = ownExtremeStyle, width = 1)
             else
-                line.set_xy1(zone.ownExtremeLine, proofLeftBar, zone.liquidityAnchor)
-                line.set_xy2(zone.ownExtremeLine, liquidityRightBar, zone.liquidityAnchor)
+                line.set_xy1(zone.ownExtremeLine, proofLeftBar, selectedProofPrice)
+                line.set_xy2(zone.ownExtremeLine, displayRightBar, selectedProofPrice)
                 line.set_color(zone.ownExtremeLine, ownExtremeColor)
                 line.set_style(zone.ownExtremeLine, ownExtremeStyle)
                 line.set_width(zone.ownExtremeLine, 1)
@@ -862,42 +883,13 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
         if not na(zone.liquidityLine)
             line.delete(zone.liquidityLine)
             zone.liquidityLine := na
-        if not na(zone.ownExtremeLine)
-            line.delete(zone.ownExtremeLine)
-            zone.ownExtremeLine := na
-        if not structurePreferred and not na(zone.liquidityLabel)
-            label.delete(zone.liquidityLabel)
-            zone.liquidityLabel := na
-
-    bool structureLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and structurePreferred
-    if structureLiquidityVisible
-        int structureLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, zone.structureLiquidityBar))
-        int structureRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar(zone, zone.structureLiquidityPrice, zone.structureLiquidityBar))
-        if na(zone.structureLiquidityLine)
-            zone.structureLiquidityLine := line.new(structureLeftBar, zone.structureLiquidityPrice, structureRightBar, zone.structureLiquidityPrice, xloc = xloc.bar_index, extend = extend.none, color = liquidityPendingColor, style = line.style_solid, width = liquidityPrimaryLineWidth)
-        else
-            line.set_xy1(zone.structureLiquidityLine, structureLeftBar, zone.structureLiquidityPrice)
-            line.set_xy2(zone.structureLiquidityLine, structureRightBar, zone.structureLiquidityPrice)
-            line.set_color(zone.structureLiquidityLine, liquidityPendingColor)
-            line.set_style(zone.structureLiquidityLine, line.style_solid)
-            line.set_width(zone.structureLiquidityLine, liquidityPrimaryLineWidth)
-        if showLiquidityPriceLabels
-            string structureLiquidityLabelText = liquidityPriceLabelText(zone.structureLiquidityPrice)
-            if na(zone.liquidityLabel)
-                zone.liquidityLabel := label.new(structureRightBar, zone.structureLiquidityPrice, structureLiquidityLabelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = liquidityPendingColor, textcolor = color.black, size = size.tiny)
-            else
-                label.set_xy(zone.liquidityLabel, structureRightBar, zone.structureLiquidityPrice)
-                label.set_text(zone.liquidityLabel, structureLiquidityLabelText)
-                label.set_color(zone.liquidityLabel, liquidityPendingColor)
-                label.set_textcolor(zone.liquidityLabel, color.black)
-        else if not na(zone.liquidityLabel)
-            label.delete(zone.liquidityLabel)
-            zone.liquidityLabel := na
-    else
         if not na(zone.structureLiquidityLine)
             line.delete(zone.structureLiquidityLine)
             zone.structureLiquidityLine := na
-        if structurePreferred and not na(zone.liquidityLabel)
+        if not na(zone.ownExtremeLine)
+            line.delete(zone.ownExtremeLine)
+            zone.ownExtremeLine := na
+        if not na(zone.liquidityLabel)
             label.delete(zone.liquidityLabel)
             zone.liquidityLabel := na
     true

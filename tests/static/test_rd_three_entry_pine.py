@@ -208,8 +208,8 @@ def test_pine_v3_liquidity_lines_stop_at_the_first_touch_or_sweep_bar() -> None:
         ": zoneRightBar(zone)"
     ) in endpoint
     assert (
-        "int liquidityRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
-        "zone, zone.liquidityExtreme, zone.liquidityExtremeBar))"
+        "int displayRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
+        "zone, selectedPrice, selectedBar))"
     ) in zone_drawing
     assert (
         "int rightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
@@ -227,20 +227,16 @@ def test_pine_v3_clips_historical_liquidity_coordinates_to_the_bar_index_window(
 
     assert "math.max(sourceBar, bar_index - 9999)" in helper
     assert (
-        "int liquidityLeftBar = liquiditySafeDrawingBar("
-        "math.max(zone.originBar, zone.liquidityExtremeBar))"
+        "int displayLeftBar = liquiditySafeDrawingBar("
+        "math.max(zone.originBar, selectedBar))"
     ) in zone_drawing
     assert (
         "int proofLeftBar = liquiditySafeDrawingBar("
-        "math.max(zone.originBar, zone.liquidityAnchorBar))"
+        "math.max(zone.originBar, selectedProofBar))"
     ) in zone_drawing
     assert (
-        "int structureLeftBar = liquiditySafeDrawingBar("
-        "math.max(zone.originBar, zone.structureLiquidityBar))"
-    ) in zone_drawing
-    assert (
-        "int structureRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
-        "zone, zone.structureLiquidityPrice, zone.structureLiquidityBar))"
+        "int displayRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
+        "zone, selectedPrice, selectedBar))"
     ) in zone_drawing
     assert (
         "int liquidityLeftBar = liquiditySafeDrawingBar("
@@ -254,7 +250,7 @@ def test_pine_v3_clips_historical_liquidity_coordinates_to_the_bar_index_window(
 
 def test_pine_v3_clips_zone_box_coordinates_to_the_bar_index_window() -> None:
     pine = source()
-    zone_drawing = section(pine, "updateZoneDrawing(", "bool structureAvailable =")
+    zone_drawing = section(pine, "updateZoneDrawing(", "bool displayLiquidityVisible =")
 
     assert "int leftBar = liquiditySafeDrawingBar(zone.originBar)" in zone_drawing
     assert (
@@ -276,12 +272,12 @@ def test_pine_v3_proof_lines_share_the_primary_line_lifecycle_endpoint() -> None
     audit_drawing = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
 
     assert (
-        "zone.ownExtremeLine := line.new(proofLeftBar, zone.liquidityAnchor, "
-        "liquidityRightBar, zone.liquidityAnchor"
+        "zone.ownExtremeLine := line.new(proofLeftBar, selectedProofPrice, "
+        "displayRightBar, selectedProofPrice"
         in zone_drawing
     )
     assert (
-        "line.set_xy2(zone.ownExtremeLine, liquidityRightBar, zone.liquidityAnchor)"
+        "line.set_xy2(zone.ownExtremeLine, displayRightBar, selectedProofPrice)"
         in zone_drawing
     )
     assert (
@@ -297,19 +293,19 @@ def test_pine_v3_proof_lines_share_the_primary_line_lifecycle_endpoint() -> None
 
 def test_pine_v3_renders_the_retracement_swing_as_the_canonical_liquidity_line() -> None:
     pine = source()
-    zone_drawing = section(pine, "bool zoneLiquidityVisible =", "bool structureLiquidityVisible =")
+    zone_drawing = section(pine, "bool displayLiquidityVisible =", "addUniqueLiquidityIndex(")
     audit_drawing = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
 
     assert (
-        "int liquidityLeftBar = liquiditySafeDrawingBar("
-        "math.max(zone.originBar, zone.liquidityExtremeBar))"
+        "int displayLeftBar = liquiditySafeDrawingBar("
+        "math.max(zone.originBar, selectedBar))"
     ) in zone_drawing
     assert (
-        "zone.liquidityLine := line.new(liquidityLeftBar, zone.liquidityExtreme, "
-        "liquidityRightBar, zone.liquidityExtreme"
+        "zone.liquidityLine := line.new(displayLeftBar, selectedPrice, "
+        "displayRightBar, selectedPrice"
         in zone_drawing
     )
-    assert "liquidityPriceLabelText(zone.liquidityExtreme)" in zone_drawing
+    assert "liquidityPriceLabelText(selectedPrice)" in zone_drawing
     assert (
         "int liquidityLeftBar = liquiditySafeDrawingBar("
         "math.max(ownerZone.originBar, level.nearExtremeBar))"
@@ -320,6 +316,56 @@ def test_pine_v3_renders_the_retracement_swing_as_the_canonical_liquidity_line()
         in audit_drawing
     )
     assert "liquidityPriceLabelText(level.nearExtreme)" in audit_drawing
+
+
+def test_pine_v3_display_selects_the_closest_valid_strict_or_structure_candidate() -> None:
+    pine = source()
+    selector = section(pine, "liquidityDisplaySelection(", "zoneText(")
+
+    assert "bool strictAvailable =" in selector
+    assert "bool structureAvailable = showStructureLiquidityLines" in selector
+    assert (
+        "float strictDistance = strictAvailable ? "
+        "liquidityPriceDistanceToZone(zone, zone.liquidityExtreme) : na"
+        in selector
+    )
+    assert (
+        "float structureDistance = structureAvailable ? "
+        "liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na"
+        in selector
+    )
+    assert "bool strictEligible = strictAvailable and strictDistance > 0" in selector
+    assert (
+        "bool structureEligible = structureAvailable and structureDistance > 0"
+        in selector
+    )
+    assert (
+        "strictDistance < structureDistance - syminfo.mintick * 0.5"
+        in selector
+    )
+    assert (
+        "zone.liquidityExtremeBar <= zone.structureLiquidityBar" in selector
+    )
+    assert "float selectedPrice = strictSelected ?" in selector
+    assert "int selectedBar = strictSelected ?" in selector
+
+
+def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_authority() -> None:
+    pine = source()
+    selector = section(pine, "liquidityDisplaySelection(", "zoneText(")
+    zone_drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
+
+    assert "liquidityDisplaySelection(zone)" in zone_drawing
+    assert "bool displayLiquidityVisible =" in zone_drawing
+    assert "displayMode != DISPLAY_RAW_AUDIT" in zone_drawing
+    assert "liquidityPriceLabelText(selectedPrice)" in zone_drawing
+    assert "bool proofVisible = strictSelected and showLiquidityProofLines" in zone_drawing
+    assert "line.delete(zone.structureLiquidityLine)" in zone_drawing
+    assert "bool zoneLiquidityVisible =" not in zone_drawing
+    assert "bool structureLiquidityVisible =" not in zone_drawing
+    assert "liquidityPrimaryIndex :=" not in selector
+    assert "liquidityQualified :=" not in selector
+    assert "setupState :=" not in selector
 
 
 def test_pine_v3_reference_distance_uses_thirty_percent_of_the_full_distal_zone_impulse() -> None:
@@ -816,8 +862,8 @@ def test_pine_v3_bigger_structure_liquidity_cannot_qualify_entries() -> None:
 
 def test_pine_v3_uses_shared_visual_settings_for_bigger_structure_liquidity() -> None:
     pine = source()
-    structure_drawing = section(
-        pine, "bool structureLiquidityVisible =", "addUniqueLiquidityIndex("
+    zone_drawing = section(
+        pine, "bool displayLiquidityVisible =", "addUniqueLiquidityIndex("
     )
 
     assert (
@@ -825,50 +871,40 @@ def test_pine_v3_uses_shared_visual_settings_for_bigger_structure_liquidity() ->
         '"Show bigger-structure liquidity (display only)", group = "Display")'
         in pine
     )
-    assert "zone.structureLiquidityLine := line.new(" in structure_drawing
-    assert "zone.structureLiquidityPrice" in structure_drawing
+    assert "showStructureLiquidityLines" in pine
+    assert "zone.structureLiquidityLine := line.new(" not in zone_drawing
+    assert "selectedPrice" in zone_drawing
     assert (
-        "int structureRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
-        "zone, zone.structureLiquidityPrice, zone.structureLiquidityBar))"
-        in structure_drawing
+        "int displayRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
+        "zone, selectedPrice, selectedBar))"
+        in zone_drawing
     )
-    assert "color = liquidityPendingColor" in structure_drawing
+    assert "color = primaryColor" in zone_drawing
     assert (
-        "line.set_color(zone.structureLiquidityLine, liquidityPendingColor)"
-        in structure_drawing
+        "line.set_color(zone.liquidityLine, primaryColor)" in zone_drawing
     )
-    assert "width = liquidityPrimaryLineWidth" in structure_drawing
+    assert "width = liquidityPrimaryLineWidth" in zone_drawing
     assert (
-        "line.set_width(zone.structureLiquidityLine, liquidityPrimaryLineWidth)"
-        in structure_drawing
+        "line.set_width(zone.liquidityLine, liquidityPrimaryLineWidth)"
+        in zone_drawing
     )
-    assert "if showLiquidityPriceLabels" in structure_drawing
-    assert (
-        "liquidityPriceLabelText(zone.structureLiquidityPrice)"
-        in structure_drawing
-    )
+    assert "if showLiquidityPriceLabels" in zone_drawing
+    assert "liquidityPriceLabelText(selectedPrice)" in zone_drawing
 
 
-def test_pine_v3_prefers_one_canonical_structure_liquidity_line_per_zone() -> None:
+def test_pine_v3_uses_one_canonical_display_liquidity_line_per_zone() -> None:
     pine = source()
     zone_drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
 
     assert (
-        "bool structurePreferred = structureAvailable and "
-        "showStructureLiquidityLines"
+        "[strictSelected, structureSelected, selectedPrice, selectedBar, "
+        "selectedTaken, selectedProofPrice, selectedProofBar] = "
+        "liquidityDisplaySelection(zone)"
         in zone_drawing
     )
-    zone_visibility = re.search(
-        r"^\s*bool zoneLiquidityVisible = (.+)$", zone_drawing, re.MULTILINE
-    )
-    structure_visibility = re.search(
-        r"^\s*bool structureLiquidityVisible = (.+)$", zone_drawing, re.MULTILINE
-    )
-    assert zone_visibility is not None
-    assert structure_visibility is not None
-    assert "and not structurePreferred" in zone_visibility.group(1)
-    assert "and structurePreferred" in structure_visibility.group(1)
-    assert "structureDistinctFromStrict" not in zone_drawing
+    assert "bool displayLiquidityVisible =" in zone_drawing
+    assert "zone.structureLiquidityLine := line.new(" not in zone_drawing
+    assert "line.delete(zone.structureLiquidityLine)" in zone_drawing
 
 
 def test_pine_v3_one_candle_liquidity_defaults_off() -> None:
@@ -1611,7 +1647,7 @@ def test_pine_v3_contains_no_broker_or_live_execution_surface() -> None:
 
 def test_pine_v3_keeps_liquidity_visuals_clean_and_lightweight() -> None:
     pine = source()
-    zone_drawings = section(pine, "bool zoneLiquidityVisible =", "addUniqueLiquidityIndex(")
+    zone_drawings = section(pine, "bool displayLiquidityVisible =", "addUniqueLiquidityIndex(")
     audit_drawings = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
 
     assert (
@@ -1640,14 +1676,14 @@ def test_pine_v3_keeps_liquidity_visuals_clean_and_lightweight() -> None:
         in pine
     )
     assert (
-        "color primaryColor = liquidityTaken ? liquiditySweptColor : liquidityPendingColor"
+        "color primaryColor = selectedTaken ? liquiditySweptColor : liquidityPendingColor"
         in zone_drawings
     )
     assert "width = liquidityPrimaryLineWidth" in zone_drawings
     assert "size = size.tiny" in zone_drawings
     assert "width = 1" in zone_drawings
     assert "line.set_width(zone.ownExtremeLine, 1)" in zone_drawings
-    assert "liquidityPriceLabelText(zone.liquidityExtreme)" in zone_drawings
+    assert "liquidityPriceLabelText(selectedPrice)" in zone_drawings
     assert (
         "color lineColor = level.taken ? liquiditySweptColor : liquidityPendingColor"
         in audit_drawings
@@ -1660,7 +1696,7 @@ def test_pine_v3_keeps_liquidity_visuals_clean_and_lightweight() -> None:
 
 def test_pine_v3_keeps_optional_own_extreme_proof_lines_hidden_by_default() -> None:
     pine = source()
-    zone_drawings = section(pine, "bool zoneLiquidityVisible =", "addUniqueLiquidityIndex(")
+    zone_drawings = section(pine, "bool displayLiquidityVisible =", "addUniqueLiquidityIndex(")
     audit_drawings = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
 
     assert (
@@ -1668,9 +1704,9 @@ def test_pine_v3_keeps_optional_own_extreme_proof_lines_hidden_by_default() -> N
         'group = "Display")'
         in pine
     )
-    assert "if showLiquidityProofLines" in zone_drawings
+    assert "bool proofVisible = strictSelected and showLiquidityProofLines" in zone_drawings
     assert (
-        "zone.ownExtremeLine := line.new(proofLeftBar, zone.liquidityAnchor"
+        "zone.ownExtremeLine := line.new(proofLeftBar, selectedProofPrice"
         in zone_drawings
     )
     assert "color ownExtremeColor = premiumVisuals ? color.new(color.gray" in zone_drawings
