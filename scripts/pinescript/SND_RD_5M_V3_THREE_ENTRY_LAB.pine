@@ -1312,6 +1312,21 @@ refreshStructureLiquidityMoveReference(RawZone zone, int strength) =>
             zone.structureMoveExtremeBar := sourceBar
     true
 
+structureLiquidityCandidateMoveReference(RawZone zone, StructureLiquidityLevel candidate) =>
+    float candidateMoveLevel = zone.structureMoveExtreme
+    int candidateMoveLevelBar = zone.structureMoveExtremeBar
+    if candidate.microRetracement
+        int preSwingBar = candidate.priceBar - 1
+        int preSwingOffset = bar_index - preSwingBar
+        bool preSwingAvailable = preSwingBar >= zone.confirmationBar and preSwingOffset >= 0 and preSwingOffset < 5000
+        if preSwingAvailable
+            float preSwingExtreme = zone.demand ? high[preSwingOffset] : low[preSwingOffset]
+            bool replacesMoveLevel = na(candidateMoveLevel) or (zone.demand ? preSwingExtreme > candidateMoveLevel : preSwingExtreme < candidateMoveLevel)
+            if replacesMoveLevel
+                candidateMoveLevel := preSwingExtreme
+                candidateMoveLevelBar := preSwingBar
+    [candidateMoveLevel, candidateMoveLevelBar]
+
 structureLiquidityBosConfirmed(RawZone zone, StructureLiquidityLevel candidate) =>
     float bosLevel = candidate.bosLevel
     int sourceOffset = 0
@@ -1334,8 +1349,7 @@ refreshZoneStructureLiquidity(RawZone zone, array<StructureLiquidityLevel> level
                 for candidateOffset = 0 to candidateCount - 1
                     int candidateIndex = array.get(createdIndexes, candidateOffset)
                     StructureLiquidityLevel candidate = array.get(levels, candidateIndex)
-                    float candidateMoveLevel = zone.structureMoveExtreme
-                    int candidateMoveLevelBar = zone.structureMoveExtremeBar
+                    [candidateMoveLevel, candidateMoveLevelBar] = structureLiquidityCandidateMoveReference(zone, candidate)
                     float distance = liquidityPriceDistanceToZone(zone, candidate.price)
                     bool formedAfterConfirmation = candidate.priceBar > zone.confirmationBar
                     bool correctSide = candidate.demand == zone.demand and distance > 0

@@ -508,6 +508,61 @@ def test_pine_v3_micro_retracements_reuse_structural_gates_without_execution_aut
         assert forbidden not in producer
 
 
+def test_pine_v3_micro_retracement_includes_the_immediate_pre_swing_move_bar() -> None:
+    pine = source()
+    move_reference = section(
+        pine,
+        "structureLiquidityCandidateMoveReference(",
+        "structureLiquidityBosConfirmed(",
+    )
+    refresh = section(
+        pine,
+        "refreshZoneStructureLiquidity(",
+        "zoneLiquidityTakenBar(",
+    )
+
+    # Reproduces an early candidate: confirmation=08:30, pause=08:35,
+    # continuation=08:40. The normal strength-2 cache reaches only 08:25,
+    # while the candidate-specific pre-swing reference must include 08:30.
+    confirmation_bar = 100
+    pause_bar = 101
+    continuation_bar = 102
+    strength = 2
+    assert continuation_bar - (strength + 1) < confirmation_bar
+    assert pause_bar - 1 == confirmation_bar
+
+    assert "float candidateMoveLevel = zone.structureMoveExtreme" in move_reference
+    assert "int candidateMoveLevelBar = zone.structureMoveExtremeBar" in move_reference
+    assert "if candidate.microRetracement" in move_reference
+    assert "int preSwingBar = candidate.priceBar - 1" in move_reference
+    assert "int preSwingOffset = bar_index - preSwingBar" in move_reference
+    assert "preSwingBar >= zone.confirmationBar" in move_reference
+    assert "preSwingOffset >= 0 and preSwingOffset < 5000" in move_reference
+    assert (
+        "float preSwingExtreme = zone.demand ? high[preSwingOffset] "
+        ": low[preSwingOffset]"
+        in move_reference
+    )
+    assert "zone.demand ? preSwingExtreme > candidateMoveLevel" in move_reference
+    assert ": preSwingExtreme < candidateMoveLevel" in move_reference
+    assert "[candidateMoveLevel, candidateMoveLevelBar]" in move_reference
+    assert (
+        "[candidateMoveLevel, candidateMoveLevelBar] = "
+        "structureLiquidityCandidateMoveReference(zone, candidate)"
+        in refresh
+    )
+    for forbidden in (
+        "liquidityPrimaryIndex",
+        "liquidityQualified",
+        "eligibilityState",
+        "setupState",
+        "entryAttempts",
+        "alertcondition(",
+        "diagnosticPayload(",
+    ):
+        assert forbidden not in move_reference
+
+
 def test_pine_v3_anchors_structure_liquidity_to_the_confirmed_pivot() -> None:
     pine = source()
     structure = section(
@@ -610,8 +665,11 @@ def test_pine_v3_requires_zone_linked_continuation_bos_for_structure_liquidity()
     assert "liquidityStructureStrictBos ? close[sourceOffset] < bosLevel : low[sourceOffset] < bosLevel" in bos
     assert "for sourceBar" not in bos
     assert "candidate.priceBar > zone.confirmationBar" in refresh
-    assert "float candidateMoveLevel = zone.structureMoveExtreme" in refresh
-    assert "int candidateMoveLevelBar = zone.structureMoveExtremeBar" in refresh
+    assert (
+        "[candidateMoveLevel, candidateMoveLevelBar] = "
+        "structureLiquidityCandidateMoveReference(zone, candidate)"
+        in refresh
+    )
     assert "float completedMoveLevel = zone.structureMoveExtreme" in refresh
     assert "float guidanceMax = liquidityGuidanceMaxPrice(zone, completedMoveLevel)" in refresh
     assert "bool zoneStillUntouched = not structureLiquidityZoneTouched(zone)" in refresh
