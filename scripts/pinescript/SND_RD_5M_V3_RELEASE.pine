@@ -3346,7 +3346,6 @@ if barstate.isrealtime
 bool isFiveMinute = timeframe.isminutes and timeframe.multiplier == 5
 bool confirmedEvent = false
 RawZone eventZone = na
-string validationEvents = ""
 
 if barstate.isconfirmed and isFiveMinute and validationCapture and not validationStarted and not validationFailed
     if time == validationCalculationStart
@@ -3371,8 +3370,9 @@ if barstate.isconfirmed and isFiveMinute and validationCapture and not validatio
 bool validationReady = not validationCapture or (validationStarted and not validationFailed)
 
 if barstate.isconfirmed and isFiveMinute and validationReady
-    validationEvents := validationHeartbeat()
-    int validationEventCount = 1
+    bool validationTelemetryEnabled = emitDiagnostics or validationCapture
+    string validationEvents = validationTelemetryEnabled ? validationHeartbeat() : ""
+    int validationEventCount = validationTelemetryEnabled ? 1 : 0
     array<string> setupExportItems = array.new<string>()
     array<string> setupSnapshotItemsAtBarStart = array.new<string>()
     bool setupExportReady = exportSetupEvents and str.length(setupExportCredential) > 0 and barstate.isrealtime
@@ -3635,10 +3635,12 @@ if isFiveMinute and validationReady and entryZoneCount > 0
 alertcondition(actionablePaperEntryThisUpdate, "SND RD | Actionable paper entry", "{{ticker}} {{interval}} actionable paper entry at {{close}}")
 alertcondition(actionablePaperExitThisUpdate, "SND RD | Actionable paper exit", "{{ticker}} {{interval}} actionable paper exit at {{close}}")
 
-int drawCount = array.size(zones)
-if drawCount > 0
-    for index = 0 to drawCount - 1
-        RawZone zone = array.get(zones, index)
-        updateZoneDrawing(zone, zones)
-        array.set(zones, index, zone)
-updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)
+bool refreshVisualsThisUpdate = barstate.islast
+if refreshVisualsThisUpdate
+    int drawCount = array.size(zones)
+    if drawCount > 0
+        for index = 0 to drawCount - 1
+            RawZone zone = array.get(zones, index)
+            updateZoneDrawing(zone, zones)
+            array.set(zones, index, zone)
+    updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)

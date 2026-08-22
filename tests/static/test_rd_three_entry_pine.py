@@ -1640,6 +1640,53 @@ def test_pine_v3_raises_zone_liquidity_above_boxes_created_later() -> None:
     )
 
 
+def test_pine_v3_only_refreshes_drawing_objects_on_the_last_chart_update() -> None:
+    pine = source()
+    drawing_refresh = section(
+        pine, "bool refreshVisualsThisUpdate", "var table statusTable"
+    )
+
+    assert "bool refreshVisualsThisUpdate = barstate.islast" in drawing_refresh
+    assert "if refreshVisualsThisUpdate" in drawing_refresh
+    assert "updateZoneDrawing(zone, zones)" in drawing_refresh
+    assert "updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)" in (
+        drawing_refresh
+    )
+    refresh_lines = drawing_refresh.splitlines()
+    assert refresh_lines[:2] == [
+        "bool refreshVisualsThisUpdate = barstate.islast",
+        "if refreshVisualsThisUpdate",
+    ]
+    assert all(
+        not line.strip()
+        or line.startswith("    ")
+        or line.startswith("// @lab-only-")
+        for line in refresh_lines[2:]
+    )
+
+
+def test_pine_v3_skips_validation_heartbeat_json_when_telemetry_is_disabled() -> None:
+    pine = source()
+    confirmed_update = section(
+        pine,
+        "if barstate.isconfirmed and isFiveMinute and validationReady",
+        "// Entry candidates are evaluated",
+    )
+
+    assert (
+        "bool validationTelemetryEnabled = emitDiagnostics or validationCapture"
+        in confirmed_update
+    )
+    assert (
+        'string validationEvents = validationTelemetryEnabled ? validationHeartbeat() : ""'
+        in confirmed_update
+    )
+    assert (
+        "int validationEventCount = validationTelemetryEnabled ? 1 : 0"
+        in confirmed_update
+    )
+
+
 def test_pine_v3_scans_across_the_reversal_bridge_to_the_opposite_leg() -> None:
     pine = source()
     leg_proof = section(pine, "liquidityLegProof(", "confirmedLiquidityPivot(")
