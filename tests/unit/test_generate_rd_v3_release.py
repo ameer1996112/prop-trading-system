@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = ROOT / "scripts/generate_rd_v3_release.py"
 LAB = ROOT / "scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine"
 RELEASE = ROOT / "scripts/pinescript/SND_RD_5M_V3_RELEASE.pine"
-PROTECTED_REGION_SHA256 = "15e7f56b0d53dd41173fe4babdb4664b57ea67f984d6de6fd0237056cbb8583f"
+PROTECTED_REGION_SHA256 = "2d59a84750436273f6b50d9975650815e3271d4e0d2b184c27c4904842a4d2e0"
 
 
 @pytest.mark.parametrize(

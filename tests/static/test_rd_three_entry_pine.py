@@ -104,6 +104,29 @@ def test_pine_v3_materializes_standard_and_accuracy_variants_from_one_confirmati
     assert '"\\"formation_id\\":\\"" + zone.formationId + "\\","' in diagnostics
 
 
+def test_pine_v3_distal_wick_breach_invalidates_before_normal_zone_engagement() -> None:
+    pine = source()
+    distal_invalidation = section(
+        pine, "zoneWickInvalidThroughDistal(", "setupHasAmbiguousLifecycleOrder("
+    )
+    lifecycle = section(
+        pine,
+        "int zoneCount = array.size(zones)",
+        "for index = 0 to zoneCount - 1\n            RawZone zone = array.get(zones, index)\n            int blockerId",
+    )
+
+    # Crossing the far boundary is terminal; merely entering the zone is not.
+    assert "zone.demand ? low < zone.bottom : high > zone.top" in distal_invalidation
+    assert "zone.demand ? low <= zone.top : high >= zone.bottom" not in distal_invalidation
+
+    breach_check = "bool wickInvalidated = zoneWickInvalidThroughDistal(zone)"
+    normal_touch_check = "bool reachedOrCrossed = zoneReachedOrCrossed(zone)"
+    assert breach_check in lifecycle
+    assert normal_touch_check in lifecycle
+    assert lifecycle.index(breach_check) < lifecycle.index(normal_touch_check)
+    assert "INVALIDATE_PRE_ENTRY_WICK_THROUGH_DISTAL" in lifecycle
+
+
 def test_pine_v3_standard_sibling_claims_the_final_attempt_slot_at_119_of_120() -> None:
     pine = source()
     materializer = section(

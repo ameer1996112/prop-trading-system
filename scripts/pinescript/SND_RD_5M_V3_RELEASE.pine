@@ -66,6 +66,7 @@ const string REJECT_FORMATION_INTERRUPTED = "REJECT_FORMATION_INTERRUPTED"
 const string REJECT_UNKNOWN_APPROACH = "REJECT_UNKNOWN_APPROACH"
 const string TAP_POST_CONFIRM_OVERLAP = "TAP_POST_CONFIRM_OVERLAP"
 const string INVALIDATE_PRE_ENTRY_CLOSE_INSIDE_OR_THROUGH = "INVALIDATE_PRE_ENTRY_CLOSE_INSIDE_OR_THROUGH"
+const string INVALIDATE_PRE_ENTRY_WICK_THROUGH_DISTAL = "INVALIDATE_PRE_ENTRY_WICK_THROUGH_DISTAL"
 const string WAIT_MINIMUM_LIQUIDITY_CANDLES = "WAIT_MINIMUM_LIQUIDITY_CANDLES"
 const string REJECT_ONE_CANDLE_LIQUIDITY = "REJECT_ONE_CANDLE_LIQUIDITY"
 const string WAIT_LIQUIDITY_OWN_EXTREME = "WAIT_LIQUIDITY_OWN_EXTREME"
@@ -1625,6 +1626,9 @@ zoneReachedOrCrossed(RawZone zone) =>
 
 zoneCloseInvalidBeforeEntry(RawZone zone) =>
     zone.demand ? close <= zone.top : close >= zone.bottom
+
+zoneWickInvalidThroughDistal(RawZone zone) =>
+    zone.demand ? low < zone.bottom : high > zone.top
 
 setupHasAmbiguousLifecycleOrder(RawZone zone) =>
     bool ownBreakAndSweepAmbiguous = not na(zone.liquidityTakenBar) and not na(zone.liquiditySweptBar) and zone.liquidityTakenBar >= zone.liquiditySweptBar
@@ -3466,32 +3470,44 @@ if barstate.isconfirmed and isFiveMinute and validationReady
 
         for index = 0 to zoneCount - 1
             RawZone zone = array.get(zones, index)
-            if zone.state == STATE_FRESH and bar_index > zone.confirmationBar
-                bool sameDirectionDeparture = zone.demand ? close > open : close < open
-                if not (zone.departureActive and sameDirectionDeparture)
-                    zone.departureActive := false
-                    bool reachedOrCrossed = zoneReachedOrCrossed(zone)
-                    if reachedOrCrossed
-                        bool invalidated = zoneCloseInvalidBeforeEntry(zone)
-                        zone.state := invalidated ? STATE_INVALIDATED : STATE_TAPPED
+            if zone.state != STATE_INVALIDATED and bar_index > zone.confirmationBar
+                bool wickInvalidated = zoneWickInvalidThroughDistal(zone)
+                if wickInvalidated
+                    zone.state := STATE_INVALIDATED
+                    zone.stateBar := bar_index
+                    zone.stateTime := time_close
+                    zone.reason := INVALIDATE_PRE_ENTRY_WICK_THROUGH_DISTAL
+                    lastDecision := zone.reason
+                    if emitDiagnostics or validationCapture
+                        validationEvents := appendValidationEvent(validationEvents, diagnosticPayload("ZONE_INVALIDATED_NON_EXECUTABLE", zone))
+                        validationEventCount += 1
+                else
+                    if zone.state == STATE_FRESH
+                        bool sameDirectionDeparture = zone.demand ? close > open : close < open
+                        if not (zone.departureActive and sameDirectionDeparture)
+                            zone.departureActive := false
+                            bool reachedOrCrossed = zoneReachedOrCrossed(zone)
+                            if reachedOrCrossed
+                                bool invalidated = zoneCloseInvalidBeforeEntry(zone)
+                                zone.state := invalidated ? STATE_INVALIDATED : STATE_TAPPED
+                                zone.stateBar := bar_index
+                                zone.stateTime := time_close
+                                zone.reason := invalidated ? INVALIDATE_PRE_ENTRY_CLOSE_INSIDE_OR_THROUGH : TAP_POST_CONFIRM_OVERLAP
+                                lastDecision := zone.reason
+                                if emitDiagnostics or validationCapture
+                                    validationEvents := appendValidationEvent(validationEvents, diagnosticPayload(invalidated ? "ZONE_INVALIDATED_NON_EXECUTABLE" : "ZONE_TAPPED_NON_EXECUTABLE", zone))
+                                    validationEventCount += 1
+                    bool setupTerminal = zone.setupState == SETUP_SHADOW_ONLY or zone.setupState == SETUP_REJECTED
+                    bool reactionStillWaiting = zone.state == STATE_TAPPED and not setupTerminal and bar_index > zone.stateBar
+                    if reactionStillWaiting and zoneReachedOrCrossed(zone) and zoneCloseInvalidBeforeEntry(zone)
+                        zone.state := STATE_INVALIDATED
                         zone.stateBar := bar_index
                         zone.stateTime := time_close
-                        zone.reason := invalidated ? INVALIDATE_PRE_ENTRY_CLOSE_INSIDE_OR_THROUGH : TAP_POST_CONFIRM_OVERLAP
+                        zone.reason := INVALIDATE_PRE_ENTRY_CLOSE_INSIDE_OR_THROUGH
                         lastDecision := zone.reason
                         if emitDiagnostics or validationCapture
-                            validationEvents := appendValidationEvent(validationEvents, diagnosticPayload(invalidated ? "ZONE_INVALIDATED_NON_EXECUTABLE" : "ZONE_TAPPED_NON_EXECUTABLE", zone))
+                            validationEvents := appendValidationEvent(validationEvents, diagnosticPayload("ZONE_INVALIDATED_NON_EXECUTABLE", zone))
                             validationEventCount += 1
-            bool setupTerminal = zone.setupState == SETUP_SHADOW_ONLY or zone.setupState == SETUP_REJECTED
-            bool reactionStillWaiting = zone.state == STATE_TAPPED and not setupTerminal and bar_index > zone.stateBar
-            if reactionStillWaiting and zoneReachedOrCrossed(zone) and zoneCloseInvalidBeforeEntry(zone)
-                zone.state := STATE_INVALIDATED
-                zone.stateBar := bar_index
-                zone.stateTime := time_close
-                zone.reason := INVALIDATE_PRE_ENTRY_CLOSE_INSIDE_OR_THROUGH
-                lastDecision := zone.reason
-                if emitDiagnostics or validationCapture
-                    validationEvents := appendValidationEvent(validationEvents, diagnosticPayload("ZONE_INVALIDATED_NON_EXECUTABLE", zone))
-                    validationEventCount += 1
             array.set(zones, index, zone)
 
         for index = 0 to zoneCount - 1

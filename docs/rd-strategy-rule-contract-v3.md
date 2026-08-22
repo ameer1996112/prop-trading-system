@@ -20,6 +20,14 @@ First touch remains `ZONE_ENGAGED`, not an entry. Version 2
 `LEGACY_BREAK_CANDLE` and `LEGACY_REJECTION_RESPECT` records remain readable but are not valid
 version 3 producer values.
 
+## Zone invalidation clarification
+
+An ordinary wick may enter a zone and records engagement. A later confirmed five-minute bar whose
+wick crosses the zone's distal boundary invalidates the zone and prevents any new entry candidate:
+`low < bottom` for demand and `high > top` for supply. Merely touching the distal boundary is not a
+breach. The inherited close rule remains stricter at the proximal boundary: a confirmed close
+inside or through the zone also invalidates it.
+
 ## BOC eligibility split
 
 Strict `HTF_TIMED` BOC is eligible for paper arbitration only on the first five-minute child of a
