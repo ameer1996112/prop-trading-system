@@ -318,36 +318,52 @@ def test_pine_v3_renders_the_retracement_swing_as_the_canonical_liquidity_line()
     assert "liquidityPriceLabelText(level.nearExtreme)" in audit_drawing
 
 
-def test_pine_v3_display_selects_the_closest_valid_strict_or_structure_candidate() -> None:
+def test_pine_v3_display_selects_the_closest_valid_linked_or_structure_candidate() -> None:
     pine = source()
     selector = section(pine, "liquidityDisplaySelection(", "zoneText(")
 
-    assert "bool strictAvailable =" in selector
-    assert "bool structureAvailable = showStructureLiquidityLines" in selector
     assert (
-        "float strictDistance = strictAvailable ? "
-        "liquidityPriceDistanceToZone(zone, zone.liquidityExtreme) : na"
+        "liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels)"
         in selector
     )
+    assert "int linkedCount = array.size(zone.liquidityIndexes)" in selector
+    assert "int levelCount = array.size(levels)" in selector
+    assert (
+        "int candidateIndex = array.get(zone.liquidityIndexes, linkedOffset)"
+        in selector
+    )
+    assert "candidateIndex >= 0 and candidateIndex < levelCount" in selector
+    assert "LiquidityLevel candidate = array.get(levels, candidateIndex)" in selector
+    assert "candidate.nearExtremeBar > zone.originBar" in selector
+    assert "liquiditySupportsZone(zone, candidate)" in selector
+    assert "distance < strictDistance - syminfo.mintick * 0.5" in selector
+    assert "candidate.nearExtremeBar < strictBar" in selector
+    assert "if not strictAvailable" in selector
+    assert "zone.liquidityExtreme" in selector
+    assert "bool structureAvailable = showStructureLiquidityLines" in selector
     assert (
         "float structureDistance = structureAvailable ? "
         "liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na"
         in selector
     )
-    assert "bool strictEligible = strictAvailable and strictDistance > 0" in selector
     assert (
-        "bool structureEligible = structureAvailable and structureDistance > 0"
+        "candidateIndex == zone.liquidityPrimaryIndex and "
+        "not na(zone.liquiditySweptBar)"
         in selector
-    )
-    assert (
-        "strictDistance < structureDistance - syminfo.mintick * 0.5"
-        in selector
-    )
-    assert (
-        "zone.liquidityExtremeBar <= zone.structureLiquidityBar" in selector
     )
     assert "float selectedPrice = strictSelected ?" in selector
     assert "int selectedBar = strictSelected ?" in selector
+    for forbidden_write in (
+        "liquidityPrimaryIndex :=",
+        "pendingLiquidityPrimaryIndex :=",
+        "liquidityQualified :=",
+        "eligibilityState :=",
+        "setupState :=",
+        "entryAttempts",
+        "alert(",
+        "emitExecutionProposalV1ForAttempt(",
+    ):
+        assert forbidden_write not in selector
 
 
 def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_authority() -> None:
@@ -355,7 +371,12 @@ def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_a
     selector = section(pine, "liquidityDisplaySelection(", "zoneText(")
     zone_drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
 
-    assert "liquidityDisplaySelection(zone)" in zone_drawing
+    assert (
+        "updateZoneDrawing(RawZone zone, array<RawZone> allZones, "
+        "array<LiquidityLevel> levels)"
+        in zone_drawing
+    )
+    assert "liquidityDisplaySelection(zone, levels)" in zone_drawing
     assert "bool displayLiquidityVisible =" in zone_drawing
     assert "displayMode != DISPLAY_RAW_AUDIT" in zone_drawing
     assert "liquidityPriceLabelText(selectedPrice)" in zone_drawing
@@ -366,6 +387,24 @@ def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_a
     assert "liquidityPrimaryIndex :=" not in selector
     assert "liquidityQualified :=" not in selector
     assert "setupState :=" not in selector
+
+
+def test_pine_v3_gives_each_overlapping_curated_level_one_liquidity_owner() -> None:
+    pine = source()
+    owner = section(
+        pine, "zoneOwnsCuratedLiquidityDisplay(", "zoneBaseColor("
+    )
+    drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
+
+    assert "displayMode == DISPLAY_RAW_AUDIT" in owner
+    assert "zoneVisible(candidate, allZones)" in owner
+    assert "candidate.demand == target.demand" in owner
+    assert "zonesOverlap(candidate, target)" in owner
+    assert "setupZoneRanksAhead(candidate, target" in owner
+    assert "ownsDisplay := false" in owner
+    assert "break" in owner
+    assert "zoneOwnsCuratedLiquidityDisplay(zone, allZones)" in drawing
+    assert "ownsLiquidityDisplay and showLiquidityLines" in drawing
 
 
 def test_pine_v3_reference_distance_uses_thirty_percent_of_the_full_distal_zone_impulse() -> None:
@@ -899,7 +938,7 @@ def test_pine_v3_uses_one_canonical_display_liquidity_line_per_zone() -> None:
     assert (
         "[strictSelected, structureSelected, selectedPrice, selectedBar, "
         "selectedTaken, selectedProofPrice, selectedProofBar] = "
-        "liquidityDisplaySelection(zone)"
+        "liquidityDisplaySelection(zone, levels)"
         in zone_drawing
     )
     assert "bool displayLiquidityVisible =" in zone_drawing
@@ -1729,7 +1768,9 @@ def test_pine_v3_raises_zone_liquidity_above_boxes_created_later() -> None:
     assert "line.copy(zone.ownExtremeLine)" in final_drawing_pass
     assert "line.copy(zone.liquidityLine)" in final_drawing_pass
     assert "label.copy(zone.liquidityLabel)" in final_drawing_pass
-    assert final_drawing_pass.index("updateZoneDrawing(zone, zones)") < (
+    assert final_drawing_pass.index(
+        "updateZoneDrawing(zone, zones, liquidityLevels)"
+    ) < (
         final_drawing_pass.index("line.copy(zone.liquidityLine)")
     )
 
@@ -1742,7 +1783,7 @@ def test_pine_v3_only_refreshes_drawing_objects_on_the_last_chart_update() -> No
 
     assert "bool refreshVisualsThisUpdate = barstate.islast" in drawing_refresh
     assert "if refreshVisualsThisUpdate" in drawing_refresh
-    assert "updateZoneDrawing(zone, zones)" in drawing_refresh
+    assert "updateZoneDrawing(zone, zones, liquidityLevels)" in drawing_refresh
     assert "updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)" in (
         drawing_refresh
     )
