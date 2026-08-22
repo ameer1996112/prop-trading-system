@@ -1,7 +1,7 @@
 # All-Linked Closest Liquidity Display Fix Design
 
 **Date:** 2026-08-22  
-**Status:** Awaiting written-spec review  
+**Status:** Approved for implementation
 **Supersedes:** The eligible-candidate and cross-zone deduplication limits in `2026-08-06-zone-specific-closest-liquidity-display-design.md`
 
 ## Objective
