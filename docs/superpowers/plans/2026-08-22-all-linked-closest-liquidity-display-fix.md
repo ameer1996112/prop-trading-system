@@ -311,3 +311,7 @@ Expected visual evidence:
 - a closer valid linked pivot replaces a farther display candidate;
 - one overlapping curated level owns one visible liquidity line;
 - Raw Audit still displays all linked evidence.
+
+## Execution note
+
+Task 2 review identified that calling `zoneVisible(candidate, allZones)` inside every ownership scan would create an O(z³) last-bar path. The implementation therefore precomputes a parallel `array<bool> visibleZones` once per render pass and passes it read-only to the ownership helper. This preserves the approved visible-zone ownership rule while keeping the render path at O(z²) plus linked-candidate scans.

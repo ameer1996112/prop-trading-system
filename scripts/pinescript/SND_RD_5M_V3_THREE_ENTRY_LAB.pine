@@ -712,6 +712,25 @@ zoneVisible(RawZone zone, array<RawZone> allZones) =>
     bool lifecycleVisible = zone.state == STATE_FRESH ? showFresh : zone.state == STATE_TAPPED ? showTapped : showInvalidated
     displayMode == DISPLAY_RAW_AUDIT ? lifecycleVisible : displayMode == DISPLAY_SETUPS_ONLY ? setupIncludedInView(zone) and zoneSelectedForCleanView(zone, allZones) : zoneIncludedInCuratedView(zone) and zoneSelectedForCleanView(zone, allZones)
 
+zoneOwnsCuratedLiquidityDisplay(RawZone target, array<RawZone> allZones, array<bool> visibleZones) =>
+    bool ownsDisplay = true
+    if displayMode == DISPLAY_RAW_AUDIT
+        ownsDisplay := true
+    else
+        float targetDistance = zoneDistanceFromPrice(target)
+        int candidateCount = math.min(array.size(allZones), array.size(visibleZones))
+        if candidateCount > 0
+            for candidateIndex = 0 to candidateCount - 1
+                RawZone candidate = array.get(allZones, candidateIndex)
+                bool candidateVisible = array.get(visibleZones, candidateIndex)
+                bool competing = candidate.id != target.id and candidateVisible and candidate.demand == target.demand and zonesOverlap(candidate, target)
+                if competing
+                    float candidateDistance = zoneDistanceFromPrice(candidate)
+                    if setupZoneRanksAhead(candidate, target, candidateDistance, targetDistance)
+                        ownsDisplay := false
+                        break
+    ownsDisplay
+
 zoneBaseColor(RawZone zone) =>
     color result = displayMode == DISPLAY_SETUPS_ONLY ? (zone.setupState == SETUP_ARMED ? (zone.demand ? color.teal : color.red) : zone.setupState == SETUP_SHADOW_ONLY ? color.orange : color.gray) : zone.state == STATE_TAPPED ? tappedColor : zone.state == STATE_INVALIDATED ? invalidatedColor : (zone.demand ? demandColor : supplyColor)
     result
@@ -780,23 +799,57 @@ liquidityRanksCloser(RawZone zone, LiquidityLevel candidate, LiquidityLevel prim
     float primaryDistance = liquidityDistanceToZone(zone, primary)
     newer or (sameBar and candidateDistance < primaryDistance - syminfo.mintick * 0.5)
 
-liquidityDisplaySelection(RawZone zone) =>
-    bool strictAvailable = not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar)
+liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels) =>
+    bool strictAvailable = false
+    float strictPrice = na
+    int strictBar = na
+    float strictDistance = na
+    float strictProofPrice = na
+    int strictProofBar = na
+    bool strictTaken = false
+    int linkedCount = array.size(zone.liquidityIndexes)
+    int levelCount = array.size(levels)
+    if linkedCount > 0
+        for linkedOffset = 0 to linkedCount - 1
+            int candidateIndex = array.get(zone.liquidityIndexes, linkedOffset)
+            if candidateIndex >= 0 and candidateIndex < levelCount
+                LiquidityLevel candidate = array.get(levels, candidateIndex)
+                float distance = liquidityDistanceToZone(zone, candidate)
+                bool eligible = candidate.nearExtremeBar > zone.originBar and liquiditySupportsZone(zone, candidate)
+                bool sameDistance = strictAvailable and math.abs(distance - strictDistance) <= syminfo.mintick * 0.5
+                bool closer = not strictAvailable or distance < strictDistance - syminfo.mintick * 0.5 or (sameDistance and candidate.nearExtremeBar < strictBar)
+                if eligible and closer
+                    strictAvailable := true
+                    strictPrice := candidate.nearExtreme
+                    strictBar := candidate.nearExtremeBar
+                    strictDistance := distance
+                    strictProofPrice := candidate.anchor
+                    strictProofBar := candidate.anchorBar
+                    strictTaken := candidateIndex == zone.liquidityPrimaryIndex and not na(zone.liquiditySweptBar)
+    if not strictAvailable
+        bool frozenStrictAvailable = not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar)
+        float frozenStrictDistance = frozenStrictAvailable ? liquidityPriceDistanceToZone(zone, zone.liquidityExtreme) : na
+        if frozenStrictAvailable and frozenStrictDistance > 0
+            strictAvailable := true
+            strictPrice := zone.liquidityExtreme
+            strictBar := zone.liquidityExtremeBar
+            strictDistance := frozenStrictDistance
+            strictProofPrice := zone.liquidityAnchor
+            strictProofBar := zone.liquidityAnchorBar
+            strictTaken := not na(zone.liquiditySweptBar)
     bool structureAvailable = showStructureLiquidityLines and not na(zone.structureLiquidityPrice) and not na(zone.structureLiquidityBar)
-    float strictDistance = strictAvailable ? liquidityPriceDistanceToZone(zone, zone.liquidityExtreme) : na
     float structureDistance = structureAvailable ? liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na
-    bool strictEligible = strictAvailable and strictDistance > 0
     bool structureEligible = structureAvailable and structureDistance > 0
-    bool samePrice = strictEligible and structureEligible and math.abs(zone.liquidityExtreme - zone.structureLiquidityPrice) <= syminfo.mintick * 0.5
-    bool strictCloser = strictEligible and structureEligible and strictDistance < structureDistance - syminfo.mintick * 0.5
-    bool strictEarlierAtSamePrice = samePrice and zone.liquidityExtremeBar <= zone.structureLiquidityBar
-    bool strictSelected = strictEligible and (not structureEligible or strictCloser or strictEarlierAtSamePrice)
+    bool samePrice = strictAvailable and structureEligible and math.abs(strictPrice - zone.structureLiquidityPrice) <= syminfo.mintick * 0.5
+    bool strictCloser = strictAvailable and structureEligible and strictDistance < structureDistance - syminfo.mintick * 0.5
+    bool strictEarlierAtSamePrice = samePrice and strictBar <= zone.structureLiquidityBar
+    bool strictSelected = strictAvailable and (not structureEligible or strictCloser or strictEarlierAtSamePrice)
     bool structureSelected = structureEligible and not strictSelected
-    float selectedPrice = strictSelected ? zone.liquidityExtreme : structureSelected ? zone.structureLiquidityPrice : na
-    int selectedBar = strictSelected ? zone.liquidityExtremeBar : structureSelected ? zone.structureLiquidityBar : na
-    bool selectedTaken = strictSelected and not na(zone.liquiditySweptBar)
-    float selectedProofPrice = strictSelected ? zone.liquidityAnchor : na
-    int selectedProofBar = strictSelected ? zone.liquidityAnchorBar : na
+    float selectedPrice = strictSelected ? strictPrice : structureSelected ? zone.structureLiquidityPrice : na
+    int selectedBar = strictSelected ? strictBar : structureSelected ? zone.structureLiquidityBar : na
+    bool selectedTaken = strictSelected and strictTaken
+    float selectedProofPrice = strictSelected ? strictProofPrice : na
+    int selectedProofBar = strictSelected ? strictProofBar : na
     [strictSelected, structureSelected, selectedPrice, selectedBar, selectedTaken, selectedProofPrice, selectedProofBar]
 
 zoneText(RawZone zone) =>
@@ -810,8 +863,8 @@ liquidityPriceLabelText(float price) =>
 setupDisplayText(RawZone zone) =>
     displayMode == DISPLAY_SETUPS_ONLY ? (premiumVisuals ? zone.setupState : zone.setupState + "\n" + zone.setupReason) : ""
 
-updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
-    bool visible = zoneVisible(zone, allZones)
+updateZoneDrawing(RawZone zone, bool visible, array<RawZone> allZones, array<LiquidityLevel> levels, array<bool> visibleZones) =>
+    bool ownsLiquidityDisplay = visible and zoneOwnsCuratedLiquidityDisplay(zone, allZones, visibleZones)
     if visible
         int leftBar = liquiditySafeDrawingBar(zone.originBar)
         int rightBar = liquiditySafeDrawingBar(zoneRightBar(zone))
@@ -849,8 +902,8 @@ updateZoneDrawing(RawZone zone, array<RawZone> allZones) =>
             label.delete(zone.debugLabel)
             zone.debugLabel := na
 
-    [strictSelected, structureSelected, selectedPrice, selectedBar, selectedTaken, selectedProofPrice, selectedProofBar] = liquidityDisplaySelection(zone)
-    bool displayLiquidityVisible = visible and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(selectedPrice) and not na(selectedBar)
+    [strictSelected, structureSelected, selectedPrice, selectedBar, selectedTaken, selectedProofPrice, selectedProofBar] = liquidityDisplaySelection(zone, levels)
+    bool displayLiquidityVisible = ownsLiquidityDisplay and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(selectedPrice) and not na(selectedBar)
     if displayLiquidityVisible
         if not na(zone.structureLiquidityLine)
             line.delete(zone.structureLiquidityLine)
@@ -3661,10 +3714,15 @@ alertcondition(actionablePaperExitThisUpdate, "SND RD | Actionable paper exit", 
 bool refreshVisualsThisUpdate = barstate.islast
 if refreshVisualsThisUpdate
     int drawCount = array.size(zones)
+    array<bool> visibleZones = array.new<bool>()
     if drawCount > 0
         for index = 0 to drawCount - 1
             RawZone zone = array.get(zones, index)
-            updateZoneDrawing(zone, zones)
+            array.push(visibleZones, zoneVisible(zone, zones))
+        for index = 0 to drawCount - 1
+            RawZone zone = array.get(zones, index)
+            bool zoneVisibleNow = array.get(visibleZones, index)
+            updateZoneDrawing(zone, zoneVisibleNow, zones, liquidityLevels, visibleZones)
             array.set(zones, index, zone)
 // @lab-only-begin verbose-audit-z-order
     // Boxes are painted during the loop above. On the final chart bar, re-copy

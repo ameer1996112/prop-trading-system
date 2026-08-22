@@ -372,8 +372,8 @@ def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_a
     zone_drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
 
     assert (
-        "updateZoneDrawing(RawZone zone, array<RawZone> allZones, "
-        "array<LiquidityLevel> levels)"
+        "updateZoneDrawing(RawZone zone, bool visible, array<RawZone> allZones, "
+        "array<LiquidityLevel> levels, array<bool> visibleZones)"
         in zone_drawing
     )
     assert "liquidityDisplaySelection(zone, levels)" in zone_drawing
@@ -397,14 +397,36 @@ def test_pine_v3_gives_each_overlapping_curated_level_one_liquidity_owner() -> N
     drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
 
     assert "displayMode == DISPLAY_RAW_AUDIT" in owner
-    assert "zoneVisible(candidate, allZones)" in owner
+    assert "array<bool> visibleZones" in owner
+    assert "array.get(visibleZones, candidateIndex)" in owner
+    assert "zoneVisible(candidate, allZones)" not in owner
     assert "candidate.demand == target.demand" in owner
     assert "zonesOverlap(candidate, target)" in owner
     assert "setupZoneRanksAhead(candidate, target" in owner
     assert "ownsDisplay := false" in owner
     assert "break" in owner
-    assert "zoneOwnsCuratedLiquidityDisplay(zone, allZones)" in drawing
+    assert (
+        "zoneOwnsCuratedLiquidityDisplay(zone, allZones, visibleZones)" in drawing
+    )
     assert "ownsLiquidityDisplay and showLiquidityLines" in drawing
+
+
+def test_pine_v3_precomputes_curated_visibility_once_per_render_pass() -> None:
+    pine = source()
+    drawing_refresh = section(
+        pine, "bool refreshVisualsThisUpdate", "var table statusTable"
+    )
+
+    assert "array<bool> visibleZones = array.new<bool>()" in drawing_refresh
+    assert "array.push(visibleZones, zoneVisible(zone, zones))" in drawing_refresh
+    assert (
+        "bool zoneVisibleNow = array.get(visibleZones, index)" in drawing_refresh
+    )
+    assert (
+        "updateZoneDrawing(zone, zoneVisibleNow, zones, liquidityLevels, "
+        "visibleZones)"
+        in drawing_refresh
+    )
 
 
 def test_pine_v3_reference_distance_uses_thirty_percent_of_the_full_distal_zone_impulse() -> None:
@@ -1769,7 +1791,7 @@ def test_pine_v3_raises_zone_liquidity_above_boxes_created_later() -> None:
     assert "line.copy(zone.liquidityLine)" in final_drawing_pass
     assert "label.copy(zone.liquidityLabel)" in final_drawing_pass
     assert final_drawing_pass.index(
-        "updateZoneDrawing(zone, zones, liquidityLevels)"
+        "updateZoneDrawing(zone, zoneVisibleNow, zones, liquidityLevels, visibleZones)"
     ) < (
         final_drawing_pass.index("line.copy(zone.liquidityLine)")
     )
@@ -1783,7 +1805,11 @@ def test_pine_v3_only_refreshes_drawing_objects_on_the_last_chart_update() -> No
 
     assert "bool refreshVisualsThisUpdate = barstate.islast" in drawing_refresh
     assert "if refreshVisualsThisUpdate" in drawing_refresh
-    assert "updateZoneDrawing(zone, zones, liquidityLevels)" in drawing_refresh
+    assert (
+        "updateZoneDrawing(zone, zoneVisibleNow, zones, liquidityLevels, "
+        "visibleZones)"
+        in drawing_refresh
+    )
     assert "updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)" in (
         drawing_refresh
     )
