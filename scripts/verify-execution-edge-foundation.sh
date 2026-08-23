@@ -87,12 +87,12 @@ if (invalidKey || JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
 NODE
 
 for forbidden in \
-  'EXECUTION_AUTHORITY_ENABLED.*true' \
-  'EXECUTION_MODE_CEILING.*LIVE' \
+  "EXECUTION_AUTHORITY_ENABLED\\s*[:=]\\s*[\\\"']?true" \
+  "EXECUTION_MODE_CEILING\\s*[:=]\\s*[\\\"']?LIVE" \
   'broker_password' \
   'account_password' \
   'generic_instruction'; do
-  if rg --line-number --hidden --glob '!node_modules/**' --glob '!dist/**' -- "$forbidden" \
+  if rg --line-number --pcre2 --multiline --hidden --glob '!node_modules/**' --glob '!dist/**' -- "$forbidden" \
     "$execution_edge/src" "$config" "$repository_root/contracts"; then
     fail "forbidden production/config/contract text detected: $forbidden"
   fi
@@ -109,13 +109,36 @@ then
   fail "package build must remain the local dry-run Wrangler command"
 fi
 
-env -u CLOUDFLARE_API_TOKEN -u CF_API_TOKEN -u WRANGLER_API_TOKEN \
-  CI=1 WRANGLER_SEND_METRICS=false WRANGLER_WRITE_LOGS=false npm --prefix "$execution_edge" test
-env -u CLOUDFLARE_API_TOKEN -u CF_API_TOKEN -u WRANGLER_API_TOKEN \
-  CI=1 WRANGLER_SEND_METRICS=false WRANGLER_WRITE_LOGS=false npm --prefix "$execution_edge" run lint
-env -u CLOUDFLARE_API_TOKEN -u CF_API_TOKEN -u WRANGLER_API_TOKEN \
-  CI=1 WRANGLER_SEND_METRICS=false WRANGLER_WRITE_LOGS=false npm --prefix "$execution_edge" run typecheck
-env -u CLOUDFLARE_API_TOKEN -u CF_API_TOKEN -u WRANGLER_API_TOKEN \
-  CI=1 WRANGLER_SEND_METRICS=false WRANGLER_WRITE_LOGS=false npm --prefix "$execution_edge" run build
+run_npm() {
+  env \
+    -u CLOUDFLARE_API_TOKEN \
+    -u CF_API_TOKEN \
+    -u WRANGLER_API_TOKEN \
+    -u CLOUDFLARE_API_KEY \
+    -u CF_API_KEY \
+    -u CLOUDFLARE_EMAIL \
+    -u CF_EMAIL \
+    -u CLOUDFLARE_API_USER_SERVICE_KEY \
+    -u CLOUDFLARE_USER_SERVICE_KEY \
+    -u WRANGLER_CF_AUTHORIZATION_TOKEN \
+    -u CLOUDFLARE_CF_AUTH \
+    -u CLOUDFLARE_AUTH_USE_KEYRING \
+    -u CLOUDFLARE_BASE_URL \
+    -u CLOUDFLARE_API_BASE_URL \
+    -u CF_API_BASE_URL \
+    -u WRANGLER_API_ENVIRONMENT \
+    -u WRANGLER_AUTH_DOMAIN \
+    -u WRANGLER_AUTH_URL \
+    -u WRANGLER_TOKEN_URL \
+    -u WRANGLER_R2_SQL_AUTH_TOKEN \
+    -u WRANGLER_HTTPS_KEY_PATH \
+    CI=1 WRANGLER_SEND_METRICS=false WRANGLER_WRITE_LOGS=false \
+    npm --prefix "$execution_edge" "$@"
+}
+
+run_npm test
+run_npm run lint
+run_npm run typecheck
+run_npm run build
 
 printf 'Execution edge foundation verification passed.\n'

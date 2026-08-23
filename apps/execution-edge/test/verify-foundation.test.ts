@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -52,10 +53,56 @@ function writeFixture(source = "export {};\n"): string {
 }
 
 function runFixture(root: string) {
+  return runFixtureWithEnvironment(root);
+}
+
+function runFixtureWithEnvironment(root: string, environment: NodeJS.ProcessEnv = {}) {
   return spawnSync(join(root, "scripts/verify-execution-edge-foundation.sh"), [], {
     cwd: root,
     encoding: "utf8",
+    env: { ...process.env, ...environment },
   });
+}
+
+const credentialVariables = [
+  "CLOUDFLARE_API_TOKEN",
+  "CF_API_TOKEN",
+  "WRANGLER_API_TOKEN",
+  "CLOUDFLARE_API_KEY",
+  "CF_API_KEY",
+  "CLOUDFLARE_EMAIL",
+  "CF_EMAIL",
+  "CLOUDFLARE_API_USER_SERVICE_KEY",
+  "CLOUDFLARE_USER_SERVICE_KEY",
+  "WRANGLER_CF_AUTHORIZATION_TOKEN",
+  "CLOUDFLARE_CF_AUTH",
+  "CLOUDFLARE_AUTH_USE_KEYRING",
+  "CLOUDFLARE_BASE_URL",
+  "CLOUDFLARE_API_BASE_URL",
+  "CF_API_BASE_URL",
+  "WRANGLER_API_ENVIRONMENT",
+  "WRANGLER_AUTH_DOMAIN",
+  "WRANGLER_AUTH_URL",
+  "WRANGLER_TOKEN_URL",
+  "WRANGLER_R2_SQL_AUTH_TOKEN",
+  "WRANGLER_HTTPS_KEY_PATH",
+] as const;
+
+function installCredentialCheckingNpm(root: string): string {
+  const bin = join(root, "bin");
+  const record = join(root, "npm-environment.txt");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "npm"), `#!/usr/bin/env sh
+for variable in ${credentialVariables.join(" ")}; do
+  if printenv "$variable" >/dev/null; then
+    echo "credential reached npm: $variable" >&2
+    exit 91
+  fi
+done
+env | LC_ALL=C sort > "$NPM_ENVIRONMENT_RECORD"
+`);
+  chmodSync(join(bin, "npm"), 0o755);
+  return record;
 }
 
 describe("execution-edge foundation verifier", () => {
@@ -92,19 +139,40 @@ describe("execution-edge foundation verifier", () => {
   });
 
   it.each([
-    "EXECUTION_AUTHORITY_ENABLED = true",
-    'EXECUTION_MODE_CEILING = "LIVE"',
-    "broker_password",
-    "account_password",
-    "generic_instruction",
-  ])("rejects forbidden production text %s while excluding documentation", (forbidden) => {
+    ["EXECUTION_AUTHORITY_ENABLED = true", "EXECUTION_AUTHORITY_ENABLED"],
+    ['EXECUTION_MODE_CEILING = "LIVE"', "EXECUTION_MODE_CEILING"],
+    ["EXECUTION_AUTHORITY_ENABLED:\ntrue", "EXECUTION_AUTHORITY_ENABLED"],
+    ["EXECUTION_MODE_CEILING:\nLIVE", "EXECUTION_MODE_CEILING"],
+    ["broker_password", "broker_password"],
+    ["account_password", "account_password"],
+    ["generic_instruction", "generic_instruction"],
+  ])("rejects forbidden production text %s while excluding documentation", (source, expectedDiagnostic) => {
     expect(existsSync(verifier), "the verifier must exist before the smoke test can run").toBe(true);
-    const root = writeFixture(`export const forbidden = "${forbidden}";\n`);
+    const root = writeFixture(`export const forbidden = "${source}";\n`);
     try {
-      writeFileSync(join(root, "README.md"), `Documentation may explain ${forbidden} safely.\n`);
+      writeFileSync(join(root, "README.md"), `Documentation may explain ${source} safely.\n`);
       const result = runFixture(root);
       expect(result.status).not.toBe(0);
-      expect(`${result.stdout}${result.stderr}`).toContain(forbidden);
+      expect(`${result.stdout}${result.stderr}`).toContain(expectedDiagnostic);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes all Cloudflare credentials before invoking npm", () => {
+    const root = writeFixture();
+    try {
+      const record = installCredentialCheckingNpm(root);
+      const result = runFixtureWithEnvironment(root, {
+        ...Object.fromEntries(credentialVariables.map((variable) => [variable, "sentinel"])),
+        NPM_ENVIRONMENT_RECORD: record,
+        PATH: `${join(root, "bin")}:${process.env.PATH ?? ""}`,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      const npmEnvironment = readFileSync(record, "utf8");
+      for (const variable of credentialVariables) {
+        expect(npmEnvironment).not.toContain(`${variable}=`);
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
