@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/agent-sync-response-v1.schema.json",
+  "title": "AgentSyncResponseV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "response_body_sha256", "server_sequence", "server_time_epoch", "mode", "freeze_reasons", "acknowledged_event_sequence", "evidence_requests", "command"],
+  "properties": {
+    "schema_version": {"const": "AgentSyncResponseV1"}, "response_body_sha256": {"$ref": "#/$defs/sha256"}, "server_sequence": {"$ref": "#/$defs/positiveSafeInteger"}, "server_time_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"},
+    "mode": {"const": "DRY_RUN"}, "freeze_reasons": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"enum": ["AUDIT_PENDING", "RECONCILIATION_UNKNOWN", "STALE_NEWS", "CAPABILITY_CHANGED", "PROTECTION_FAILURE", "OPERATOR_FREEZE", "PROFILE_INVALID", "AGENT_STALE"]}},
+    "acknowledged_event_sequence": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "evidence_requests": {"type": "array", "minItems": 0, "maxItems": 8, "items": {"$ref": "#/$defs/evidenceRequest"}},
+    "command": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/tradeCommand"}]}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}},
+    "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "positiveSafeInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}, "safeInteger": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991},
+    "evidenceRequest": {"type": "object", "additionalProperties": false, "required": ["request_id", "source_symbol", "timeframe", "from_epoch", "to_epoch"], "properties": {"request_id": {"$ref": "#/$defs/identifier"}, "source_symbol": {"enum": ["EURUSD", "GBPJPY", "USDJPY", "XAUUSD", "NAS100"]}, "timeframe": {"enum": ["M5", "M1"]}, "from_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "to_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}}},
+    "tradeCommand": {"type": "object", "additionalProperties": false, "required": ["schema_version", "command_id", "lease_id", "candidate_id", "decision_sha256", "account_id", "installation_id", "account_profile_sha256", "symbol_capability_sha256", "safety_epoch", "direction", "broker_symbol", "entry_ticks", "stop_ticks", "target_ticks", "volume_steps", "issued_at_epoch", "expires_at_epoch", "lease_duration_seconds", "execution_mode", "real_execution_allowed"], "properties": {"schema_version": {"const": "TradeCommandV1"}, "command_id": {"$ref": "#/$defs/identifier"}, "lease_id": {"$ref": "#/$defs/identifier"}, "candidate_id": {"$ref": "#/$defs/sha256"}, "decision_sha256": {"$ref": "#/$defs/sha256"}, "account_id": {"$ref": "#/$defs/identifier"}, "installation_id": {"$ref": "#/$defs/identifier"}, "account_profile_sha256": {"$ref": "#/$defs/sha256"}, "symbol_capability_sha256": {"$ref": "#/$defs/sha256"}, "safety_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "direction": {"enum": ["LONG", "SHORT"]}, "broker_symbol": {"$ref": "#/$defs/identifier"}, "entry_ticks": {"$ref": "#/$defs/safeInteger"}, "stop_ticks": {"$ref": "#/$defs/safeInteger"}, "target_ticks": {"$ref": "#/$defs/safeInteger"}, "volume_steps": {"$ref": "#/$defs/positiveSafeInteger"}, "issued_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "expires_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "lease_duration_seconds": {"type": "integer", "minimum": 1, "maximum": 30}, "execution_mode": {"const": "DRY_RUN"}, "real_execution_allowed": {"const": false}}}
+  },
+  "description": "Strict bounded DRY_RUN synchronization response with an optional narrow leased command."
+}

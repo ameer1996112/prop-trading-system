@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/trade-command-v1.schema.json",
+  "title": "TradeCommandV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "command_id", "lease_id", "candidate_id", "decision_sha256", "account_id", "installation_id", "account_profile_sha256", "symbol_capability_sha256", "safety_epoch", "direction", "broker_symbol", "entry_ticks", "stop_ticks", "target_ticks", "volume_steps", "issued_at_epoch", "expires_at_epoch", "lease_duration_seconds", "execution_mode", "real_execution_allowed"],
+  "properties": {
+    "schema_version": {"const": "TradeCommandV1"}, "command_id": {"$ref": "#/$defs/identifier"}, "lease_id": {"$ref": "#/$defs/identifier"}, "candidate_id": {"$ref": "#/$defs/sha256"}, "decision_sha256": {"$ref": "#/$defs/sha256"},
+    "account_id": {"$ref": "#/$defs/identifier"}, "installation_id": {"$ref": "#/$defs/identifier"}, "account_profile_sha256": {"$ref": "#/$defs/sha256"}, "symbol_capability_sha256": {"$ref": "#/$defs/sha256"}, "safety_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"},
+    "direction": {"enum": ["LONG", "SHORT"]}, "broker_symbol": {"$ref": "#/$defs/identifier"}, "entry_ticks": {"$ref": "#/$defs/safeInteger"}, "stop_ticks": {"$ref": "#/$defs/safeInteger"}, "target_ticks": {"$ref": "#/$defs/safeInteger"}, "volume_steps": {"$ref": "#/$defs/positiveSafeInteger"},
+    "issued_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "expires_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "lease_duration_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+    "execution_mode": {"const": "DRY_RUN"}, "real_execution_allowed": {"const": false}
+  },
+  "$defs": {"identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "positiveSafeInteger": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}, "safeInteger": {"type": "integer", "minimum": -9007199254740991, "maximum": 9007199254740991}},
+  "description": "A narrow leased DRY_RUN authorization. Runtime validation must also prove expires_at_epoch - issued_at_epoch equals lease_duration_seconds and is at most 30 seconds."
+}

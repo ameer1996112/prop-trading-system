@@ -280,8 +280,32 @@ function schemaValidationErrors(schema: JsonSchema, value: unknown, path: string
   if (Array.isArray(schema.allOf)) {
     for (const clause of schema.allOf) errors.push(...schemaValidationErrors(schemaObject(clause), value, path, root));
   }
+  if (Array.isArray(schema.anyOf)) {
+    const matches = schema.anyOf.some((clause) => (
+      schemaValidationErrors(schemaObject(clause), value, path, root).length === 0
+    ));
+    if (!matches) errors.push(`${path}: does not match any allowed schema`);
+  }
+  if (Array.isArray(schema.oneOf)) {
+    const matches = schema.oneOf.filter((clause) => (
+      schemaValidationErrors(schemaObject(clause), value, path, root).length === 0
+    )).length;
+    if (matches !== 1) errors.push(`${path}: does not match exactly one allowed schema`);
+  }
   if (schema.if !== undefined && schemaValidationErrors(schemaObject(schema.if), value, path, root).length === 0 && schema.then !== undefined) {
     errors.push(...schemaValidationErrors(schemaObject(schema.then), value, path, root));
+  } else if (schema.if !== undefined && schema.else !== undefined) {
+    errors.push(...schemaValidationErrors(schemaObject(schema.else), value, path, root));
+  }
+  if (Array.isArray(value)) {
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) errors.push(`${path}: fewer than minItems`);
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) errors.push(`${path}: more than maxItems`);
+    if (schema.items !== undefined) {
+      const itemSchema = schemaObject(schema.items);
+      value.forEach((item, index) => {
+        errors.push(...schemaValidationErrors(itemSchema, item, `${path}[${index}]`, root));
+      });
+    }
   }
   return errors;
 }
