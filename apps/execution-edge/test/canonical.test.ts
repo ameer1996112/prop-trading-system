@@ -72,6 +72,45 @@ describe("canonical JSON", () => {
     expect(() => canonicalStringify(value as never)).toThrow("CANONICAL_JSON_INVALID");
   });
 
+  it("rejects enumerable accessor properties without invoking them", () => {
+    let invoked = false;
+    const value: Record<string, unknown> = {};
+    Object.defineProperty(value, "unstable", {
+      enumerable: true,
+      get() {
+        invoked = true;
+        throw new Error("accessor invoked");
+      },
+    });
+
+    expect(() => canonicalStringify(value as never)).toThrow("CANONICAL_JSON_INVALID");
+    expect(invoked).toBe(false);
+  });
+
+  it("rejects array subclasses and modified array prototypes", () => {
+    class ArraySubclass extends Array<number> {}
+    expect(() => canonicalStringify(new ArraySubclass(1, 2))).toThrow("CANONICAL_JSON_INVALID");
+
+    const modified = [1, 2];
+    Object.setPrototypeOf(modified, { map: () => ["overridden"] });
+    expect(() => canonicalStringify(modified as never)).toThrow("CANONICAL_JSON_INVALID");
+  });
+
+  it("rejects array accessor indices without invoking them", () => {
+    let invoked = false;
+    const value = [1];
+    Object.defineProperty(value, "0", {
+      enumerable: true,
+      get() {
+        invoked = true;
+        throw new Error("accessor invoked");
+      },
+    });
+
+    expect(() => canonicalStringify(value)).toThrow("CANONICAL_JSON_INVALID");
+    expect(invoked).toBe(false);
+  });
+
   it("rejects cyclic and sparse nested arrays", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;

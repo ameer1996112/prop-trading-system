@@ -60,35 +60,65 @@ function serialize(value: unknown, ancestors: Set<object>): string {
 
   try {
     if (Array.isArray(value)) {
-      if (Object.getOwnPropertySymbols(value).length > 0) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) {
         return invalid();
       }
 
-      const keys = Object.keys(value);
+      const ownKeys = Reflect.ownKeys(value);
+      const expectedIndexes = new Set<string>();
       for (let index = 0; index < value.length; index += 1) {
-        if (!Object.prototype.hasOwnProperty.call(value, String(index))) {
+        const key = String(index);
+        expectedIndexes.add(key);
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) {
           return invalid();
         }
       }
-      if (keys.length !== value.length) {
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (
+        lengthDescriptor === undefined ||
+        lengthDescriptor.enumerable ||
+        !("value" in lengthDescriptor) ||
+        lengthDescriptor.value !== value.length
+      ) {
         return invalid();
       }
+      for (const key of ownKeys) {
+        if (typeof key !== "string" || (key !== "length" && !expectedIndexes.has(key))) {
+          return invalid();
+        }
+      }
 
-      return `[${value.map((entry) => serialize(entry, ancestors)).join(",")}]`;
+      const items: string[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (descriptor === undefined || !("value" in descriptor)) {
+          return invalid();
+        }
+        items.push(serialize(descriptor.value, ancestors));
+      }
+      return `[${items.join(",")}]`;
     }
 
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) {
       return invalid();
     }
-    if (Object.getOwnPropertySymbols(value).length > 0) {
-      return invalid();
+    const properties: Array<readonly [string, unknown]> = [];
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string") {
+        return invalid();
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) {
+        return invalid();
+      }
+      properties.push([key, descriptor.value]);
     }
 
-    const record = value as Record<string, unknown>;
-    const keys = Object.keys(record).sort(compareCodePoints);
-    return `{${keys
-      .map((key) => `${JSON.stringify(key)}:${serialize(record[key], ancestors)}`)
+    properties.sort(([left], [right]) => compareCodePoints(left, right));
+    return `{${properties
+      .map(([key, entry]) => `${JSON.stringify(key)}:${serialize(entry, ancestors)}`)
       .join(",")}}`;
   } finally {
     ancestors.delete(value);
