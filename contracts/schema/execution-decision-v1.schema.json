@@ -15,8 +15,8 @@
     "authority": {"const": "DRY_RUN"}, "real_execution_allowed": {"const": false}
   },
   "allOf": [
-    {"if": {"properties": {"outcome": {"const": "DRY_RUN_AUTHORIZED"}}}, "then": {"properties": {"reason_code": {"const": "AUTHORIZED"}, "reservation_id": {"$ref": "#/$defs/identifier"}}}},
-    {"if": {"properties": {"outcome": {"enum": ["BLOCKED", "EXPIRED"]}}}, "then": {"properties": {"reservation_id": {"type": "null"}}}}
+    {"if": {"properties": {"outcome": {"const": "DRY_RUN_AUTHORIZED"}}}, "then": {"properties": {"reason_code": {"const": "AUTHORIZED"}, "reservation_id": {"$ref": "#/$defs/identifier"}}}, "else": {"properties": {"reason_code": {"not": {"const": "AUTHORIZED"}}, "reservation_id": {"type": "null"}}}},
+    {"if": {"properties": {"outcome": {"const": "EXPIRED"}}}, "then": {"properties": {"reason_code": {"const": "DECISION_EXPIRED"}}}}
   ],
   "$defs": {"identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}},
   "description": "Immutable account-specific DRY_RUN risk decision with stable reason coding and no real-execution authority."

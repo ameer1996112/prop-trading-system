@@ -145,4 +145,13 @@ describe("remaining execution-edge V1 schemas", () => {
     const parsed = schema("trade-command-v1.schema.json");
     for (const invalid of [{ ...command, execution_mode: "EVALUATION" }, { ...command, real_execution_allowed: true }, { ...command, lease_duration_seconds: 31 }, { ...command, generic_instruction: "BUY NOW" }, { ...command, order_payload: { arbitrary: true } }]) expect(validateJsonSchemaPayload(parsed, invalid)).not.toEqual([]);
   });
+
+  it("couples decision outcomes to non-contradictory reasons and reservations", () => {
+    const parsed = schema("execution-decision-v1.schema.json");
+    const decision = fixtures["execution-decision-v1.schema.json"];
+
+    expect(validateJsonSchemaPayload(parsed, { ...decision, outcome: "BLOCKED", reason_code: "AUTHORIZED", reservation_id: null })).not.toEqual([]);
+    expect(validateJsonSchemaPayload(parsed, { ...decision, outcome: "EXPIRED", reason_code: "AUTHORIZED", reservation_id: null })).not.toEqual([]);
+    expect(validateJsonSchemaPayload(parsed, { ...decision, outcome: "EXPIRED", reason_code: "DECISION_EXPIRED", reservation_id: null })).toEqual([]);
+  });
 });
