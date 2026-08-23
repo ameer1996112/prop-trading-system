@@ -76,6 +76,11 @@ describe("BrokerBarEvidenceV1", () => {
     await expectInvalid(evidence, "f".repeat(64));
   });
 
+  it("rejects a prototype-chain source symbol", async () => {
+    const { evidence } = await validEvidence();
+    await expectInvalid({ ...evidence, source_symbol: "toString" });
+  });
+
   it.each([
     ["M5 duration", "M5", 60],
     ["M1 duration", "M1", M5],

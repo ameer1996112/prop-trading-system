@@ -96,7 +96,7 @@ export function validateBrokerBarEvidenceV1(
     exactKeys(input, EVIDENCE_KEYS);
     if (input.schema_version !== "BrokerBarEvidenceV1") invalid();
     const sourceSymbol = input.source_symbol;
-    if (typeof sourceSymbol !== "string" || !(sourceSymbol in SOURCE_SYMBOLS)) invalid();
+    if (typeof sourceSymbol !== "string" || !Object.hasOwn(SOURCE_SYMBOLS, sourceSymbol)) invalid();
     const timeframe = input.timeframe;
     if (timeframe !== "M5" && timeframe !== "M1") invalid();
     const duration = timeframe === "M5" ? 300 : 60;
