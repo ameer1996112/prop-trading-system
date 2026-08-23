@@ -2,7 +2,7 @@
 .env
 .env.*
 !.env.example
-apps/execution-edge/.dev.vars
+apps/execution-edge/.dev.vars*
 !apps/execution-edge/.dev.vars.example
 config/local/
 .mypy_cache/

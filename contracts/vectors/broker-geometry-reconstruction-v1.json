@@ -26,7 +26,6 @@
   "capabilities": {
     "eurusd": {
       "schema_version": "BrokerSymbolCapabilityV1",
-      "capability_sha256": "3113ef517c5e6a75fc126d3c025a31a79391563f538d260019c028ff066d99c6",
       "account_profile_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
       "source_symbol": "EURUSD",
       "broker_symbol": "EURUSD",
@@ -35,11 +34,11 @@
       "buffer_policy_version": "rd-entry-wick-buffer-v1",
       "source_buffer_ticks": 2,
       "broker_buffer_ticks": 2,
-      "divergence_tolerance_source_ticks": 3
+      "divergence_tolerance_source_ticks": 3,
+      "capability_sha256": "3113ef517c5e6a75fc126d3c025a31a79391563f538d260019c028ff066d99c6"
     },
     "gbpjpy": {
       "schema_version": "BrokerSymbolCapabilityV1",
-      "capability_sha256": "654d4499b557e1e0b5ffbea8214d8e2940032b448acbbd386572ced5daee90a5",
       "account_profile_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
       "source_symbol": "GBPJPY",
       "broker_symbol": "GBPJPY",
@@ -48,17 +47,18 @@
       "buffer_policy_version": "rd-entry-wick-buffer-v1",
       "source_buffer_ticks": 3,
       "broker_buffer_ticks": 3,
-      "divergence_tolerance_source_ticks": 5
+      "divergence_tolerance_source_ticks": 5,
+      "capability_sha256": "654d4499b557e1e0b5ffbea8214d8e2940032b448acbbd386572ced5daee90a5"
     }
   },
   "candidate_digests": {
     "v2_long": {
       "logical_candidate_id": "60f1bb63b0e210f394eaaa7206e9ad6204a2747f7a5a4f28cf510ac8fb619877",
-      "candidate_body_sha256": "d9da90a2dea76e88e7899fa668f37d8f729ded5b91dda7dae7638ea4ba156420"
+      "candidate_body_sha256": "660715a863f296dacf4ededc49e064336580a7527468994fb04703e75d2f4be0"
     },
     "v2_short": {
       "logical_candidate_id": "f0950513fe38d544814c752c29a2832123efcda83bb1d758879ce0c0acbe5812",
-      "candidate_body_sha256": "df2af4a498c9e4f39919773d69c1e681c05b1186a356f62254161f9cc51b8e63"
+      "candidate_body_sha256": "006be07d20e3275d11d1054420dbd2e0f29817de726868677a0880a74b2c35cd"
     }
   },
   "cases": [
@@ -95,10 +95,10 @@
         "engagement_candle": {
           "open_epoch": 1786391400,
           "close_epoch": 1786391700,
-          "open_ticks": 1040,
+          "open_ticks": 1100,
           "high_ticks": 1110,
           "low_ticks": 1000,
-          "close_ticks": 1100,
+          "close_ticks": 1080,
           "closed": true
         },
         "source_bar": {
@@ -122,7 +122,7 @@
         "zone_active_from_epoch": 1786391100,
         "proposal_schema_version": "rd-entry-execution-proposal-v2",
         "logical_candidate_id": "60f1bb63b0e210f394eaaa7206e9ad6204a2747f7a5a4f28cf510ac8fb619877",
-        "candidate_body_sha256": "d9da90a2dea76e88e7899fa668f37d8f729ded5b91dda7dae7638ea4ba156420"
+        "candidate_body_sha256": "660715a863f296dacf4ededc49e064336580a7527468994fb04703e75d2f4be0"
       },
       "capability": {
         "schema_version": "BrokerSymbolCapabilityV1",
@@ -162,10 +162,10 @@
           {
             "open_epoch": 1786391400,
             "close_epoch": 1786391700,
-            "open_ticks": 1040,
+            "open_ticks": 1100,
             "high_ticks": 1110,
             "low_ticks": 1000,
-            "close_ticks": 1100,
+            "close_ticks": 1080,
             "closed": true
           },
           {
@@ -183,7 +183,7 @@
       "expected": {
         "schema_version": "BrokerGeometryReconstructionV1",
         "logical_candidate_id": "60f1bb63b0e210f394eaaa7206e9ad6204a2747f7a5a4f28cf510ac8fb619877",
-        "candidate_body_sha256": "d9da90a2dea76e88e7899fa668f37d8f729ded5b91dda7dae7638ea4ba156420",
+        "candidate_body_sha256": "660715a863f296dacf4ededc49e064336580a7527468994fb04703e75d2f4be0",
         "evidence_id": "broker-evidence-reconstruction-v1",
         "capability_sha256": "3113ef517c5e6a75fc126d3c025a31a79391563f538d260019c028ff066d99c6",
         "source_symbol": "EURUSD",
@@ -202,7 +202,7 @@
         "authority": "PAPER_ONLY",
         "real_execution_allowed": false,
         "command": null,
-        "reconstruction_body_sha256": "f4998d8b52e7d484cb9cac37e1739338bef6dc38a83342f72a937657c8f3f028"
+        "reconstruction_body_sha256": "f84ccab6618368258cc43528f716a265928a46e8694d107e1453bc06b314cbf0"
       }
     },
     {
@@ -238,10 +238,10 @@
         "engagement_candle": {
           "open_epoch": 1786391400,
           "close_epoch": 1786391700,
-          "open_ticks": 1970,
+          "open_ticks": 1900,
           "high_ticks": 2000,
           "low_ticks": 1880,
-          "close_ticks": 1900,
+          "close_ticks": 1920,
           "closed": true
         },
         "source_bar": {
@@ -265,7 +265,7 @@
         "zone_active_from_epoch": 1786391100,
         "proposal_schema_version": "rd-entry-execution-proposal-v2",
         "logical_candidate_id": "f0950513fe38d544814c752c29a2832123efcda83bb1d758879ce0c0acbe5812",
-        "candidate_body_sha256": "df2af4a498c9e4f39919773d69c1e681c05b1186a356f62254161f9cc51b8e63"
+        "candidate_body_sha256": "006be07d20e3275d11d1054420dbd2e0f29817de726868677a0880a74b2c35cd"
       },
       "capability": {
         "schema_version": "BrokerSymbolCapabilityV1",
@@ -305,10 +305,10 @@
           {
             "open_epoch": 1786391400,
             "close_epoch": 1786391700,
-            "open_ticks": 1970,
+            "open_ticks": 1900,
             "high_ticks": 2000,
             "low_ticks": 1880,
-            "close_ticks": 1900,
+            "close_ticks": 1920,
             "closed": true
           },
           {
@@ -326,7 +326,7 @@
       "expected": {
         "schema_version": "BrokerGeometryReconstructionV1",
         "logical_candidate_id": "f0950513fe38d544814c752c29a2832123efcda83bb1d758879ce0c0acbe5812",
-        "candidate_body_sha256": "df2af4a498c9e4f39919773d69c1e681c05b1186a356f62254161f9cc51b8e63",
+        "candidate_body_sha256": "006be07d20e3275d11d1054420dbd2e0f29817de726868677a0880a74b2c35cd",
         "evidence_id": "broker-evidence-reconstruction-v1",
         "capability_sha256": "654d4499b557e1e0b5ffbea8214d8e2940032b448acbbd386572ced5daee90a5",
         "source_symbol": "GBPJPY",
@@ -345,7 +345,7 @@
         "authority": "PAPER_ONLY",
         "real_execution_allowed": false,
         "command": null,
-        "reconstruction_body_sha256": "d426f4963bf495c78cc1ebc06c43e823114ea2e26321f0456440f7ae33002a6f"
+        "reconstruction_body_sha256": "b476edf97d8dbba8a54caeb0fa044e7c6f69b1634c79b069376d95e907e075e8"
       }
     },
     {
@@ -381,10 +381,10 @@
         "engagement_candle": {
           "open_epoch": 1786391400,
           "close_epoch": 1786391700,
-          "open_ticks": 1040,
+          "open_ticks": 1100,
           "high_ticks": 1110,
           "low_ticks": 1000,
-          "close_ticks": 1100,
+          "close_ticks": 1080,
           "closed": true
         },
         "source_bar": {
@@ -408,7 +408,7 @@
         "zone_active_from_epoch": 1786391100,
         "proposal_schema_version": "rd-entry-execution-proposal-v2",
         "logical_candidate_id": "60f1bb63b0e210f394eaaa7206e9ad6204a2747f7a5a4f28cf510ac8fb619877",
-        "candidate_body_sha256": "d9da90a2dea76e88e7899fa668f37d8f729ded5b91dda7dae7638ea4ba156420"
+        "candidate_body_sha256": "660715a863f296dacf4ededc49e064336580a7527468994fb04703e75d2f4be0"
       },
       "capability": {
         "schema_version": "BrokerSymbolCapabilityV1",
@@ -451,7 +451,7 @@
       "expected": {
         "schema_version": "BrokerGeometryReconstructionV1",
         "logical_candidate_id": "60f1bb63b0e210f394eaaa7206e9ad6204a2747f7a5a4f28cf510ac8fb619877",
-        "candidate_body_sha256": "d9da90a2dea76e88e7899fa668f37d8f729ded5b91dda7dae7638ea4ba156420",
+        "candidate_body_sha256": "660715a863f296dacf4ededc49e064336580a7527468994fb04703e75d2f4be0",
         "evidence_id": "broker-evidence-reconstruction-v1",
         "capability_sha256": "3113ef517c5e6a75fc126d3c025a31a79391563f538d260019c028ff066d99c6",
         "source_symbol": "EURUSD",
@@ -470,7 +470,7 @@
         "authority": "PAPER_ONLY",
         "real_execution_allowed": false,
         "command": null,
-        "reconstruction_body_sha256": "7f8f31f6d5df6a831270dbf2ff49f33577d1b4671e0b7e811e6e8f44dd85b6e2"
+        "reconstruction_body_sha256": "1379095f63e36ed3e2eb5654b18f64170fa249df90a64023ca19de86c2b7dc3f"
       }
     },
     {
@@ -506,10 +506,10 @@
         "engagement_candle": {
           "open_epoch": 1786391400,
           "close_epoch": 1786391700,
-          "open_ticks": 1040,
+          "open_ticks": 1100,
           "high_ticks": 1110,
           "low_ticks": 1000,
-          "close_ticks": 1100,
+          "close_ticks": 1080,
           "closed": true
         },
         "source_bar": {
@@ -533,7 +533,7 @@
         "zone_active_from_epoch": 1786391100,
         "proposal_schema_version": "rd-entry-execution-proposal-v2",
         "logical_candidate_id": "60f1bb63b0e210f394eaaa7206e9ad6204a2747f7a5a4f28cf510ac8fb619877",
-        "candidate_body_sha256": "d9da90a2dea76e88e7899fa668f37d8f729ded5b91dda7dae7638ea4ba156420"
+        "candidate_body_sha256": "660715a863f296dacf4ededc49e064336580a7527468994fb04703e75d2f4be0"
       },
       "capability": {
         "schema_version": "BrokerSymbolCapabilityV1",
@@ -573,10 +573,10 @@
           {
             "open_epoch": 1786391400,
             "close_epoch": 1786391700,
-            "open_ticks": 1040,
+            "open_ticks": 1100,
             "high_ticks": 1110,
             "low_ticks": 990,
-            "close_ticks": 1100,
+            "close_ticks": 1080,
             "closed": true
           },
           {
@@ -594,7 +594,7 @@
       "expected": {
         "schema_version": "BrokerGeometryReconstructionV1",
         "logical_candidate_id": "60f1bb63b0e210f394eaaa7206e9ad6204a2747f7a5a4f28cf510ac8fb619877",
-        "candidate_body_sha256": "d9da90a2dea76e88e7899fa668f37d8f729ded5b91dda7dae7638ea4ba156420",
+        "candidate_body_sha256": "660715a863f296dacf4ededc49e064336580a7527468994fb04703e75d2f4be0",
         "evidence_id": "broker-evidence-reconstruction-v1",
         "capability_sha256": "3113ef517c5e6a75fc126d3c025a31a79391563f538d260019c028ff066d99c6",
         "source_symbol": "EURUSD",
@@ -613,71 +613,8 @@
         "authority": "PAPER_ONLY",
         "real_execution_allowed": false,
         "command": null,
-        "reconstruction_body_sha256": "c00ddb97d51d6442f3d4af3845f145564653ac73c8177422cf46e84c8f3af8a4"
+        "reconstruction_body_sha256": "02d7946c39a3672b4d4dad494659f7bbadfa6879a23a641c6f8887e07f19abd3"
       }
     }
-  ],
-  "task_4_boundaries": {
-    "temporal_coverage": [
-      {
-        "case_id": "late_start",
-        "outcome": "DATA_GAP",
-        "reason_code": "BROKER_EVIDENCE_MISSING"
-      },
-      {
-        "case_id": "early_end",
-        "outcome": "DATA_GAP",
-        "reason_code": "BROKER_EVIDENCE_MISSING"
-      },
-      {
-        "case_id": "missing_middle_m5",
-        "outcome": "DATA_GAP",
-        "reason_code": "BROKER_EVIDENCE_GAP"
-      }
-    ],
-    "eurusd_divergence": {
-      "source_tick_size": "0.00001",
-      "tolerance_source_ticks": 3,
-      "tolerance_price_units": 30000000,
-      "at_tolerance": {
-        "outcome": "MATCH",
-        "maximum_divergence_price_units": 30000000
-      },
-      "one_tick_over": {
-        "outcome": "BLOCKED",
-        "reason_code": "GEOMETRY_MISMATCH"
-      },
-      "risk_distance_four_ticks_over": {
-        "outcome": "BLOCKED",
-        "reason_code": "GEOMETRY_MISMATCH"
-      }
-    },
-    "all_symbol_policy_matches": [
-      {
-        "source_symbol": "EURUSD",
-        "buffer": 2,
-        "tolerance": 3
-      },
-      {
-        "source_symbol": "GBPJPY",
-        "buffer": 3,
-        "tolerance": 5
-      },
-      {
-        "source_symbol": "USDJPY",
-        "buffer": 2,
-        "tolerance": 5
-      },
-      {
-        "source_symbol": "XAUUSD",
-        "buffer": 5,
-        "tolerance": 10
-      },
-      {
-        "source_symbol": "NAS100",
-        "buffer": 10,
-        "tolerance": 20
-      }
-    ]
-  }
+  ]
 }

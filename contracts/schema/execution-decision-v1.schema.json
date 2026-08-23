@@ -14,9 +14,10 @@
     "reservation_id": {"anyOf": [{"$ref": "#/$defs/identifier"}, {"type": "null"}]}, "created_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "expires_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"},
     "authority": {"const": "DRY_RUN"}, "real_execution_allowed": {"const": false}
   },
-  "allOf": [
-    {"if": {"properties": {"outcome": {"const": "DRY_RUN_AUTHORIZED"}}}, "then": {"properties": {"reason_code": {"const": "AUTHORIZED"}, "reservation_id": {"$ref": "#/$defs/identifier"}}}, "else": {"properties": {"reason_code": {"not": {"const": "AUTHORIZED"}}, "reservation_id": {"type": "null"}}}},
-    {"if": {"properties": {"outcome": {"const": "EXPIRED"}}}, "then": {"properties": {"reason_code": {"const": "DECISION_EXPIRED"}}}}
+  "oneOf": [
+    {"properties": {"outcome": {"const": "DRY_RUN_AUTHORIZED"}, "reason_code": {"const": "AUTHORIZED"}, "reservation_id": {"$ref": "#/$defs/identifier"}}},
+    {"properties": {"outcome": {"const": "EXPIRED"}, "reason_code": {"const": "DECISION_EXPIRED"}, "reservation_id": {"type": "null"}}},
+    {"properties": {"outcome": {"const": "BLOCKED"}, "reason_code": {"enum": ["ACCOUNT_FROZEN", "PROFILE_INVALID", "CAPABILITY_MISMATCH", "RECONSTRUCTION_MISMATCH", "RULE_LIMIT", "NEWS_BLACKOUT", "RISK_LIMIT", "STALE_INPUT", "RESERVATION_UNAVAILABLE"]}, "reservation_id": {"type": "null"}}}
   ],
   "$defs": {"identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}},
   "description": "Immutable account-specific DRY_RUN risk decision with stable reason coding and no real-execution authority."

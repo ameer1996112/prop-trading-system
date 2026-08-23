@@ -19,12 +19,70 @@ describe("broker geometry reconstruction v1", () => {
     "utf8",
   )) as Record<string, unknown>;
 
-  function longBars() {
+  function longBars(): CandleFixture[] {
     return [
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
-      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1100, high_ticks: 1110, low_ticks: 1000, close_ticks: 1080, closed: true },
       { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
     ];
+  }
+
+  type CandleFixture = Readonly<{
+    open_epoch: number;
+    close_epoch: number;
+    open_ticks: number;
+    high_ticks: number;
+    low_ticks: number;
+    close_ticks: number;
+    closed: true;
+  }>;
+
+  async function candidateWithBars(
+    candidate: Record<string, unknown>,
+    engagementCandle: CandleFixture,
+    sourceBar: CandleFixture,
+  ): Promise<Record<string, unknown>> {
+    const direction = candidate.direction as "LONG" | "SHORT";
+    const bufferTicks = candidate.buffer_ticks as number;
+    const wickReferenceTicks = direction === "LONG"
+      ? engagementCandle.low_ticks
+      : engagementCandle.high_ticks;
+    const entryTicks = sourceBar.close_ticks;
+    const stopTicks = direction === "LONG"
+      ? wickReferenceTicks - bufferTicks
+      : wickReferenceTicks + bufferTicks;
+    const riskDistanceTicks = direction === "LONG"
+      ? entryTicks - stopTicks
+      : stopTicks - entryTicks;
+    const targetTicks = direction === "LONG"
+      ? entryTicks + 4 * riskDistanceTicks
+      : entryTicks - 4 * riskDistanceTicks;
+    const logicalCandidateId = await sha256Hex(canonicalStringify({
+      strategy_version: candidate.strategy_version,
+      wire_version: candidate.schema_version,
+      ticker_id: candidate.ticker_id,
+      setup_id: candidate.setup_id,
+      setup_revision: candidate.setup_revision,
+      selection_id: candidate.selection_id,
+      source_bar_close_epoch: sourceBar.close_epoch,
+    }));
+    const { candidate_body_sha256: _oldDigest, ...candidateBody } = candidate;
+    const body = {
+      ...candidateBody,
+      logical_candidate_id: logicalCandidateId,
+      engagement_candle: engagementCandle,
+      source_bar: sourceBar,
+      wick_reference_ticks: wickReferenceTicks,
+      entry_ticks: entryTicks,
+      stop_ticks: stopTicks,
+      risk_distance_ticks: riskDistanceTicks,
+      target_ticks: targetTicks,
+      observed_at_epoch: sourceBar.close_epoch + 1,
+    };
+    return {
+      ...body,
+      candidate_body_sha256: await sha256Hex(canonicalStringify(body)),
+    };
   }
 
   function expectNullBlockedFields(result: Awaited<ReturnType<typeof reconstructBrokerGeometryV1>>) {
@@ -251,6 +309,115 @@ describe("broker geometry reconstruction v1", () => {
     }
   });
 
+  it("accepts the engagement candle when it is the first qualifying directional close", async () => {
+    const baseCandidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const engagement = {
+      open_epoch: 1_786_391_400,
+      close_epoch: 1_786_391_700,
+      open_ticks: 1040,
+      high_ticks: 1110,
+      low_ticks: 1000,
+      close_ticks: 1100,
+      closed: true,
+    } as const;
+    const candidate = await candidateWithBars(baseCandidate, engagement, engagement);
+    const evidence = brokerBarEvidenceFixture([longBars()[0]!, engagement], capability);
+
+    const result = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(result).toMatchObject({
+      outcome: "MATCH",
+      reason_code: "NONE",
+      matched_engagement_open_epoch: engagement.open_epoch,
+      matched_source_bar_close_epoch: engagement.close_epoch,
+    });
+  });
+
+  it("accepts the first later directional close after a respecting candle", async () => {
+    const baseCandidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const engagement = {
+      ...longBars()[1]!,
+      open_ticks: 1100,
+      close_ticks: 1080,
+    } as const;
+    const sourceBar = longBars()[2]!;
+    const candidate = await candidateWithBars(baseCandidate, engagement, sourceBar);
+    const evidence = brokerBarEvidenceFixture([longBars()[0]!, engagement, sourceBar], capability);
+
+    const result = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(result).toMatchObject({
+      outcome: "MATCH",
+      reason_code: "NONE",
+      matched_source_bar_close_epoch: sourceBar.close_epoch,
+    });
+  });
+
+  it("blocks when an earlier qualifying directional close precedes the candidate source bar", async () => {
+    const baseCandidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const earlierDirectionalClose = {
+      ...longBars()[1]!,
+      open_ticks: 1040,
+      close_ticks: 1100,
+    } as const;
+    const nominatedSourceBar = longBars()[2]!;
+    const candidate = await candidateWithBars(
+      baseCandidate,
+      earlierDirectionalClose,
+      nominatedSourceBar,
+    );
+    const evidence = brokerBarEvidenceFixture(
+      [longBars()[0]!, earlierDirectionalClose, nominatedSourceBar],
+      capability,
+    );
+
+    const result = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(result).toMatchObject({ outcome: "BLOCKED", reason_code: "GEOMETRY_MISMATCH" });
+    expectNullBlockedFields(result);
+  });
+
+  it("blocks a later directional close after an intervening close inside the zone", async () => {
+    const baseCandidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const engagement = {
+      ...longBars()[1]!,
+      open_ticks: 1100,
+      close_ticks: 1080,
+    } as const;
+    const invalidatingBar = {
+      open_epoch: 1_786_391_700,
+      close_epoch: 1_786_392_000,
+      open_ticks: 1080,
+      high_ticks: 1090,
+      low_ticks: 1030,
+      close_ticks: 1040,
+      closed: true,
+    } as const;
+    const nominatedSourceBar = {
+      open_epoch: 1_786_392_000,
+      close_epoch: 1_786_392_300,
+      open_ticks: 1040,
+      high_ticks: 1110,
+      low_ticks: 1000,
+      close_ticks: 1100,
+      closed: true,
+    } as const;
+    const candidate = await candidateWithBars(baseCandidate, engagement, nominatedSourceBar);
+    const evidence = brokerBarEvidenceFixture(
+      [longBars()[0]!, engagement, invalidatingBar, nominatedSourceBar],
+      capability,
+    );
+
+    const result = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(result).toMatchObject({ outcome: "BLOCKED", reason_code: "GEOMETRY_MISMATCH" });
+    expectNullBlockedFields(result);
+  });
+
   it("rejects invalid structural input with the stable reconstruction input error", async () => {
     const candidate = await v2LongCandidateFixture();
     const capability = await brokerCapabilityFixture();
@@ -344,7 +511,7 @@ describe("broker geometry reconstruction v1", () => {
     const capability = await brokerCapabilityFixture();
     const evidence = brokerBarEvidenceFixture([
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
-      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1100, high_ticks: 1110, low_ticks: 1000, close_ticks: 1080, closed: true },
       { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
     ], capability);
 
@@ -365,7 +532,7 @@ describe("broker geometry reconstruction v1", () => {
       real_execution_allowed: false,
       command: null,
     });
-    expect(result.reconstruction_body_sha256).toBe("f4998d8b52e7d484cb9cac37e1739338bef6dc38a83342f72a937657c8f3f028");
+    expect(result.reconstruction_body_sha256).toBe("f84ccab6618368258cc43528f716a265928a46e8694d107e1453bc06b314cbf0");
     expect(Object.isFrozen(result)).toBe(true);
   });
 
@@ -374,7 +541,7 @@ describe("broker geometry reconstruction v1", () => {
     const capability = await brokerCapabilityFixture();
     const evidence = brokerBarEvidenceFixture([
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1030, high_ticks: 1040, low_ticks: 1000, close_ticks: 1020, closed: true },
-      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1080, high_ticks: 1120, low_ticks: 1040, close_ticks: 1070, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1000, high_ticks: 1120, low_ticks: 990, close_ticks: 1020, closed: true },
       { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1100, high_ticks: 1120, low_ticks: 990, close_ticks: 1000, closed: true },
     ], capability);
 
@@ -407,7 +574,7 @@ describe("broker geometry reconstruction v1", () => {
     });
     const evidence = brokerBarEvidenceFixture([
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1930, high_ticks: 1940, low_ticks: 1900, close_ticks: 1920, closed: true },
-      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1970, high_ticks: 2000, low_ticks: 1880, close_ticks: 1900, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1900, high_ticks: 2000, low_ticks: 1880, close_ticks: 1920, closed: true },
       { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1970, high_ticks: 2000, low_ticks: 1880, close_ticks: 1900, closed: true },
     ], capability);
 
@@ -422,7 +589,7 @@ describe("broker geometry reconstruction v1", () => {
       broker_risk_distance_ticks: 103,
       broker_target_ticks: 1488,
       maximum_divergence_price_units: 0,
-      reconstruction_body_sha256: "d426f4963bf495c78cc1ebc06c43e823114ea2e26321f0456440f7ae33002a6f",
+      reconstruction_body_sha256: "b476edf97d8dbba8a54caeb0fa044e7c6f69b1634c79b069376d95e907e075e8",
       authority: "PAPER_ONLY",
       real_execution_allowed: false,
       command: null,
@@ -451,7 +618,7 @@ describe("broker geometry reconstruction v1", () => {
 
     expect(firstBytes).toEqual(replayBytes);
     expect(firstDigest).toBe(replayDigest);
-    expect(firstDigest).toBe("f4998d8b52e7d484cb9cac37e1739338bef6dc38a83342f72a937657c8f3f028");
+    expect(firstDigest).toBe("f84ccab6618368258cc43528f716a265928a46e8694d107e1453bc06b314cbf0");
     await expect(sha256Hex(canonicalStringify(firstBody))).resolves.toBe(firstDigest);
     await expect(sha256Hex(canonicalStringify(replayBody))).resolves.toBe(replayDigest);
     expect(first).toMatchObject({
@@ -502,7 +669,7 @@ describe("broker geometry reconstruction v1", () => {
     const capability = await brokerCapabilityFixture();
     const evidence = brokerBarEvidenceFixture([
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
-      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 1110, low_ticks: 0, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1100, high_ticks: 1110, low_ticks: 0, close_ticks: 1080, closed: true },
       { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
     ], capability);
 
@@ -530,7 +697,7 @@ describe("broker geometry reconstruction v1", () => {
     const capability = await brokerCapabilityFixture();
     const evidence = brokerBarEvidenceFixture([
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
-      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1100, high_ticks: 1110, low_ticks: 1000, close_ticks: 1080, closed: true },
       { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: Number.MAX_SAFE_INTEGER - 1, high_ticks: Number.MAX_SAFE_INTEGER, low_ticks: 1000, close_ticks: Number.MAX_SAFE_INTEGER, closed: true },
     ], capability);
 
@@ -567,7 +734,7 @@ describe("broker geometry reconstruction v1", () => {
     });
     const evidence = brokerBarEvidenceFixture([
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
-      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1040, high_ticks: 12000, low_ticks: 1000, close_ticks: 1100, closed: true },
+      { open_epoch: 1_786_391_400, close_epoch: 1_786_391_700, open_ticks: 1100, high_ticks: 12000, low_ticks: 1000, close_ticks: 1080, closed: true },
       { open_epoch: 1_786_391_700, close_epoch: 1_786_392_000, open_ticks: 1040, high_ticks: 1110, low_ticks: 1000, close_ticks: 1100, closed: true },
     ], capability);
 

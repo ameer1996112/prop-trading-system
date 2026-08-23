@@ -19,6 +19,13 @@ async function v2CandidateFromProposal(index: number): Promise<Record<string, un
   engagement.close_epoch = 1_786_391_700;
   sourceBar.open_epoch = 1_786_391_700;
   sourceBar.close_epoch = 1_786_392_000;
+  if (proposal.direction === "LONG") {
+    engagement.open_ticks = 1100;
+    engagement.close_ticks = 1080;
+  } else {
+    engagement.open_ticks = 1900;
+    engagement.close_ticks = 1920;
+  }
   proposal.observed_at_epoch = 1_786_392_001;
   proposal.strategy_version = "rd-entry-execution-proposal-v2";
   proposal.zone_active_from_epoch = 1_786_391_100;
@@ -79,10 +86,10 @@ export async function v2ShortGeometryCandidateFixture(): Promise<Record<string, 
     engagement_candle: {
       open_epoch: 1_786_391_400,
       close_epoch: 1_786_391_700,
-      open_ticks: 1080,
+      open_ticks: 1000,
       high_ticks: 1120,
-      low_ticks: 1040,
-      close_ticks: 1070,
+      low_ticks: 990,
+      close_ticks: 1020,
       closed: true,
     },
     source_bar: sourceBar,
