@@ -226,6 +226,12 @@ def test_pine_v3_liquidity_lines_stop_at_the_first_touch_or_sweep_bar() -> None:
     assert "zone.demand ? low[sourceOffset] <= price : high[sourceOffset] >= price" in endpoint
     assert "zone.demand ? low[sourceOffset] < price : high[sourceOffset] > price" not in endpoint
     assert (
+        "if swept\n                    zone.liquidityVisualSweepBar := sourceBar\n"
+        "                    break"
+    ) in endpoint
+    assert "zone.liquidityVisualSweepScannedBar" in endpoint
+    assert "math.max(rangeStart, bar_index - 4999)" in endpoint
+    assert (
         "not na(firstVisualSweepBar) "
         "? firstVisualSweepBar "
         ": zoneRightBar(zone)"
@@ -238,6 +244,68 @@ def test_pine_v3_liquidity_lines_stop_at_the_first_touch_or_sweep_bar() -> None:
         "int rightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
         "ownerZone, level.nearExtreme, level.nearExtremeBar))"
     ) in raw_audit_drawing
+
+
+def test_pine_v3_historical_liquidity_scans_only_the_post_origin_suffix() -> None:
+    pine = source()
+    refresh = section(
+        pine,
+        "refreshZoneLiquidity(",
+        "isLowerHex(",
+    )
+
+    assert "int candidateIndex = array.size(levels) - 1" in refresh
+    assert "while candidateIndex >= 0" in refresh
+    assert "if candidate.nearExtremeBar <= zone.originBar" in refresh
+    assert "break" in refresh
+    assert "candidateIndex -= 1" in refresh
+    assert "array.includes(zone.liquidityIndexes, candidateIndex)" not in refresh
+
+
+def test_pine_v3_historical_liquidity_event_scans_stop_at_first_match() -> None:
+    pine = source()
+    taken = section(pine, "zoneLiquidityTakenBar(", "zoneLiquiditySweptBar(")
+    swept = section(pine, "zoneLiquiditySweptBar(", "refreshZoneLiquidity(")
+
+    assert "if taken\n                    takenBar := sourceBar\n                    break" in taken
+    assert "if swept\n                    sweptBar := sourceBar\n                    break" in swept
+
+
+def test_pine_v3_entry_attempt_lookup_is_constant_time() -> None:
+    pine = source()
+    lookup = section(pine, "entryAttemptIndex(", "newEntryAttempt(")
+    ensure = section(pine, "ensureEntryAttempt(", "materializeEngagedEntryAttempts(")
+    eviction = section(pine, "evictOldestUnprotectedZone(", "if barstate.isfirst")
+
+    assert "map<int, int> entryAttemptIndexes" in pine
+    assert "map.contains(entryAttemptIndexes, zoneId)" in lookup
+    assert "map.get(entryAttemptIndexes, zoneId)" in lookup
+    assert "for index = 0 to attemptCount - 1" not in lookup
+    assert "map.put(entryAttemptIndexes, zone.id, attemptIndex)" in ensure
+    assert "map.remove(entryAttemptIndexes, oldest.id)" in eviction
+    assert "reindexEntryAttemptsFrom(attemptIndex)" in eviction
+
+
+def test_pine_v3_skips_liquidity_arbitration_for_hidden_zones() -> None:
+    pine = source()
+    selection = section(pine, "liquidityDisplaySelection(", "zoneText(")
+    drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
+
+    assert "bool selectionEnabled" in selection
+    assert "if selectionEnabled and linkedCount > 0" in selection
+    assert "bool selectionNeeded = ownsLiquidityDisplay and showLiquidityLines" in drawing
+    assert "liquidityDisplaySelection(zone, levels, selectionNeeded)" in drawing
+
+
+def test_pine_v3_realtime_z_order_refreshes_only_once_per_bar() -> None:
+    pine = source()
+    z_order = section(
+        pine,
+        "// @lab-only-begin verbose-audit-z-order",
+        "// @lab-only-end verbose-audit-z-order",
+    )
+
+    assert "if barstate.islast and barstate.isnew and drawCount > 0" in z_order
 
 
 def test_pine_v3_clips_historical_liquidity_coordinates_to_the_bar_index_window() -> None:
@@ -346,7 +414,8 @@ def test_pine_v3_display_selects_the_closest_valid_linked_or_structure_candidate
     selector = section(pine, "liquidityDisplaySelection(", "zoneText(")
 
     assert (
-        "liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels)"
+        "liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels, "
+        "bool selectionEnabled)"
         in selector
     )
     assert "int linkedCount = array.size(zone.liquidityIndexes)" in selector
@@ -361,9 +430,9 @@ def test_pine_v3_display_selects_the_closest_valid_linked_or_structure_candidate
     assert "liquiditySupportsZone(zone, candidate)" in selector
     assert "distance < strictDistance - syminfo.mintick * 0.5" in selector
     assert "candidate.nearExtremeBar < strictBar" in selector
-    assert "if not strictAvailable" in selector
+    assert "if selectionEnabled and not strictAvailable" in selector
     assert "zone.liquidityExtreme" in selector
-    assert "bool structureAvailable = showStructureLiquidityLines" in selector
+    assert "bool structureAvailable = selectionEnabled and showStructureLiquidityLines" in selector
     assert (
         "float structureDistance = structureAvailable ? "
         "liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na"
@@ -399,7 +468,7 @@ def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_a
         "array<LiquidityLevel> levels, array<bool> visibleZones)"
         in zone_drawing
     )
-    assert "liquidityDisplaySelection(zone, levels)" in zone_drawing
+    assert "liquidityDisplaySelection(zone, levels, selectionNeeded)" in zone_drawing
     assert "bool displayLiquidityVisible =" in zone_drawing
     assert "displayMode != DISPLAY_RAW_AUDIT" in zone_drawing
     assert "liquidityPriceLabelText(selectedPrice)" in zone_drawing
@@ -803,7 +872,8 @@ def test_pine_v3_requires_zone_linked_continuation_bos_for_structure_liquidity()
     assert "float completedMoveLevel = zone.structureMoveExtreme" in refresh
     assert "float guidanceMax = liquidityGuidanceMaxPrice(zone, completedMoveLevel)" in refresh
     assert "bool zoneStillUntouched = not structureLiquidityZoneTouched(zone)" in refresh
-    assert "addUniqueLiquidityIndex(zone.structureLiquidityIndexes, candidateIndex)" in refresh
+    assert "array.push(zone.structureLiquidityIndexes, candidateIndex)" in refresh
+    assert "array.includes(zone.structureLiquidityIndexes, candidateIndex)" not in refresh
     assert "structureLiquidityBosConfirmed(zone, candidate)" in refresh
     assert "structureLiquidityBosLevels" not in refresh
     assert "bosBar > candidate.priceBar" in refresh
@@ -867,7 +937,7 @@ def test_pine_v3_qualifies_structure_distance_only_after_bos_completes_the_move(
     assert "withinBiggerStructure" not in discovery
     assert (
         "if formedAfterConfirmation and correctSide and "
-        "hasRetracementEvidence and newZoneLink"
+        "hasRetracementEvidence"
         in discovery
     )
 
@@ -983,7 +1053,7 @@ def test_pine_v3_uses_one_canonical_display_liquidity_line_per_zone() -> None:
     assert (
         "[strictSelected, structureSelected, selectedPrice, selectedBar, "
         "selectedTaken, selectedProofPrice, selectedProofBar] = "
-        "liquidityDisplaySelection(zone, levels)"
+        "liquidityDisplaySelection(zone, levels, selectionNeeded)"
         in zone_drawing
     )
     assert "bool displayLiquidityVisible =" in zone_drawing
@@ -1809,7 +1879,7 @@ def test_pine_v3_raises_zone_liquidity_above_boxes_created_later() -> None:
         pine, "int drawCount = array.size(zones)", "var table statusTable"
     )
 
-    assert "if barstate.islast and drawCount > 0" in final_drawing_pass
+    assert "if barstate.islast and barstate.isnew and drawCount > 0" in final_drawing_pass
     assert "line.copy(zone.ownExtremeLine)" in final_drawing_pass
     assert "line.copy(zone.liquidityLine)" in final_drawing_pass
     assert "label.copy(zone.liquidityLabel)" in final_drawing_pass

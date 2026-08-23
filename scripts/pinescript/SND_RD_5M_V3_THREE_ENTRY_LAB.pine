@@ -265,6 +265,10 @@ type RawZone
     int liquidityPrimaryIndex
     int pendingLiquidityPrimaryIndex
     bool liquidityScanInitialized
+    float liquidityVisualSweepPrice
+    int liquidityVisualSweepSourceBar
+    int liquidityVisualSweepBar
+    int liquidityVisualSweepScannedBar
     array<int> structureLiquidityIndexes
     float structureLiquidityPrice
     int structureLiquidityBar
@@ -625,6 +629,10 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
     zone.liquidityPrimaryIndex := na
     zone.pendingLiquidityPrimaryIndex := na
     zone.liquidityScanInitialized := false
+    zone.liquidityVisualSweepPrice := na
+    zone.liquidityVisualSweepSourceBar := na
+    zone.liquidityVisualSweepBar := na
+    zone.liquidityVisualSweepScannedBar := na
     zone.structureLiquidityIndexes := array.new<int>()
     zone.structureLiquidityPrice := na
     zone.structureLiquidityBar := na
@@ -753,17 +761,25 @@ liquiditySafeDrawingBar(int sourceBar) =>
     math.max(sourceBar, bar_index - 9999)
 
 liquidityFirstVisualSweepBar(RawZone zone, float price, int priceBar) =>
-    int sweptBar = na
+    bool selectionChanged = na(zone.liquidityVisualSweepPrice) or na(zone.liquidityVisualSweepSourceBar) or na(price) or na(priceBar) or zone.liquidityVisualSweepSourceBar != priceBar or math.abs(zone.liquidityVisualSweepPrice - price) > syminfo.mintick * 0.5
+    if selectionChanged
+        zone.liquidityVisualSweepPrice := price
+        zone.liquidityVisualSweepSourceBar := priceBar
+        zone.liquidityVisualSweepBar := na
+        zone.liquidityVisualSweepScannedBar := na
     int rangeStart = priceBar + 1
     int rangeEnd = zone.state == STATE_FRESH ? bar_index : zone.stateBar
-    if not na(price) and not na(priceBar) and not na(rangeEnd) and rangeStart <= rangeEnd
-        for sourceBar = rangeStart to rangeEnd
+    int scanStart = na(zone.liquidityVisualSweepScannedBar) ? math.max(rangeStart, bar_index - 4999) : math.max(rangeStart, zone.liquidityVisualSweepScannedBar + 1)
+    if na(zone.liquidityVisualSweepBar) and not na(price) and not na(priceBar) and not na(rangeEnd) and scanStart <= rangeEnd
+        for sourceBar = scanStart to rangeEnd
             int sourceOffset = bar_index - sourceBar
             if sourceOffset >= 0 and sourceOffset < 5000
                 bool swept = zone.demand ? low[sourceOffset] <= price : high[sourceOffset] >= price
-                if na(sweptBar) and swept
-                    sweptBar := sourceBar
-    sweptBar
+                if swept
+                    zone.liquidityVisualSweepBar := sourceBar
+                    break
+        zone.liquidityVisualSweepScannedBar := na(zone.liquidityVisualSweepBar) ? rangeEnd : zone.liquidityVisualSweepBar
+    zone.liquidityVisualSweepBar
 
 liquidityDrawingRightBar(RawZone zone, float price, int priceBar) =>
     int firstVisualSweepBar = liquidityFirstVisualSweepBar(zone, price, priceBar)
@@ -800,7 +816,7 @@ liquidityRanksCloser(RawZone zone, LiquidityLevel candidate, LiquidityLevel prim
     float primaryDistance = liquidityDistanceToZone(zone, primary)
     newer or (sameBar and candidateDistance < primaryDistance - syminfo.mintick * 0.5)
 
-liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels) =>
+liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels, bool selectionEnabled) =>
     bool strictAvailable = false
     float strictPrice = na
     int strictBar = na
@@ -810,7 +826,7 @@ liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels) =>
     bool strictTaken = false
     int linkedCount = array.size(zone.liquidityIndexes)
     int levelCount = array.size(levels)
-    if linkedCount > 0
+    if selectionEnabled and linkedCount > 0
         for linkedOffset = 0 to linkedCount - 1
             int candidateIndex = array.get(zone.liquidityIndexes, linkedOffset)
             if candidateIndex >= 0 and candidateIndex < levelCount
@@ -827,7 +843,7 @@ liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels) =>
                     strictProofPrice := candidate.anchor
                     strictProofBar := candidate.anchorBar
                     strictTaken := candidateIndex == zone.liquidityPrimaryIndex and not na(zone.liquiditySweptBar)
-    if not strictAvailable
+    if selectionEnabled and not strictAvailable
         bool frozenStrictAvailable = not na(zone.liquidityPrimaryIndex) and not na(zone.liquidityExtreme) and not na(zone.liquidityExtremeBar)
         float frozenStrictDistance = frozenStrictAvailable ? liquidityPriceDistanceToZone(zone, zone.liquidityExtreme) : na
         if frozenStrictAvailable and frozenStrictDistance > 0
@@ -838,7 +854,7 @@ liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels) =>
             strictProofPrice := zone.liquidityAnchor
             strictProofBar := zone.liquidityAnchorBar
             strictTaken := not na(zone.liquiditySweptBar)
-    bool structureAvailable = showStructureLiquidityLines and not na(zone.structureLiquidityPrice) and not na(zone.structureLiquidityBar)
+    bool structureAvailable = selectionEnabled and showStructureLiquidityLines and not na(zone.structureLiquidityPrice) and not na(zone.structureLiquidityBar)
     float structureDistance = structureAvailable ? liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na
     bool structureEligible = structureAvailable and structureDistance > 0
     bool samePrice = strictAvailable and structureEligible and math.abs(strictPrice - zone.structureLiquidityPrice) <= syminfo.mintick * 0.5
@@ -903,8 +919,9 @@ updateZoneDrawing(RawZone zone, bool visible, array<RawZone> allZones, array<Liq
             label.delete(zone.debugLabel)
             zone.debugLabel := na
 
-    [strictSelected, structureSelected, selectedPrice, selectedBar, selectedTaken, selectedProofPrice, selectedProofBar] = liquidityDisplaySelection(zone, levels)
-    bool displayLiquidityVisible = ownsLiquidityDisplay and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED) and not na(selectedPrice) and not na(selectedBar)
+    bool selectionNeeded = ownsLiquidityDisplay and showLiquidityLines and displayMode != DISPLAY_RAW_AUDIT and (displayMode != DISPLAY_SETUPS_ONLY or zone.setupState == SETUP_ARMED)
+    [strictSelected, structureSelected, selectedPrice, selectedBar, selectedTaken, selectedProofPrice, selectedProofBar] = liquidityDisplaySelection(zone, levels, selectionNeeded)
+    bool displayLiquidityVisible = selectionNeeded and not na(selectedPrice) and not na(selectedBar)
     if displayLiquidityVisible
         if not na(zone.structureLiquidityLine)
             line.delete(zone.structureLiquidityLine)
@@ -1401,9 +1418,10 @@ refreshZoneStructureLiquidity(RawZone zone, array<StructureLiquidityLevel> level
                     bool correctSide = candidate.demand == zone.demand and distance > 0
                     bool candleCountQualified = candidate.microRetracement or candidate.oppositeCandleCount >= minimumLiquidityOppositeCandles()
                     bool hasRetracementEvidence = not na(candidate.bosLevel) and not na(candidate.bosLevelBar) and candidate.bosLevelBar <= candidate.priceBar and not na(candidateMoveLevel) and not na(candidateMoveLevelBar) and candidateMoveLevelBar < candidate.priceBar and candleCountQualified
-                    bool newZoneLink = not array.includes(zone.structureLiquidityIndexes, candidateIndex)
-                    if formedAfterConfirmation and correctSide and hasRetracementEvidence and newZoneLink
-                        addUniqueLiquidityIndex(zone.structureLiquidityIndexes, candidateIndex)
+                    // createdIndexes contains each new level exactly once, so
+                    // this append is unique without a linear array.includes scan.
+                    if formedAfterConfirmation and correctSide and hasRetracementEvidence
+                        array.push(zone.structureLiquidityIndexes, candidateIndex)
 
             int linkedCandidateCount = array.size(zone.structureLiquidityIndexes)
             if linkedCandidateCount > 0
@@ -1439,8 +1457,9 @@ zoneLiquidityTakenBar(RawZone zone, LiquidityLevel primary, float anchor) =>
             int sourceOffset = bar_index - sourceBar
             if sourceOffset >= 0 and sourceOffset < 5000
                 bool taken = zone.demand ? high[sourceOffset] > anchor : low[sourceOffset] < anchor
-                if na(takenBar) and taken
+                if taken
                     takenBar := sourceBar
+                    break
     takenBar
 
 zoneLiquiditySweptBar(RawZone zone, LiquidityLevel primary, int ownExtremeTakenBar) =>
@@ -1451,8 +1470,9 @@ zoneLiquiditySweptBar(RawZone zone, LiquidityLevel primary, int ownExtremeTakenB
             int sourceOffset = bar_index - sourceBar
             if sourceOffset >= 0 and sourceOffset < 5000
                 bool swept = zone.demand ? low[sourceOffset] < primary.nearExtreme : high[sourceOffset] > primary.nearExtreme
-                if na(sweptBar) and swept
+                if swept
                     sweptBar := sourceBar
+                    break
     sweptBar
 
 refreshZoneLiquidity(RawZone zone, array<LiquidityLevel> levels, array<int> createdIndexes) =>
@@ -1462,15 +1482,16 @@ refreshZoneLiquidity(RawZone zone, array<LiquidityLevel> levels, array<int> crea
     bool primaryChanged = false
     if zone.state == STATE_FRESH and bar_index > zone.confirmationBar
         bool scanHistory = not zone.liquidityScanInitialized
-        int candidateCount = scanHistory ? array.size(levels) : array.size(createdIndexes)
-        if candidateCount > 0
-            for candidateOffset = 0 to candidateCount - 1
-                int candidateIndex = scanHistory ? candidateOffset : array.get(createdIndexes, candidateOffset)
+        if scanHistory
+            // Levels are appended chronologically. Walk only the suffix formed
+            // after this zone's origin and stop as soon as older history begins.
+            int candidateIndex = array.size(levels) - 1
+            while candidateIndex >= 0
                 LiquidityLevel candidate = array.get(levels, candidateIndex)
-                bool formedAfterOrigin = candidate.nearExtremeBar > zone.originBar
-                bool supportsZone = liquiditySupportsZone(zone, candidate)
-                if formedAfterOrigin and supportsZone
-                    addUniqueLiquidityIndex(zone.liquidityIndexes, candidateIndex)
+                if candidate.nearExtremeBar <= zone.originBar
+                    break
+                if liquiditySupportsZone(zone, candidate)
+                    array.push(zone.liquidityIndexes, candidateIndex)
                     bool closer = na(zone.liquidityPrimaryIndex)
                     if not closer
                         int comparisonIndex = na(zone.pendingLiquidityPrimaryIndex) ? zone.liquidityPrimaryIndex : zone.pendingLiquidityPrimaryIndex
@@ -1481,8 +1502,28 @@ refreshZoneLiquidity(RawZone zone, array<LiquidityLevel> levels, array<int> crea
                             zone.pendingLiquidityPrimaryIndex := candidateIndex
                         else
                             zone.liquidityPrimaryIndex := candidateIndex
-        if scanHistory
+                candidateIndex -= 1
             zone.liquidityScanInitialized := true
+        else
+            int candidateCount = array.size(createdIndexes)
+            if candidateCount > 0
+                for candidateOffset = 0 to candidateCount - 1
+                    int candidateIndex = array.get(createdIndexes, candidateOffset)
+                    LiquidityLevel candidate = array.get(levels, candidateIndex)
+                    bool formedAfterOrigin = candidate.nearExtremeBar > zone.originBar
+                    bool supportsZone = liquiditySupportsZone(zone, candidate)
+                    if formedAfterOrigin and supportsZone
+                        array.push(zone.liquidityIndexes, candidateIndex)
+                        bool closer = na(zone.liquidityPrimaryIndex)
+                        if not closer
+                            int comparisonIndex = na(zone.pendingLiquidityPrimaryIndex) ? zone.liquidityPrimaryIndex : zone.pendingLiquidityPrimaryIndex
+                            LiquidityLevel comparison = array.get(levels, comparisonIndex)
+                            closer := liquidityRanksCloser(zone, candidate, comparison)
+                        if closer
+                            if str.length(zone.exportedSetupState) > 0
+                                zone.pendingLiquidityPrimaryIndex := candidateIndex
+                            else
+                                zone.liquidityPrimaryIndex := candidateIndex
 
         if not na(zone.liquidityPrimaryIndex)
             LiquidityLevel primary = array.get(levels, zone.liquidityPrimaryIndex)
@@ -2049,6 +2090,7 @@ emitSetupExportIncremental(array<string> transitions, int sequence) =>
 // A setup stays observable after one model fires, so later candidate evidence is
 // retained for parity and audit.
 varip EntryAttempt[] entryAttempts = array.new<EntryAttempt>()
+varip map<int, int> entryAttemptIndexes = map.new<int, int>()
 varip int[] entrySequenceState = array.new<int>(1, 0)
 var array<int> executionProposalV1SequenceState = array.new<int>(1, 0)
 varip int entryProducerStartedAt = timenow
@@ -2093,14 +2135,14 @@ executionProposalV1SetupId(RawZone zone) =>
     executionProposalV1BoundedIdentifier("rdp1:" + formationPart + suffix, EXECUTION_PROPOSAL_V1_SETUP_ID_MAX_CHARS)
 
 entryAttemptIndex(int zoneId) =>
-    int result = na
+    map.contains(entryAttemptIndexes, zoneId) ? map.get(entryAttemptIndexes, zoneId) : na
+
+reindexEntryAttemptsFrom(int firstIndex) =>
     int attemptCount = array.size(entryAttempts)
-    if attemptCount > 0
-        for index = 0 to attemptCount - 1
+    if firstIndex < attemptCount
+        for index = firstIndex to attemptCount - 1
             EntryAttempt attempt = array.get(entryAttempts, index)
-            if na(result) and attempt.core.zoneId == zoneId
-                result := index
-    result
+            map.put(entryAttemptIndexes, attempt.core.zoneId, index)
 
 newEntryAttempt(RawZone zone) =>
     EntryAttempt attempt = EntryAttempt.new()
@@ -2307,6 +2349,7 @@ ensureEntryAttempt(RawZone zone) =>
             EntryAttempt attempt = newEntryAttempt(zone)
             array.push(entryAttempts, attempt)
             attemptIndex := array.size(entryAttempts) - 1
+            map.put(entryAttemptIndexes, zone.id, attemptIndex)
         else
             log.error("ENTRY_ATTEMPT_HARD_CAP_REACHED")
     attemptIndex
@@ -3408,7 +3451,9 @@ evictOldestUnprotectedZone(array<RawZone> zoneItems, array<EntryAttempt> attempt
         if not zoneHasActiveAttempt(oldest.id)
             int attemptIndex = entryAttemptIndex(oldest.id)
             if not na(attemptIndex)
+                map.remove(entryAttemptIndexes, oldest.id)
                 array.remove(attempts, attemptIndex)
+                reindexEntryAttemptsFrom(attemptIndex)
             array.remove(zoneItems, scanIndex)
             deleteZone(oldest)
             removed := true
@@ -3419,6 +3464,7 @@ if barstate.isfirst
     demandCandidate.reset()
     supplyCandidate.reset()
     array.clear(entryAttempts)
+    map.clear(entryAttemptIndexes)
 
 if barstate.isrealtime
     tickSequence += 1
@@ -3438,6 +3484,7 @@ if barstate.isconfirmed and isFiveMinute and validationCapture and not validatio
         array.clear(structureLiquidityLevels)
         array.clear(createdStructureLiquidityIndexes)
         array.clear(entryAttempts)
+        map.clear(entryAttemptIndexes)
         nextZoneId := 1
         validationSequence := 0
         validationStarted := true
@@ -3743,7 +3790,7 @@ if refreshVisualsThisUpdate
 // @lab-only-begin verbose-audit-z-order
     // Boxes are painted during the loop above. On the final chart bar, re-copy
     // liquidity objects so every primary line and label sits above every zone.
-    if barstate.islast and drawCount > 0
+    if barstate.islast and barstate.isnew and drawCount > 0
         for index = 0 to drawCount - 1
             RawZone zone = array.get(zones, index)
             if not na(zone.ownExtremeLine)
