@@ -87,8 +87,8 @@ if (invalidKey || JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
 NODE
 
 for forbidden in \
-  "EXECUTION_AUTHORITY_ENABLED\\s*[:=]\\s*[\\\"']?true" \
-  "EXECUTION_MODE_CEILING\\s*[:=]\\s*[\\\"']?LIVE" \
+  '(?s)EXECUTION_AUTHORITY_ENABLED.{0,160}?true' \
+  '(?s)EXECUTION_MODE_CEILING.{0,160}?LIVE' \
   'broker_password' \
   'account_password' \
   'generic_instruction'; do
@@ -113,6 +113,8 @@ run_npm() {
   env \
     -u CLOUDFLARE_API_TOKEN \
     -u CF_API_TOKEN \
+    -u CLOUDFLARE_ACCESS_CLIENT_ID \
+    -u CLOUDFLARE_ACCESS_CLIENT_SECRET \
     -u WRANGLER_API_TOKEN \
     -u CLOUDFLARE_API_KEY \
     -u CF_API_KEY \

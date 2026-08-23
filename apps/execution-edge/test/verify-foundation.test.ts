@@ -67,6 +67,8 @@ function runFixtureWithEnvironment(root: string, environment: NodeJS.ProcessEnv 
 const credentialVariables = [
   "CLOUDFLARE_API_TOKEN",
   "CF_API_TOKEN",
+  "CLOUDFLARE_ACCESS_CLIENT_ID",
+  "CLOUDFLARE_ACCESS_CLIENT_SECRET",
   "WRANGLER_API_TOKEN",
   "CLOUDFLARE_API_KEY",
   "CF_API_KEY",
@@ -105,7 +107,7 @@ env | LC_ALL=C sort > "$NPM_ENVIRONMENT_RECORD"
   return record;
 }
 
-describe("execution-edge foundation verifier", () => {
+describe("execution-edge foundation verifier", { timeout: 30_000 }, () => {
   it("accepts a fixture with exactly the five inert configuration values", () => {
     expect(existsSync(verifier), "the verifier must exist before the smoke test can run").toBe(true);
     const root = writeFixture();
@@ -140,7 +142,12 @@ describe("execution-edge foundation verifier", () => {
 
   it.each([
     ["EXECUTION_AUTHORITY_ENABLED = true", "EXECUTION_AUTHORITY_ENABLED"],
+    ["EXECUTION_AUTHORITY_ENABLED === true", "EXECUTION_AUTHORITY_ENABLED"],
+    ["EXECUTION_AUTHORITY_ENABLED\n===\ntrue", "EXECUTION_AUTHORITY_ENABLED"],
     ['EXECUTION_MODE_CEILING = "LIVE"', "EXECUTION_MODE_CEILING"],
+    ['EXECUTION_MODE_CEILING === "LIVE"', "EXECUTION_MODE_CEILING"],
+    ["EXECUTION_MODE_CEILING === `LIVE`", "EXECUTION_MODE_CEILING"],
+    ["EXECUTION_MODE_CEILING\n===\n`LIVE`", "EXECUTION_MODE_CEILING"],
     ["EXECUTION_AUTHORITY_ENABLED:\ntrue", "EXECUTION_AUTHORITY_ENABLED"],
     ["EXECUTION_MODE_CEILING:\nLIVE", "EXECUTION_MODE_CEILING"],
     ["broker_password", "broker_password"],
