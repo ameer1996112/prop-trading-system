@@ -6,6 +6,7 @@ import { reconstructBrokerGeometryV1 } from "../src/broker-geometry-reconstructi
 import {
   brokerBarEvidenceFixture,
   brokerCapabilityFixture,
+  validateJsonSchemaPayload,
   v2LongCandidateFixture,
   v2LongCandidateForSymbolFixture,
   v2ShortCandidateFixture,
@@ -13,6 +14,11 @@ import {
 } from "./support/broker-reconstruction-fixture";
 
 describe("broker geometry reconstruction v1", () => {
+  const reconstructionSchema = JSON.parse(readFileSync(
+    new URL("../../../contracts/schema/broker-geometry-reconstruction-v1.schema.json", import.meta.url),
+    "utf8",
+  )) as Record<string, unknown>;
+
   function longBars() {
     return [
       { open_epoch: 1_786_391_100, close_epoch: 1_786_391_400, open_ticks: 1080, high_ticks: 1090, low_ticks: 1060, close_ticks: 1080, closed: true },
@@ -66,7 +72,60 @@ describe("broker geometry reconstruction v1", () => {
       expect(actual.reconstruction_body_sha256, vectorCase.case_id).toBe(
         vectorCase.expected.reconstruction_body_sha256,
       );
+      expect(validateJsonSchemaPayload(reconstructionSchema, actual), vectorCase.case_id).toEqual([]);
     }
+  });
+
+  it("emits schema-valid reconstruction artifacts for every outcome", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const match = await reconstructBrokerGeometryV1(
+      candidate,
+      brokerBarEvidenceFixture(longBars(), capability),
+      capability,
+    );
+    const dataGap = await reconstructBrokerGeometryV1(
+      candidate,
+      brokerBarEvidenceFixture(longBars().slice(1), capability),
+      capability,
+    );
+    const blocked = await reconstructBrokerGeometryV1(
+      candidate,
+      brokerBarEvidenceFixture([
+        { ...longBars()[0]!, low_ticks: 1050 },
+        longBars()[1]!,
+        longBars()[2]!,
+      ], capability),
+      capability,
+    );
+
+    for (const result of [match, dataGap, blocked]) {
+      expect(validateJsonSchemaPayload(reconstructionSchema, result)).toEqual([]);
+    }
+  });
+
+  it("does not mutate candidate, evidence, or capability inputs", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const evidence = brokerBarEvidenceFixture(longBars(), capability);
+    const before = canonicalStringify({ candidate, evidence, capability });
+
+    await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(canonicalStringify({ candidate, evidence, capability })).toBe(before);
+  });
+
+  it("returns byte-identical canonical output for a valid replay", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const evidence = brokerBarEvidenceFixture(longBars(), capability);
+
+    const first = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+    const replay = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(new TextEncoder().encode(canonicalStringify(replay))).toEqual(
+      new TextEncoder().encode(canonicalStringify(first)),
+    );
   });
 
   it.each([
@@ -106,6 +165,74 @@ describe("broker geometry reconstruction v1", () => {
       const result = await reconstructBrokerGeometryV1(caseCandidate, evidence, caseCapability);
       expect(result).toMatchObject({ outcome: "BLOCKED", reason_code: "BROKER_CAPABILITY_MISMATCH" });
       expectNullBlockedFields(result);
+    }
+  });
+
+  it("does not allow M1 evidence to substitute for required M5 evidence", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const evidence = brokerBarEvidenceFixture(longBars(), capability);
+    const m1Evidence = {
+      ...evidence,
+      timeframe: "M1",
+      bars: longBars().flatMap((bar) => Array.from({ length: 5 }, (_, index) => ({
+        ...bar,
+        open_epoch: bar.open_epoch + index * 60,
+        close_epoch: bar.open_epoch + (index + 1) * 60,
+      }))),
+    };
+
+    const result = await reconstructBrokerGeometryV1(candidate, m1Evidence, capability);
+
+    expect(result).toMatchObject({ outcome: "BLOCKED", reason_code: "BROKER_CAPABILITY_MISMATCH" });
+    expectNullBlockedFields(result);
+  });
+
+  it("does not match evidence whose final close is outside the candidate TTL", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const evidence = brokerBarEvidenceFixture([
+      ...longBars(),
+      { open_epoch: 1_786_392_000, close_epoch: 1_786_392_300, open_ticks: 1100, high_ticks: 1110, low_ticks: 1090, close_ticks: 1100, closed: true },
+    ], capability);
+
+    const result = await reconstructBrokerGeometryV1(candidate, evidence, capability);
+
+    expect(result).toMatchObject({ outcome: "DATA_GAP", reason_code: "BROKER_EVIDENCE_MISSING" });
+    expectNullBlockedFields(result);
+  });
+
+  it("leaves non-match geometry null and keeps every result authority permanently inert", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    const results = [
+      await reconstructBrokerGeometryV1(
+        candidate,
+        brokerBarEvidenceFixture(longBars(), capability),
+        capability,
+      ),
+      await reconstructBrokerGeometryV1(
+        candidate,
+        brokerBarEvidenceFixture(longBars().slice(1), capability),
+        capability,
+      ),
+      await reconstructBrokerGeometryV1(
+        candidate,
+        brokerBarEvidenceFixture([
+          { ...longBars()[0]!, low_ticks: 1050 },
+          longBars()[1]!,
+          longBars()[2]!,
+        ], capability),
+        capability,
+      ),
+    ];
+
+    for (const result of results) {
+      if (result.outcome !== "MATCH") expectNullBlockedFields(result);
+      expect(result.authority).toBe("PAPER_ONLY");
+      expect(result.real_execution_allowed).toBe(false);
+      expect(result.command).toBeNull();
+      expect(validateJsonSchemaPayload(reconstructionSchema, result)).toEqual([]);
     }
   });
 

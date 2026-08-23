@@ -223,10 +223,14 @@ export async function reconstructBrokerGeometryV1(
 
   const firstBar = evidence.bars[0];
   const lastBar = evidence.bars.at(-1);
+  const evidenceOutsideCandidateTtl = lastBar !== undefined && (
+    (lastBar.close_epoch < candidate.observed_at_epoch && candidate.observed_at_epoch - lastBar.close_epoch > 30) ||
+    (lastBar.close_epoch > candidate.observed_at_epoch && lastBar.close_epoch - candidate.observed_at_epoch > 30)
+  );
   if (
     evidenceValidation.hasInternalGap || firstBar === undefined || lastBar === undefined ||
     firstBar.open_epoch > candidate.zone_active_from_epoch ||
-    lastBar.close_epoch < candidate.source_bar.close_epoch
+    lastBar.close_epoch < candidate.source_bar.close_epoch || evidenceOutsideCandidateTtl
   ) {
     return result(candidate, evidence.evidence_id, capability, "DATA_GAP", evidenceValidation.hasInternalGap
       ? "BROKER_EVIDENCE_GAP"

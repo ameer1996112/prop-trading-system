@@ -84,6 +84,19 @@ describe("broker reconstruction contracts", () => {
     }
   });
 
+  it("rejects changed canonical source fields when their digests are not recomputed", async () => {
+    const candidate = await v2LongCandidateFixture();
+    const capability = await brokerCapabilityFixture();
+    await expect(validateExecutionCandidateV2({
+      ...candidate,
+      source_tick_size: "0.001",
+    })).rejects.toThrow("EXECUTION_CANDIDATE_V2_INVALID");
+    await expect(validateBrokerSymbolCapabilityV1({
+      ...capability,
+      source_symbol: "GBPJPY",
+    })).rejects.toThrow("BROKER_SYMBOL_CAPABILITY_INVALID");
+  });
+
   it("rejects noncanonical V2 decimals and every invalid zone activation boundary", async () => {
     const candidate = await v2LongCandidateFixture();
     const noncanonical = await withCandidateBody(candidate, { source_tick_size: "0.000010" });
