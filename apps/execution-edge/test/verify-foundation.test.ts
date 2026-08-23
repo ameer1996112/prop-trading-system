@@ -184,4 +184,23 @@ describe("execution-edge foundation verifier", { timeout: 30_000 }, () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("fails closed when the safety scanner cannot run", () => {
+    const root = writeFixture();
+    try {
+      const bin = join(root, "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, "rg"), "#!/usr/bin/env sh\nexit 2\n");
+      chmodSync(join(bin, "rg"), 0o755);
+
+      const result = runFixtureWithEnvironment(root, {
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain("safety scan failed");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

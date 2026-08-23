@@ -95,6 +95,9 @@ for forbidden in \
   if rg --line-number --pcre2 --multiline --hidden --glob '!node_modules/**' --glob '!dist/**' -- "$forbidden" \
     "$execution_edge/src" "$config" "$repository_root/contracts"; then
     fail "forbidden production/config/contract text detected: $forbidden"
+  else
+    scan_status=$?
+    [[ "$scan_status" -eq 1 ]] || fail "safety scan failed for: $forbidden"
   fi
 done
 
