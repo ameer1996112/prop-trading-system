@@ -12,7 +12,15 @@ npm test --prefix apps/execution-edge -- mt5-dry-run-boundary.test.ts
 node scripts/verify-mt5-dry-run-boundary.mjs
 ```
 
-Review the generated manifest in the same change as the source update. These commands do not deploy Cloudflare or change MT5.
+Review the generated manifest in the same change as the source update. Add and run focused regression tests proving the changed dashboard release remains read-only and DRY_RUN-only, then run full dashboard verification:
+
+```sh
+npm test --prefix apps/agent-health-console
+npm run typecheck --prefix apps/agent-health-console
+npm run build --prefix apps/agent-health-console
+```
+
+An independent reviewer must review both the changed source and generated manifest before merge or deployment. None of these commands deploy Cloudflare or change MT5.
 
 ## Operator runbook
 
