@@ -51,14 +51,48 @@ function writeRealDashboardIntegrityFixture(root: string) {
   writeDashboardIntegrityManifestForSources(root, sourceDirectory);
 }
 
+function assertDashboardIntegrityWorkflow(workflow: string) {
+  const normalizedWorkflow = workflow.replaceAll("\r\n", "\n");
+  const workflowBlock = (key: string) => {
+    const block = normalizedWorkflow.match(new RegExp(`^${key}:\\n((?: {2}.*\\n)*)`, "m"));
+    expect(block, `${key} must be a top-level workflow block`).not.toBeNull();
+    return block![1];
+  };
+
+  expect(workflowBlock("on")).toBe("  pull_request:\n  push:\n    branches: [main]\n");
+  expect(workflowBlock("permissions")).toBe("  contents: read\n");
+
+  const integritySteps = [...normalizedWorkflow.matchAll(
+    /^      - name: Verify dashboard integrity boundary\n        run: \|\n((?:          [^\n]*\n?)*)/gm,
+  )];
+  expect(integritySteps).toHaveLength(1);
+  const [integrityStep] = integritySteps;
+  if (!integrityStep) throw new Error("dashboard integrity step is required");
+  const run = integrityStep[1];
+  if (typeof run !== "string") throw new Error("dashboard integrity step requires a run block");
+  expect(run.trimEnd().split("\n")).toEqual([
+    "          npm ci --prefix apps/execution-edge --ignore-scripts --no-audit --no-fund",
+    "          npm test --prefix apps/execution-edge -- mt5-dry-run-boundary.test.ts",
+    "          node scripts/verify-mt5-dry-run-boundary.mjs",
+  ]);
+  expect(normalizedWorkflow).not.toContain("scripts/write-dashboard-integrity-manifest.mjs");
+}
+
 describe("MT5 dry-run boundary", () => {
   it("runs the immutable dashboard boundary verifier in pull-request CI without regenerating the manifest", () => {
     const workflow = readFileSync(phase0Workflow, "utf8");
 
-    expect(workflow).toContain("npm ci --prefix apps/execution-edge --ignore-scripts --no-audit --no-fund");
-    expect(workflow).toContain("npm test --prefix apps/execution-edge -- mt5-dry-run-boundary.test.ts");
-    expect(workflow).toContain("node scripts/verify-mt5-dry-run-boundary.mjs");
-    expect(workflow).not.toMatch(/(?:generate|update)-dashboard-integrity-manifest/iu);
+    assertDashboardIntegrityWorkflow(workflow);
+  });
+
+  it("rejects a CI workflow that regenerates the approved dashboard manifest", () => {
+    const workflow = readFileSync(phase0Workflow, "utf8");
+    const writerInjectedWorkflow = workflow.replace(
+      "          node scripts/verify-mt5-dry-run-boundary.mjs",
+      "          node scripts/write-dashboard-integrity-manifest.mjs\n          node scripts/verify-mt5-dry-run-boundary.mjs",
+    );
+
+    expect(() => assertDashboardIntegrityWorkflow(writerInjectedWorkflow)).toThrow();
   });
 
   it("accepts an exact reviewed dashboard integrity manifest", async () => {
