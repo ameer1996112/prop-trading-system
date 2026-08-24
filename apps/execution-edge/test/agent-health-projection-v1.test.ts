@@ -38,7 +38,8 @@ describe("accepted heartbeat projection v1", () => {
 
   it.each([
     [100, 120, "ONLINE"],
-    [100, 140, "STALE"],
+    [100, 121, "STALE"],
+    [100, 160, "STALE"],
     [100, 161, "OFFLINE"],
     [null, 161, "UNKNOWN"],
   ] as const)("derives %s health state", (lastAccepted, now, expected) => {
