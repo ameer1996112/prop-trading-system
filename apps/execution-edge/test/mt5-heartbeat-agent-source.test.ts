@@ -98,4 +98,15 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(selfTest).toContain("TradeOpsResponseIsSafe");
     expect(selfTest).not.toContain("WebRequest");
   });
+
+  it("ships a Windows-only private-config writer that preserves one key per line", () => {
+    const writerPath = join(repositoryRoot, "scripts/write-mt5-dry-run-config.ps1");
+    expect(existsSync(writerPath), "Windows config writer must exist").toBe(true);
+    const writer = readFileSync(writerPath, "utf8");
+    expect(writer).toContain("Set-Content -LiteralPath $taskConfigPath -Value $taskLines -Encoding ascii");
+    expect(writer).toContain("endpoint=https://prop-trading-execution-edge-dry-run.ameer-1996112.workers.dev/api/v1/agent/sync");
+    expect(writer).toContain("profile=DRY_RUN");
+    expect(writer).toContain("bearer=$taskBearer");
+    expect(writer).not.toContain("AGENT_SYNC_SHARED_SECRET_SHA256=");
+  });
 });
