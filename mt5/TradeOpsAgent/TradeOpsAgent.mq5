@@ -1,5 +1,5 @@
 #property strict
-#property version   "0.100"
+#property version   "1.000"
 #property description "Dry-run heartbeat only. This EA has no trading authority."
 
 #include "Include\\TradeOpsConfig.mqh"

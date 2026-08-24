@@ -103,8 +103,9 @@ bool TradeOpsResponseIsSafe(const string response,const long expected_server_seq
    string digest=StringSubstr(response,digest_start,64);
    if(!TradeOpsIsLowerHexSha256(digest)) return false;
    cursor+=64;
-   if(StringSubstr(response,cursor,",\"schema_version\":\"AgentSyncResponseV1\",\"server_sequence\":")!=",\"schema_version\":\"AgentSyncResponseV1\",\"server_sequence\":") return false;
-   cursor+=StringLen(",\"schema_version\":\"AgentSyncResponseV1\",\"server_sequence\":");
+   const string sequence_prefix=",\"schema_version\":\"AgentSyncResponseV1\",\"server_sequence\":";
+   if(StringSubstr(response,cursor,StringLen(sequence_prefix))!=sequence_prefix) return false;
+   cursor+=StringLen(sequence_prefix);
    long server_sequence=0;
    if(!TradeOpsReadNonnegativeInteger(response,cursor,",\"server_time_epoch\":",server_sequence)) return false;
    long server_time=0;
