@@ -241,7 +241,10 @@ bool TradeOpsPostHeartbeat(const TradeOpsConfig &config,TradeOpsSyncState &state
    int http_status=WebRequest("POST",config.endpoint,headers,1500,request_bytes,response_bytes,response_headers);
    if(http_status!=200)
    {
-      status="SYNC_WAITING";
+      int transport_error=GetLastError();
+      status=http_status<0
+         ? "SYNC_WAITING_"+TradeOpsIntegerString((long)transport_error)
+         : "SYNC_HTTP_"+TradeOpsIntegerString((long)http_status);
       return false;
    }
    string response=CharArrayToString(response_bytes,0,WHOLE_ARRAY,CP_UTF8);
