@@ -224,9 +224,16 @@ const worker: ExportedHandler<Env> = {
       }
       const nowEpoch = Math.floor(Date.now() / 1000);
       let parsed: AgentSyncRequestV1;
+      let bodyBytes: Uint8Array | undefined;
       try {
-        parsed = await parseAgentSyncRequest(await readBoundedAgentSyncBody(request), { nowEpoch });
-      } catch {
+        bodyBytes = await readBoundedAgentSyncBody(request);
+        parsed = await parseAgentSyncRequest(bodyBytes, { nowEpoch });
+      } catch (error) {
+        console.warn("agent_sync_parse_rejected", {
+          body_bytes: bodyBytes?.byteLength ?? null,
+          body_sha256: bodyBytes === undefined ? null : await sha256Hex(bodyBytes),
+          reason: error instanceof Error ? error.message : "UNKNOWN",
+        });
         return dryRunFailure("AGENT_SYNC_INVALID", 400);
       }
       try {
