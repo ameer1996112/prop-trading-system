@@ -215,4 +215,32 @@ describe("MT5 dry-run boundary", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("rejects a shadowed PAPER_ONLY candidate output", async () => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
+
+    try {
+      const source = join(root, "apps/execution-edge/src");
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "execution-candidate-v2.ts"), [
+        'export interface ExecutionCandidateV2 { readonly execution_mode: "PAPER_ONLY"; }',
+        'const CANDIDATE_KEYS = ["execution_mode"];',
+        "export function validateExecutionCandidateV2(input: Record<string, unknown>) {",
+        "  try {",
+        '    const executionMode = literal(input.execution_mode, "PAPER_ONLY");',
+        "    const executionMode = \"LIVE\" as \"PAPER_ONLY\";",
+        "    return Object.freeze({ execution_mode: executionMode, });",
+        "  } catch { return null; }",
+        "}",
+      ].join("\n"));
+
+      expect(runBoundaryVerifier(root)).toEqual({
+        ok: false,
+        violations: ["WORKER_EXECUTION_MODE_NOT_DRY_RUN"],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
