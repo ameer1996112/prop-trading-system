@@ -40,7 +40,7 @@
 
 - [ ] **Step 1: Write the failing boundary tests**
 
-Assert that Worker source has no `execution_mode` value other than `DRY_RUN` and no `real_execution_allowed: true`. The sole semantic exception is the exact immutable `readonly execution_mode: "PAPER_ONLY";` declaration and its immediately validated `executionMode` value in `apps/execution-edge/src/execution-candidate-v2.ts`: this is an account-free candidate contract, not command authority. The EA tree has no case-insensitive `OrderSend`, `CTrade`, `PositionClose`, `OrderDelete`, `OrderModify`, `WebRequest` URL literal, `#import`, or credential-shaped value.
+Assert that `apps/execution-edge/src` Worker source has no `execution_mode` value other than `DRY_RUN` and no `real_execution_allowed: true`; `apps/observation-edge` is outside this scanner's scope. The sole semantic exception is the exact immutable `readonly execution_mode: "PAPER_ONLY";` declaration and its immediately validated `executionMode` value in `apps/execution-edge/src/execution-candidate-v2.ts`: this is an account-free candidate contract, not command authority. The EA tree has no case-insensitive `OrderSend`, `CTrade`, `PositionClose`, `OrderDelete`, `OrderModify`, `WebRequest` URL literal, `#import`, or credential-shaped value.
 
 ```ts
 expect(runBoundaryVerifier()).toEqual({ ok: true, violations: [] });

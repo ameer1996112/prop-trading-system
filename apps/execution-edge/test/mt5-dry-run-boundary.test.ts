@@ -38,7 +38,19 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource('const config = { ["execution_mode"]: "LIVE" };')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
+    expect(scanWorkerSource('const config = { [`execution_mode`]: `LIVE` };')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
     expect(scanWorkerSource('const config = { execution_mode: "DRY_RUN" };')).toEqual([]);
+    expect(scanWorkerSource('const config = { execution_mode: "DRY_RUN" + "LIVE" };')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
+    expect(scanWorkerSource('execution_mode ||= "LIVE";')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
+    expect(scanWorkerSource('execution_mode ??= "LIVE";')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
     expect(scanWorkerSource("const config = { real_execution_allowed: true }; ")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
@@ -54,6 +66,15 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource('obj["real_execution_allowed"] = true;')).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
+    expect(scanWorkerSource('const config = { [`real_execution_allowed`]: true };')).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
+    expect(scanWorkerSource("real_execution_allowed ||= true;")).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
+    expect(scanWorkerSource("real_execution_allowed ??= true;")).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
   });
 
   it("rejects direct MT5 order APIs", async () => {
@@ -66,6 +87,15 @@ describe("MT5 dry-run boundary", () => {
     const { scan } = await loadVerifier();
 
     expect(scan('#import "x.dll"')).toContain("MT5_DLL_IMPORT_FORBIDDEN");
+  });
+
+  it("rejects template MT5 credentials and WebRequest URLs", async () => {
+    const { scan } = await loadVerifier();
+
+    expect(scan("string token = `secret-value`; ")).toContain("MT5_CREDENTIAL_LITERAL_FORBIDDEN");
+    expect(scan('WebRequest("GET", `https://example.test`, body);')).toContain(
+      "MT5_WEBREQUEST_URL_FORBIDDEN",
+    );
   });
 
   it("skips ignored local MT5 artifacts", async () => {
@@ -121,6 +151,27 @@ describe("MT5 dry-run boundary", () => {
           "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
           "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
         ],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("scans generated-named execution-edge source without scanning observation-edge", async () => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
+
+    try {
+      const executionGenerated = join(root, "apps/execution-edge/src/generated");
+      const observationSource = join(root, "apps/observation-edge/src");
+      mkdirSync(executionGenerated, { recursive: true });
+      mkdirSync(observationSource, { recursive: true });
+      writeFileSync(join(executionGenerated, "unsafe.ts"), 'execution_mode ||= "LIVE";\n');
+      writeFileSync(join(observationSource, "paper-contract.ts"), 'readonly execution_mode: "PAPER_ONLY";\n');
+
+      expect(runBoundaryVerifier(root)).toEqual({
+        ok: false,
+        violations: ["WORKER_EXECUTION_MODE_NOT_DRY_RUN"],
       });
     } finally {
       rmSync(root, { recursive: true, force: true });

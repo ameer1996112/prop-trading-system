@@ -2,8 +2,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+// Scope: only the separate execution-edge Worker and MT5 agent sources are scanned.
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const skippedDirectories = new Set([".git", "dist", "generated", "journal", "local", "node_modules"]);
+const skippedDirectories = new Set([".git", "dist", "node_modules"]);
+const skippedMt5Directories = new Set([...skippedDirectories, "generated", "journal", "local"]);
 const mt5SourceExtensions = new Set([".mq5", ".mqh"]);
 const frozenCandidateContractPath = "apps/execution-edge/src/execution-candidate-v2.ts";
 const frozenCandidateExecutionMode = 'readonly execution_mode: "PAPER_ONLY";';
@@ -23,10 +25,10 @@ export function scan(source) {
   if (/\bOrderDelete\b/iu.test(source)) violations.push("MT5_ORDER_DELETE_FORBIDDEN");
   if (/\bOrderModify\b/iu.test(source)) violations.push("MT5_ORDER_MODIFY_FORBIDDEN");
   if (/#\s*import\b/iu.test(source)) violations.push("MT5_DLL_IMPORT_FORBIDDEN");
-  if (/\bWebRequest\s*\([^)]*["']https?:\/\//isu.test(source)) {
+  if (/\bWebRequest\s*\([^)]*["'`]https?:\/\//isu.test(source)) {
     violations.push("MT5_WEBREQUEST_URL_FORBIDDEN");
   }
-  if (/\b(?:password|secret|token|api[_ -]?key)\b\s*[:=]\s*["'][^"']+?["']/iu.test(source)) {
+  if (/\b(?:password|secret|token|api[_ -]?key)\b\s*[:=]\s*(["'`])[^"'`]+?\1/iu.test(source)) {
     violations.push("MT5_CREDENTIAL_LITERAL_FORBIDDEN");
   }
 
@@ -35,30 +37,36 @@ export function scan(source) {
 
 export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()) {
   const violations = [];
-  const executionMode = /(?:\bexecution_mode\b|["']execution_mode["']|\[\s*["']execution_mode["']\s*\])\s*[:=]\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
+  const executionMode = /(?:\bexecution_mode\b|["'`]execution_mode["'`]|\[\s*["'`]execution_mode["'`]\s*\])\s*(?::|=|\|\|=|\?\?=)\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
 
   for (const match of source.matchAll(executionMode)) {
+    const trailing = source.slice((match.index ?? 0) + match[0].length).trimStart();
+    const isExactDryRun = (
+      match[1] !== undefined
+      && match[2] === "DRY_RUN"
+      && (trailing.length === 0 || /^[,;}\r\n]/u.test(trailing))
+    );
     if (
       !allowedExecutionModeIndexes.has(match.index)
-      && (match[1] === undefined || match[2] !== "DRY_RUN")
+      && !isExactDryRun
     ) {
       violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
     }
   }
-  if (/(?:\breal_execution_allowed\b|["']real_execution_allowed["']|\[\s*["']real_execution_allowed["']\s*\])\s*[:=]\s*true\b/iu.test(source)) {
+  if (/(?:\breal_execution_allowed\b|["'`]real_execution_allowed["'`]|\[\s*["'`]real_execution_allowed["'`]\s*\])\s*(?::|=|\|\|=|\?\?=)\s*true\b/iu.test(source)) {
     violations.push("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
   }
 
   return sorted(violations);
 }
 
-function sourceFiles(root, extensions) {
+function sourceFiles(root, extensions, skipped = skippedDirectories) {
   if (!existsSync(root)) return [];
 
   const files = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (entry.isDirectory()) {
-      if (!skippedDirectories.has(entry.name)) files.push(...sourceFiles(join(root, entry.name), extensions));
+      if (!skipped.has(entry.name)) files.push(...sourceFiles(join(root, entry.name), extensions, skipped));
       continue;
     }
     if (entry.isFile() && extensions.has(extname(entry.name).toLowerCase())) files.push(join(root, entry.name));
@@ -102,7 +110,7 @@ export function runBoundaryVerifier(root = repositoryRoot) {
   for (const file of sourceFiles(join(root, "apps/execution-edge/src"), new Set([".ts"]))) {
     violations.push(...scanWorkerFile(root, file));
   }
-  for (const file of sourceFiles(join(root, "mt5/TradeOpsAgent"), mt5SourceExtensions)) {
+  for (const file of sourceFiles(join(root, "mt5/TradeOpsAgent"), mt5SourceExtensions, skippedMt5Directories)) {
     violations.push(...scan(readFileSync(file, "utf8")));
   }
 
