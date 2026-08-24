@@ -29,7 +29,7 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource("const config = { execution_mode: LIVE }; ")).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
-    expect(scanWorkerSource('readonly execution_mode: "PAPER_ONLY";')).toContain(
+    expect(scanWorkerSource('interface Candidate { readonly execution_mode: "PAPER_ONLY"; }')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
     expect(scanWorkerSource('const config = { "execution_mode": "LIVE" };')).toContain(
@@ -39,6 +39,12 @@ describe("MT5 dry-run boundary", () => {
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
     expect(scanWorkerSource('const config = { [`execution_mode`]: `LIVE` };')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
+    expect(scanWorkerSource('const config = { execution_mode /* comment */: "LIVE" };')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
+    expect(scanWorkerSource('const config = { ["execution" + "_mode"]: "LIVE" };')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
     expect(scanWorkerSource('const config = { execution_mode: "DRY_RUN" };')).toEqual([]);
@@ -70,6 +76,9 @@ describe("MT5 dry-run boundary", () => {
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
     expect(scanWorkerSource('const config = { [`real_execution_allowed`]: true };')).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
+    expect(scanWorkerSource("const config = { real_execution_allowed: Boolean(1) }; ")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
     expect(scanWorkerSource("real_execution_allowed ||= true;")).toContain(

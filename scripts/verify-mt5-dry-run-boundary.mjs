@@ -37,25 +37,37 @@ export function scan(source) {
 
 export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()) {
   const violations = [];
-  const executionMode = /(?:\bexecution_mode\b|["'`]execution_mode["'`]|\[\s*["'`]execution_mode["'`]\s*\])\s*(?::|=|\|\|=|\?\?=|&&=)\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
-
-  for (const match of source.matchAll(executionMode)) {
-    const trailing = source.slice((match.index ?? 0) + match[0].length).trimStart();
-    const isExactDryRun = (
-      match[1] !== undefined
-      && match[2] === "DRY_RUN"
-      && (trailing.length === 0 || /^[,;}\r\n]/u.test(trailing))
-    );
-    if (
-      !allowedExecutionModeIndexes.has(match.index)
-      && !isExactDryRun
-    ) {
-      violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+  const tree = ts.createSourceFile("worker.ts", source, ts.ScriptTarget.Latest, true);
+  const staticString = (node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = staticString(node.left); const right = staticString(node.right);
+      return left === undefined || right === undefined ? undefined : left + right;
     }
-  }
-  if (/(?:\breal_execution_allowed\b|["'`]real_execution_allowed["'`]|\[\s*["'`]real_execution_allowed["'`]\s*\])\s*(?::|=|\|\|=|\?\?=|&&=)\s*true\b/iu.test(source)) {
-    violations.push("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
-  }
+    return undefined;
+  };
+  const nameOf = (node) => {
+    if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+    if (ts.isComputedPropertyName(node)) return staticString(node.expression);
+    if (ts.isPropertyAccessExpression(node)) return node.name.text;
+    if (ts.isElementAccessExpression(node)) return staticString(node.argumentExpression);
+    return undefined;
+  };
+  const exact = (node, value) => (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && node.text === value;
+  const falseLiteral = (node) => node.kind === ts.SyntaxKind.FalseKeyword || (ts.isAsExpression(node) && node.expression.kind === ts.SyntaxKind.FalseKeyword);
+  const check = (name, value, index) => {
+    if (name === "execution_mode" && !allowedExecutionModeIndexes.has(index) && !exact(value, "DRY_RUN")) violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+    if (name === "real_execution_allowed" && !falseLiteral(value)) violations.push("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
+  };
+  const visit = (node) => {
+    if (ts.isPropertyAssignment(node)) check(nameOf(node.name), node.initializer, node.name.getStart(tree));
+    if (ts.isPropertySignature(node) && node.type && ts.isLiteralTypeNode(node.type)) check(nameOf(node.name), node.type.literal, node.name.getStart(tree));
+    if (ts.isPropertyDeclaration(node) && node.initializer) check(nameOf(node.name), node.initializer, node.name.getStart(tree));
+    if (ts.isVariableDeclaration(node) && node.initializer) check(nameOf(node.name), node.initializer, node.name.getStart(tree));
+    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken].includes(node.operatorToken.kind)) check(nameOf(node.left), node.right, node.left.getStart(tree));
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
 
   return sorted(violations);
 }
