@@ -45,6 +45,15 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource("real_execution_allowed = true;")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
+    expect(scanWorkerSource('const config = { "real_execution_allowed": true };')).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
+    expect(scanWorkerSource('const config = { ["real_execution_allowed"]: true };')).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
+    expect(scanWorkerSource('obj["real_execution_allowed"] = true;')).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
   });
 
   it("rejects direct MT5 order APIs", async () => {
@@ -112,6 +121,29 @@ describe("MT5 dry-run boundary", () => {
           "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
           "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
         ],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a second PAPER_ONLY form in the allowlisted candidate file", async () => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
+
+    try {
+      const source = join(root, "apps/execution-edge/src");
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "execution-candidate-v2.ts"), [
+        'readonly execution_mode: "PAPER_ONLY";',
+        'const executionMode = literal(input.execution_mode, "PAPER_ONLY");',
+        "const candidate = { execution_mode: executionMode, };",
+        'readonly execution_mode: "PAPER_ONLY";',
+      ].join("\n"));
+
+      expect(runBoundaryVerifier(root)).toEqual({
+        ok: false,
+        violations: ["WORKER_EXECUTION_MODE_NOT_DRY_RUN"],
       });
     } finally {
       rmSync(root, { recursive: true, force: true });

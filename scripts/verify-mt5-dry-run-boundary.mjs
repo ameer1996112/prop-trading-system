@@ -6,7 +6,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const skippedDirectories = new Set([".git", "dist", "generated", "journal", "local", "node_modules"]);
 const mt5SourceExtensions = new Set([".mq5", ".mqh"]);
 const frozenCandidateContractPath = "apps/execution-edge/src/execution-candidate-v2.ts";
-const frozenCandidateExecutionMode = /\breadonly\s+execution_mode\s*:\s*"PAPER_ONLY"\s*;/gu;
+const frozenCandidateExecutionMode = 'readonly execution_mode: "PAPER_ONLY";';
 const frozenCandidateExecutionModeValidation = 'const executionMode = literal(input.execution_mode, "PAPER_ONLY");';
 const frozenCandidateExecutionModeValue = "execution_mode: executionMode,";
 
@@ -33,16 +33,19 @@ export function scan(source) {
   return sorted(violations);
 }
 
-export function scanWorkerSource(source) {
+export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()) {
   const violations = [];
   const executionMode = /(?:\bexecution_mode\b|["']execution_mode["']|\[\s*["']execution_mode["']\s*\])\s*[:=]\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
 
   for (const match of source.matchAll(executionMode)) {
-    if (match[1] === undefined || match[2] !== "DRY_RUN") {
+    if (
+      !allowedExecutionModeIndexes.has(match.index)
+      && (match[1] === undefined || match[2] !== "DRY_RUN")
+    ) {
       violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
     }
   }
-  if (/\breal_execution_allowed\b\s*[:=]\s*true\b/iu.test(source)) {
+  if (/(?:\breal_execution_allowed\b|["']real_execution_allowed["']|\[\s*["']real_execution_allowed["']\s*\])\s*[:=]\s*true\b/iu.test(source)) {
     violations.push("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
   }
 
@@ -63,19 +66,35 @@ function sourceFiles(root, extensions) {
   return files;
 }
 
+function exactExecutionModeIndex(source, fragment) {
+  const fragmentStart = source.indexOf(fragment);
+  if (fragmentStart === -1 || source.indexOf(fragment, fragmentStart + fragment.length) !== -1) {
+    return undefined;
+  }
+  return fragmentStart + fragment.indexOf("execution_mode");
+}
+
 function scanWorkerFile(root, file) {
-  let source = readFileSync(file, "utf8");
+  const source = readFileSync(file, "utf8");
+  const allowedExecutionModeIndexes = new Set();
 
   // This frozen, account-free candidate contract is not a command authority.
   if (
     relative(root, file) === frozenCandidateContractPath
-    && source.includes(frozenCandidateExecutionModeValidation)
+    && source.indexOf(frozenCandidateExecutionModeValidation) !== -1
+    && source.indexOf(
+      frozenCandidateExecutionModeValidation,
+      source.indexOf(frozenCandidateExecutionModeValidation) + frozenCandidateExecutionModeValidation.length,
+    ) === -1
   ) {
-    source = source
-      .replace(frozenCandidateExecutionMode, "")
-      .replace(frozenCandidateExecutionModeValue, "");
+    const declarationIndex = exactExecutionModeIndex(source, frozenCandidateExecutionMode);
+    const valueIndex = exactExecutionModeIndex(source, frozenCandidateExecutionModeValue);
+    if (declarationIndex !== undefined && valueIndex !== undefined) {
+      allowedExecutionModeIndexes.add(declarationIndex);
+      allowedExecutionModeIndexes.add(valueIndex);
+    }
   }
-  return scanWorkerSource(source);
+  return scanWorkerSource(source, allowedExecutionModeIndexes);
 }
 
 export function runBoundaryVerifier(root = repositoryRoot) {
