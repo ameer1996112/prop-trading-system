@@ -34,7 +34,7 @@ const schemas = [
 ] as const;
 
 describe("execution-edge configuration and schema boundaries", () => {
-  it("uses an independent inert database and SQLite Durable Objects", () => {
+  it("keeps the checked-in Worker configuration inert and unbound to remote resources", () => {
     const config = json("apps/execution-edge/wrangler.jsonc");
     expect(config).toMatchObject({
       name: "prop-trading-execution-edge",
@@ -60,6 +60,32 @@ describe("execution-edge configuration and schema boundaries", () => {
       "AccountCoordinator",
       "CandidateInbox",
     ]);
+    expect(config).not.toHaveProperty("account_id");
+    expect(config).not.toHaveProperty("env");
+    expect(config.migrations).toEqual([
+      { tag: "v1", new_sqlite_classes: ["CandidateInbox", "AccountCoordinator"] },
+    ]);
+  });
+
+  it("documents the only local agent-sync override without a raw bearer value", () => {
+    const localVars = readFileSync(
+      new URL("apps/execution-edge/.dev.vars.example", root),
+      "utf8",
+    );
+    const readme = readFileSync(new URL("apps/execution-edge/README.md", root), "utf8");
+
+    expect(localVars).toContain("AGENT_SYNC_ENABLED=true");
+    expect(localVars).not.toMatch(/^AGENT_SYNC_SHARED_SECRET=/mu);
+    expect(localVars).not.toMatch(/bearer\s*(token|text)|raw\s*(token|secret)/iu);
+
+    expect(readme).toContain("cp .dev.vars.example .dev.vars");
+    expect(readme).toContain("AGENT_SYNC_SHARED_SECRET_SHA256=<lowercase sha256>");
+    expect(readme).toContain("npx wrangler dev --local");
+    expect(readme).toMatch(/separate owner approval/iu);
+    expect(readme).toMatch(/non-placeholder D1 ID/iu);
+    expect(readme).toMatch(/Cloudflare secret binding/iu);
+    expect(readme).toMatch(/deployed\s+origin/iu);
+    expect(readme).not.toMatch(/^\s*(?:npx\s+)?wrangler\s+deploy\b/mu);
   });
 
   it.each(schemas)("freezes strict %s", (file, title) => {

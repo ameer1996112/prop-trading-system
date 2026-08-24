@@ -1,11 +1,43 @@
-# Execution Edge Foundation
+# Execution Edge — Local DRY_RUN Agent Sync
 
-This phase is an inert contract and reconstruction foundation. It does not
-connect to a Windows MT5 agent, a broker, or an execution account.
+This Worker is a broker-free heartbeat receiver for a future Windows MT5
+agent. It never sends a trade command: the execution authority flag remains
+`false`, the execution-mode ceiling remains `DRY_RUN`, and every agent-sync
+response has `command: null`.
 
 The existing `apps/observation-edge` Worker remains the TradingView ingress.
-Execution-edge health is local-only until a separately approved deployment.
-All candidate, agent-sync, and execution-authority flags must remain `false`.
+The checked-in `wrangler.jsonc` is intentionally inert: `workers_dev` and
+`preview_urls` are disabled, agent sync is disabled by default, and its D1 ID
+is a non-routable placeholder. Do not change those defaults for local work.
+
+## Local agent-sync check
+
+Run this from `apps/execution-edge` only:
+
+```sh
+cp .dev.vars.example .dev.vars
+# Add only AGENT_SYNC_SHARED_SECRET_SHA256=<lowercase sha256>; never add raw bearer text.
+npx wrangler dev --local
+```
+
+`AGENT_SYNC_ENABLED=true` in the copied local file is the sole local override.
+Set `AGENT_SYNC_SHARED_SECRET_SHA256` to the lowercase SHA-256 digest of the
+local bearer value. Keep the bearer value outside this repository and do not
+put it in `.dev.vars`, source, fixtures, logs, or screenshots. A missing,
+empty, or placeholder digest must be treated as disabled authentication.
+
+The local command bundles and runs against local resources only. It does not
+deploy a Worker, create a D1 database, apply a remote Durable Object migration,
+upload a secret, configure MT5, or connect to a broker.
+
+## Future remote setup is a separate decision
+
+A remote deployment requires separate owner approval. Before that approval,
+the operator must provide a non-placeholder D1 ID, create the required
+Cloudflare secret binding named `AGENT_SYNC_SHARED_SECRET_SHA256`, obtain the deployed
+origin over HTTPS, and approve the remote Durable Object migration. None of those remote
+steps are part of this repository's local setup, and no deployment command is
+provided here.
 
 ## Local verification
 
@@ -28,10 +60,5 @@ it must not be used to deploy or contact Cloudflare resources.
 ## Local secrets
 
 `apps/execution-edge/.dev.vars` is local and secret: keep it out of version
-control. `.dev.vars.example` lists names only—never values, placeholders, or
-credentials.
-
-## Next phase
-
-The next phase is signed `/api/v1/agent/sync` plus an MQL5 `DRY_RUN` receiver,
-followed by demo-only paper/canary promotion.
+control. The only secret-shaped value this phase accepts is the hash binding
+name above; the raw bearer value is never stored by this Worker.
