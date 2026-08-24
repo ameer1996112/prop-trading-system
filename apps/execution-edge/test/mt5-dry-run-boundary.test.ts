@@ -19,6 +19,46 @@ describe("MT5 dry-run boundary", () => {
     expect(runBoundaryVerifier()).toEqual({ ok: true, violations: [] });
   });
 
+  it("rejects dashboard references to sync, execution, and outbound network capability", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(typeof scanHealthDashboardSource).toBe("function");
+    expect(scanHealthDashboardSource('export default { fetch(){ return new Response("ok"); } };')).toEqual([]);
+    expect(scanHealthDashboardSource('const endpoint = "/api/v1/agent/sync";')).toContain(
+      "DASHBOARD_MT5_SYNC_REFERENCE_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource("function placeOrder() {}")).toContain(
+      "DASHBOARD_EXECUTION_REFERENCE_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('export default { async fetch(){ return fetch("https://broker.example"); } };')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+  });
+
+  it("scans health dashboard TypeScript without changing execution-edge or MT5 scope", async () => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
+
+    try {
+      const dashboard = join(root, "apps/agent-health-console/src");
+      const execution = join(root, "apps/execution-edge/src");
+      const mt5 = join(root, "mt5/TradeOpsAgent");
+      mkdirSync(dashboard, { recursive: true });
+      mkdirSync(execution, { recursive: true });
+      mkdirSync(mt5, { recursive: true });
+      writeFileSync(join(dashboard, "unsafe.ts"), 'const endpoint = "/api/v1/agent/sync";\n');
+      writeFileSync(join(execution, "safe.ts"), 'const config = { execution_mode: "DRY_RUN" };\n');
+      writeFileSync(join(mt5, "safe.mq5"), "void f() {}\n");
+
+      expect(runBoundaryVerifier(root)).toEqual({
+        ok: false,
+        violations: ["DASHBOARD_MT5_SYNC_REFERENCE_FORBIDDEN"],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects Worker execution authority escalations", async () => {
     const { scanWorkerSource } = await loadVerifier();
 

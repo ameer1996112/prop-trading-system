@@ -41,6 +41,24 @@ export function scan(source) {
   return sorted(violations);
 }
 
+export function scanHealthDashboardSource(source) {
+  const violations = [];
+
+  if (/\/api\/v1\/agent\/sync/iu.test(source)) {
+    violations.push("DASHBOARD_MT5_SYNC_REFERENCE_FORBIDDEN");
+  }
+  if (/\b(?:OrderSend|CTrade|PositionClose|OrderModify|OrderDelete|placeOrder|closePosition|candidate|execution\s+authority)\b/iu.test(source)) {
+    violations.push("DASHBOARD_EXECUTION_REFERENCE_FORBIDDEN");
+  }
+  for (const match of source.matchAll(/\bfetch\s*\(\s*(["'`])([^"'`]*)\1/giu)) {
+    if (match[2] !== "/api/v1/health-summary") {
+      violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
+    }
+  }
+
+  return sorted(violations);
+}
+
 export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()) {
   const violations = [];
   const tree = ts.createSourceFile("worker.ts", source, ts.ScriptTarget.Latest, true);
@@ -148,6 +166,9 @@ export function runBoundaryVerifier(root = repositoryRoot) {
   const violations = [];
   for (const file of sourceFiles(join(root, "apps/execution-edge/src"), new Set([".ts"]))) {
     violations.push(...scanWorkerFile(root, file));
+  }
+  for (const file of sourceFiles(join(root, "apps/agent-health-console/src"), new Set([".ts"]))) {
+    violations.push(...scanHealthDashboardSource(readFileSync(file, "utf8")));
   }
   for (const file of sourceFiles(join(root, "mt5/TradeOpsAgent"), mt5SourceExtensions, skippedMt5Directories)) {
     violations.push(...scan(readFileSync(file, "utf8")));
