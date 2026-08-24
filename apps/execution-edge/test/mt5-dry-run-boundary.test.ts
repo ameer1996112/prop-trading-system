@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const verifier = new URL("../../../scripts/verify-mt5-dry-run-boundary.mjs", import.meta.url);
+const phase0Workflow = new URL("../../../.github/workflows/phase0.yml", import.meta.url);
 
 async function loadVerifier() {
   expect(existsSync(verifier), "the MT5 dry-run boundary verifier must exist").toBe(true);
@@ -51,6 +52,15 @@ function writeRealDashboardIntegrityFixture(root: string) {
 }
 
 describe("MT5 dry-run boundary", () => {
+  it("runs the immutable dashboard boundary verifier in pull-request CI without regenerating the manifest", () => {
+    const workflow = readFileSync(phase0Workflow, "utf8");
+
+    expect(workflow).toContain("npm ci --prefix apps/execution-edge --ignore-scripts --no-audit --no-fund");
+    expect(workflow).toContain("npm test --prefix apps/execution-edge -- mt5-dry-run-boundary.test.ts");
+    expect(workflow).toContain("node scripts/verify-mt5-dry-run-boundary.mjs");
+    expect(workflow).not.toMatch(/(?:generate|update)-dashboard-integrity-manifest/iu);
+  });
+
   it("accepts an exact reviewed dashboard integrity manifest", async () => {
     const { verifyDashboardIntegrityManifest } = await loadVerifier();
     const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
