@@ -125,6 +125,73 @@ function connection(value: unknown): "CONNECTED" | "DISCONNECTED" | "UNKNOWN" {
   return value;
 }
 
+function enumeration<T extends string>(value: unknown, values: readonly T[]): T {
+  if (typeof value !== "string" || !values.includes(value as T)) invalid();
+  return value as T;
+}
+
+function nullableIdentifier(value: unknown): string | null {
+  return value === null ? null : identifier(value);
+}
+
+function nullableSafeInteger(value: unknown): number | null {
+  return value === null ? null : safeInteger(value);
+}
+
+function boundedArray(value: unknown, maximum: number, validate: (entry: unknown) => void): void {
+  if (!Array.isArray(value) || value.length > maximum) invalid();
+  value.forEach(validate);
+}
+
+function direction(value: unknown): "LONG" | "SHORT" {
+  return enumeration(value, ["LONG", "SHORT"]);
+}
+
+function attribution(input: Record<string, unknown>): void {
+  const state = enumeration(input.attribution_state, ["ATTRIBUTED", "UNATTRIBUTED", "UNKNOWN"]);
+  if (state === "ATTRIBUTED") {
+    identifier(input.command_id);
+    identifier(input.broker_request_id);
+    return;
+  }
+  if (input.command_id !== null || input.broker_request_id !== null) invalid();
+}
+
+function protectionState(value: unknown): string {
+  return enumeration(value, ["REQUIRED", "VERIFIED", "MISSING_DEFINITE", "UNKNOWN", "BREACHED"]);
+}
+
+function validateOpenOrder(value: unknown): void {
+  const input = strictObject(value, OPEN_ORDER_KEYS);
+  safeInteger(input.order_ticket, 1);
+  attribution(input);
+  enumeration(input.state, ["DISCOVERED", "PENDING", "PARTIALLY_FILLED", "UNKNOWN"]);
+  direction(input.direction);
+  identifier(input.broker_symbol);
+  safeInteger(input.requested_volume_steps, 1);
+  safeInteger(input.filled_volume_steps, 0);
+  safeInteger(input.residual_volume_steps, 1);
+  nullableSafeInteger(input.entry_price_ticks);
+  nullableSafeInteger(input.stop_ticks);
+  nullableSafeInteger(input.target_ticks);
+  protectionState(input.protection_state);
+}
+
+function validatePosition(value: unknown): void {
+  const input = strictObject(value, POSITION_KEYS);
+  safeInteger(input.position_ticket, 1);
+  attribution(input);
+  enumeration(input.state, ["OPEN", "PARTIAL"]);
+  direction(input.direction);
+  identifier(input.broker_symbol);
+  safeInteger(input.volume_steps, 1);
+  safeInteger(input.weighted_fill_price_ticks);
+  nullableSafeInteger(input.stop_ticks);
+  nullableSafeInteger(input.target_ticks);
+  protectionState(input.protection_state);
+  boundedArray(input.deal_ids, 64, identifier);
+}
+
 function strictJson(value: unknown): void {
   if (value === null || typeof value === "string" || typeof value === "boolean") return;
   if (typeof value === "number") {
@@ -174,8 +241,8 @@ function validateSnapshot(value: unknown): Readonly<Record<string, unknown>> {
   input.symbols.forEach(validateSymbol);
   if (!Array.isArray(input.open_orders) || input.open_orders.length > 128) invalid();
   if (!Array.isArray(input.positions) || input.positions.length > 128) invalid();
-  input.open_orders.forEach((order) => strictJson(strictObject(order, OPEN_ORDER_KEYS)));
-  input.positions.forEach((position) => strictJson(strictObject(position, POSITION_KEYS)));
+  input.open_orders.forEach(validateOpenOrder);
+  input.positions.forEach(validatePosition);
   const watermark = strictObject(input.reconciliation_watermark, WATERMARK_KEYS);
   identifier(watermark.watermark);
   if (!["STABLE", "UNSTABLE", "GAP", "UNKNOWN"].includes(watermark.state as string)) invalid();
@@ -186,10 +253,119 @@ function validateSnapshot(value: unknown): Readonly<Record<string, unknown>> {
   return Object.freeze(input);
 }
 
-function validateEvent(
+function validateHeartbeatFact(input: Record<string, unknown>): void {
+  connection(input.terminal_connection_state);
+  permission(input.account_trade_permission);
+  permission(input.terminal_trade_permission);
+  permission(input.algo_trading_permission);
+  nullableNonnegativeInteger(input.broker_time_epoch);
+  nullableNonnegativeInteger(input.windows_time_epoch);
+}
+
+function validateTerminalStateFact(input: Record<string, unknown>): void {
+  safeInteger(input.terminal_build, 1);
+  digest(input.ea_sha256);
+  digest(input.manifest_sha256);
+  digest(input.account_fingerprint_sha256);
+  connection(input.terminal_connection_state);
+  permission(input.account_trade_permission);
+  permission(input.terminal_trade_permission);
+  permission(input.algo_trading_permission);
+}
+
+function validateOrderStateFact(input: Record<string, unknown>): void {
+  safeInteger(input.order_ticket, 1);
+  attribution(input);
+  enumeration(input.state, ["DISCOVERED", "PENDING", "PARTIALLY_FILLED", "FILLED", "CANCELED", "REJECTED", "EXPIRED", "UNKNOWN"]);
+  direction(input.direction);
+  identifier(input.broker_symbol);
+  safeInteger(input.requested_volume_steps, 1);
+  safeInteger(input.filled_volume_steps, 0);
+  safeInteger(input.residual_volume_steps, 0);
+  nullableSafeInteger(input.entry_price_ticks);
+  nullableSafeInteger(input.stop_ticks);
+  nullableSafeInteger(input.target_ticks);
+}
+
+function validatePositionStateFact(input: Record<string, unknown>): void {
+  const ticket = nullablePositive(input.position_ticket);
+  attribution(input);
+  const state = enumeration(input.state, ["ABSENT", "OPEN", "PARTIAL", "CLOSED"]);
+  const positionDirection = input.direction === null ? null : direction(input.direction);
+  const volume = safeInteger(input.volume_steps, 0);
+  const fillPrice = nullableSafeInteger(input.weighted_fill_price_ticks);
+  boundedArray(input.deal_ids, 64, identifier);
+  if (state === "ABSENT") {
+    if (ticket !== null || input.attribution_state === "ATTRIBUTED" || positionDirection !== null || volume !== 0 || fillPrice !== null) invalid();
+    return;
+  }
+  if (ticket === null || positionDirection === null || fillPrice === null) invalid();
+  if ((state === "OPEN" || state === "PARTIAL") && volume < 1) invalid();
+  if (state === "CLOSED" && volume !== 0) invalid();
+}
+
+function validateEventFact(kind: string, value: unknown): void {
+  const keys = EVENT_FACT_KEYS[kind];
+  if (keys === undefined) invalid();
+  const input = strictObject(value, keys);
+  switch (kind) {
+    case "HEARTBEAT":
+      return validateHeartbeatFact(input);
+    case "TERMINAL_STATE":
+      return validateTerminalStateFact(input);
+    case "SUBMIT_STATE":
+      identifier(input.command_id); identifier(input.lease_id); identifier(input.reservation_id); identifier(input.broker_request_id);
+      enumeration(input.state, ["JOURNALED", "SENT", "ACK_REJECTED", "ACK_ACCEPTED", "ACK_UNKNOWN"]);
+      safeInteger(input.requested_volume_steps, 1); safeInteger(input.filled_volume_steps, 0); safeInteger(input.residual_volume_steps, 0);
+      boundedArray(input.broker_order_tickets, 32, (entry) => { safeInteger(entry, 1); }); nullableIdentifier(input.acknowledgement_code);
+      return;
+    case "ORDER_STATE":
+      return validateOrderStateFact(input);
+    case "DEAL_STATE":
+      identifier(input.deal_id); nullablePositive(input.order_ticket); nullablePositive(input.position_ticket); attribution(input);
+      enumeration(input.role, ["ENTRY", "EXIT"]); direction(input.direction); safeInteger(input.volume_steps, 1);
+      safeInteger(input.price_ticks); safeInteger(input.commission_minor_units);
+      return;
+    case "POSITION_STATE":
+      validatePositionStateFact(input);
+      return;
+    case "PROTECTION_STATE":
+      safeInteger(input.position_ticket, 1); attribution(input); const protection = protectionState(input.state);
+      safeInteger(input.protected_volume_steps, 0); nullableSafeInteger(input.stop_ticks); nullableSafeInteger(input.target_ticks);
+      if (protection === "VERIFIED" && (input.stop_ticks === null || input.target_ticks === null)) invalid();
+      return;
+    case "CLOSE_ATTEMPT_STATE":
+      identifier(input.close_attempt_id); safeInteger(input.position_ticket, 1); attribution(input);
+      enumeration(input.state, ["JOURNALED", "SENT", "ACK_UNKNOWN", "RECONCILED"]);
+      safeInteger(input.requested_volume_steps, 1); safeInteger(input.filled_volume_steps, 0); safeInteger(input.residual_volume_steps, 0);
+      boundedArray(input.deal_ids, 64, identifier);
+      return;
+    case "UNATTRIBUTED_EXPOSURE_STATE":
+      identifier(input.exposure_id); enumeration(input.exposure_kind, ["ORDER", "POSITION"]); safeInteger(input.broker_ticket, 1);
+      identifier(input.broker_symbol); direction(input.direction); safeInteger(input.volume_steps, 1); nullableSafeInteger(input.price_ticks);
+      enumeration(input.pricing_state, ["PRICED", "UNPRICED"]); nullableNonnegativeInteger(input.modeled_loss_minor_units);
+      protectionState(input.protection_state); enumeration(input.state, ["DISCOVERED", "ATTRIBUTED", "CLOSED", "UNKNOWN"]);
+      return;
+    case "RECONCILIATION_STATE":
+      identifier(input.watermark); nullableIdentifier(input.previous_watermark); enumeration(input.state, ["STABLE", "UNSTABLE", "GAP", "UNKNOWN"]);
+      digest(input.reconciliation_sha256); safeInteger(input.history_from_epoch, 0); safeInteger(input.history_to_epoch, 0);
+      safeInteger(input.sweep_number, 1); safeInteger(input.consecutive_stable_sweeps, 0);
+      boundedArray(input.order_tickets, 512, (entry) => { safeInteger(entry, 1); }); boundedArray(input.deal_ids, 512, identifier);
+      boundedArray(input.position_tickets, 512, (entry) => { safeInteger(entry, 1); }); boundedArray(input.unattributed_exposure_ids, 512, identifier);
+      return;
+    default:
+      return invalid();
+  }
+}
+
+function nullablePositive(value: unknown): number | null {
+  return value === null ? null : safeInteger(value, 1);
+}
+
+async function validateEvent(
   value: unknown,
   request: Pick<AgentSyncRequestV1, "installation_id" | "account_id" | "account_profile_sha256" | "safety_epoch">,
-): Readonly<Record<string, unknown>> {
+): Promise<Readonly<Record<string, unknown>>> {
   const input = strictObject(value, EVENT_KEYS);
   if (input.schema_version !== "AgentEventV1") invalid();
   identifier(input.event_id);
@@ -199,9 +375,11 @@ function validateEvent(
   safeInteger(input.observed_at_epoch, 0);
   if (typeof input.kind !== "string" || !EVENT_KINDS.has(input.kind)) invalid();
   digest(input.body_sha256);
-  const factKeys = EVENT_FACT_KEYS[input.kind];
-  if (factKeys === undefined) invalid();
-  strictJson(strictObject(input.fact, factKeys));
+  validateEventFact(input.kind, input.fact);
+  const { body_sha256: _digest, ...canonicalBody } = input;
+  if (await sha256Hex(canonicalStringify(canonicalBody)) !== input.body_sha256) {
+    throw new Error("AGENT_SYNC_EVENT_BODY_DIGEST_MISMATCH");
+  }
   return Object.freeze(input);
 }
 
@@ -352,7 +530,7 @@ export async function parseAgentSyncRequest(
   const accountSnapshot = validateSnapshot(input.account_snapshot);
   if (!Array.isArray(input.events) || input.events.length > 256) invalid();
   const eventRequest = { installation_id: installationId, account_id: accountId, account_profile_sha256: profileSha, safety_epoch: safetyEpoch };
-  const events = input.events.map((event) => validateEvent(event, eventRequest));
+  const events = await Promise.all(input.events.map((event) => validateEvent(event, eventRequest)));
   if (!Array.isArray(input.broker_bar_evidence) || input.broker_bar_evidence.length > 8) invalid();
   const evidence = input.broker_bar_evidence.map((entry) => {
     const raw = entry === null || typeof entry !== "object" || Array.isArray(entry) ? invalid() : entry as Record<string, unknown>;

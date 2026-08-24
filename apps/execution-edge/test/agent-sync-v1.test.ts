@@ -72,6 +72,48 @@ async function validRequest(overrides: Record<string, unknown> = {}): Promise<Re
   return { ...withoutDigest, body_sha256: await sha256Hex(canonicalStringify(body)) };
 }
 
+async function validHeartbeatEvent(overrides: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const withoutDigest: Record<string, unknown> = {
+    schema_version: "AgentEventV1",
+    event_id: "event-1",
+    installation_id: "installation-1",
+    account_id: "account-1",
+    account_profile_sha256: D("e"),
+    safety_epoch: 7,
+    sequence: 1,
+    observed_at_epoch: NOW,
+    kind: "HEARTBEAT",
+    fact: {
+      terminal_connection_state: "CONNECTED",
+      account_trade_permission: "DENIED",
+      terminal_trade_permission: "DENIED",
+      algo_trading_permission: "DENIED",
+      broker_time_epoch: NOW,
+      windows_time_epoch: NOW,
+    },
+    ...overrides,
+  };
+  const { body_sha256: _ignored, ...body } = withoutDigest;
+  return { ...withoutDigest, body_sha256: await sha256Hex(canonicalStringify(body)) };
+}
+
+const validOpenOrder = {
+  order_ticket: 123,
+  attribution_state: "UNATTRIBUTED",
+  command_id: null,
+  broker_request_id: null,
+  state: "PENDING",
+  direction: "LONG",
+  broker_symbol: "EURUSD",
+  requested_volume_steps: 10,
+  filled_volume_steps: 0,
+  residual_volume_steps: 10,
+  entry_price_ticks: 110000,
+  stop_ticks: 109800,
+  target_ticks: 110800,
+  protection_state: "UNKNOWN",
+};
+
 async function encodedRequest(overrides: Record<string, unknown> = {}): Promise<string> {
   return JSON.stringify(await validRequest(overrides));
 }
@@ -103,8 +145,8 @@ async function route(body: string, authorization?: string, env?: Env): Promise<R
 
 describe("AgentSyncRequestV1", () => {
   it("parses a canonical bounded request and returns a canonical dry-run response", async () => {
-    const parsed = await parseAgentSyncRequest(await encodedRequest(), { nowEpoch: NOW });
-    expect(parsed).toMatchObject({ request_sequence: 2, events: [] });
+    const parsed = await parseAgentSyncRequest(await encodedRequest({ events: [await validHeartbeatEvent()] }), { nowEpoch: NOW });
+    expect(parsed).toMatchObject({ request_sequence: 2, events: [{ sequence: 1 }] });
 
     const response = await createDryRunResponse(parsed, 3, NOW);
     expect(response).toEqual({
@@ -114,7 +156,7 @@ describe("AgentSyncRequestV1", () => {
       server_time_epoch: NOW,
       mode: "DRY_RUN",
       freeze_reasons: [],
-      acknowledged_event_sequence: 0,
+      acknowledged_event_sequence: 1,
       evidence_requests: [],
       command: null,
     });
@@ -136,6 +178,32 @@ describe("AgentSyncRequestV1", () => {
       .rejects.toThrow("AGENT_SYNC_BODY_DIGEST_MISMATCH");
     await expect(parseAgentSyncRequest(await encodedRequest({ sent_at_epoch: NOW - 31 }), { nowEpoch: NOW }))
       .rejects.toThrow("AGENT_SYNC_TIMESTAMP_INVALID");
+  });
+
+  it("rejects invalid nested snapshot fields and typed heartbeat facts", async () => {
+    await expect(parseAgentSyncRequest(await encodedRequest({
+      account_snapshot: { ...snapshot, open_orders: [{ ...validOpenOrder, order_ticket: "123" }] },
+    }), { nowEpoch: NOW })).rejects.toThrow("AGENT_SYNC_INVALID");
+
+    const invalidHeartbeat = await validHeartbeatEvent({
+      fact: {
+        terminal_connection_state: "CONNECTED",
+        account_trade_permission: ["DENIED"],
+        terminal_trade_permission: "DENIED",
+        algo_trading_permission: "DENIED",
+        broker_time_epoch: NOW,
+        windows_time_epoch: NOW,
+      },
+    });
+    await expect(parseAgentSyncRequest(await encodedRequest({ events: [invalidHeartbeat] }), { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_INVALID");
+  });
+
+  it("rejects an event digest mismatch even when the enclosing body digest is valid", async () => {
+    const event = await validHeartbeatEvent();
+    event.body_sha256 = D("f");
+    await expect(parseAgentSyncRequest(await encodedRequest({ events: [event] }), { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_EVENT_BODY_DIGEST_MISMATCH");
   });
 
   it("authenticates a bearer token only against a configured digest", async () => {
