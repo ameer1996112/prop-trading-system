@@ -12,7 +12,7 @@ export type AccountCoordinatorResultV1 = Readonly<{
   response: AgentSyncResponseV1;
   responseBytes: string;
 }> | Readonly<{
-  code: "REPLAY_CONFLICT" | "SEQUENCE_INVALID" | "IDENTITY_MISMATCH";
+  code: "REPLAY_CONFLICT" | "SEQUENCE_INVALID" | "IDENTITY_MISMATCH" | "STALE_TIMESTAMP";
 }>;
 
 function fingerprint(request: AgentSyncRequestV1): string {
@@ -73,9 +73,11 @@ export async function coordinateAgentSyncV1(
         : null;
       return response === null ? { code: "SEQUENCE_INVALID" } : { code: "OK", replayed: true, response, responseBytes: storedResponseBytes! };
     }
+    if (request.freshness === "STALE") return { code: "STALE_TIMESTAMP" };
     if (request.request_sequence !== lastSequence + 1) return { code: "SEQUENCE_INVALID" };
-  } else if (request.request_sequence !== 1) {
-    return { code: "SEQUENCE_INVALID" };
+  } else {
+    if (request.freshness === "STALE") return { code: "STALE_TIMESTAMP" };
+    if (request.request_sequence !== 1) return { code: "SEQUENCE_INVALID" };
   }
 
   const nextAcknowledgedSequence = Math.max(acknowledgedSequence ?? 0, maximumEventSequence(request));

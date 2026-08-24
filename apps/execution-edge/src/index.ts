@@ -245,7 +245,7 @@ const worker: ExportedHandler<Env> = {
           : null;
         const outcome = result.code === "OK"
           ? result.replayed === true ? "EXACT_RETRY" : "ACCEPTED"
-          : result.code === "REPLAY_CONFLICT" || result.code === "SEQUENCE_INVALID" || result.code === "IDENTITY_MISMATCH"
+          : result.code === "REPLAY_CONFLICT" || result.code === "SEQUENCE_INVALID" || result.code === "IDENTITY_MISMATCH" || result.code === "STALE_TIMESTAMP"
             ? result.code
             : null;
         const serverSequence = validResponse?.server_sequence ?? null;
@@ -258,6 +258,7 @@ const worker: ExportedHandler<Env> = {
           return dryRunFailure("AGENT_SYNC_AUDIT_UNAVAILABLE", 503);
         }
         if (result.code === "REPLAY_CONFLICT") return dryRunFailure("REPLAY_CONFLICT", 409);
+        if (result.code === "STALE_TIMESTAMP") return dryRunFailure("AGENT_SYNC_TIMESTAMP_INVALID", 400);
         if (result.code !== "OK" || typeof result.response_bytes !== "string") {
           return dryRunFailure("AGENT_SYNC_CONFLICT", 409);
         }

@@ -11,10 +11,11 @@ chart during this phase. Keep **Algo Trading disabled** and **DLL imports disabl
 Do not add a WebRequest allowlist entry until the Cloudflare edge is separately
 deployed and its origin has been explicitly approved by the operator.
 
-The future intended attachment is one chart: `EURUSD`, M5. Its only possible
-status labels are `DRY_RUN_READY`, `SYNC_OK`, `SYNC_WAITING`, `SYNC_REJECTED`,
-`PROFILE_REJECTED`, `CONFIG_REJECTED`, and `STOPPED`. None represents a trade
-instruction or permission.
+The future intended attachment is one chart: `EURUSD`, M5. Runtime status labels
+are `INITIALIZING`, `DRY_RUN_READY`, `SYNC_OK`, `SYNC_WAITING`, `SYNC_REJECTED`,
+`PROFILE_REJECTED`, `CONFIG_REJECTED`, `JOURNAL_REJECTED`, `PAYLOAD_REJECTED`,
+`TIMER_REJECTED`, and `STOPPED`. None represents a trade instruction or
+permission.
 
 ## Local configuration — not committed and not compiled
 
@@ -56,7 +57,9 @@ last verified server sequence, and the exact pending canonical payload. It never
 stores the bearer. The pending payload is written before its first outbound
 attempt, is replayed byte-for-byte after a lost response or restart, and is
 cleared together with the advanced sequence only after a strict valid `DRY_RUN`
-response with `command: null` and zero acknowledged events.
+response with `command: null` and zero acknowledged events. The edge may replay
+an authenticated canonical stale payload only when it exactly matches its cached
+request digest; a stale new request remains rejected.
 
 For future installation evidence, capture only: the EA version/hash, chart symbol
 and timeframe, status label, HTTP status class, and the server response digest.

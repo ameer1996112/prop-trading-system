@@ -79,6 +79,7 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(readme).toContain("Do not attach");
     expect(readme).toContain("Algo Trading disabled");
     expect(readme).toContain("DLL imports disabled");
+    expect(readme).toContain("JOURNAL_REJECTED");
   });
 
   it("includes a pure MQL self-test source", () => {

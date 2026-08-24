@@ -237,13 +237,13 @@ describe("AgentSyncRequestV1", () => {
       .rejects.toThrow("AGENT_SYNC_INVALID");
   });
 
-  it("rejects a body digest mismatch and stale timestamps", async () => {
+  it("rejects a body digest mismatch but records a valid stale timestamp for replay handling", async () => {
     const wrongDigest = await validRequest();
     wrongDigest.body_sha256 = D("f");
     await expect(parseAgentSyncRequest(JSON.stringify(wrongDigest), { nowEpoch: NOW }))
       .rejects.toThrow("AGENT_SYNC_BODY_DIGEST_MISMATCH");
     await expect(parseAgentSyncRequest(await encodedRequest({ sent_at_epoch: NOW - 31 }), { nowEpoch: NOW }))
-      .rejects.toThrow("AGENT_SYNC_TIMESTAMP_INVALID");
+      .resolves.toMatchObject({ freshness: "STALE" });
   });
 
   it("rejects invalid nested snapshot fields and typed heartbeat facts", async () => {
@@ -467,6 +467,28 @@ describe("agent sync Worker route", () => {
       expect(response.status).toBe(code === "OK" ? 200 : 409);
       expect(runs[0]?.parameters[5]).toBe(expected);
     }
+  });
+
+  it("envelopes a stale non-replay coordinator rejection without forwarding a command", async () => {
+    const runs: AuditRun[] = [];
+    const env = {
+      ...await enabledEnv(),
+      EXECUTION_DB: auditDatabase(runs),
+      ACCOUNT_COORDINATOR: {
+        idFromName(name: string) { return name; },
+        get() { return { fetch: async () => new Response(JSON.stringify({ code: "STALE_TIMESTAMP" })) }; },
+      },
+    } as unknown as Env;
+
+    const response = await route(await encodedRequest({
+      request_sequence: 1,
+      last_acknowledged_server_sequence: 0,
+      sent_at_epoch: Math.floor(Date.now() / 1000),
+    }), `Bearer ${SECRET}`, env);
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "AGENT_SYNC_TIMESTAMP_INVALID", mode: "DRY_RUN", command: null });
+    expect(runs[0]?.parameters.slice(5, 7)).toEqual(["STALE_TIMESTAMP", null]);
   });
 
   it("envelopes sync rejection outcomes as dry-run null-command responses", async () => {

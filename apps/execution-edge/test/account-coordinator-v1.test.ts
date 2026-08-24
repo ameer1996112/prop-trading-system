@@ -57,6 +57,27 @@ describe("account coordinator v1", () => {
     expect(retry.responseBytes).toBe(first.responseBytes);
   });
 
+  it("returns the cached response byte-for-byte for an authenticated canonical stale retry", async () => {
+    const storage = new MemoryStorage();
+    const first = await coordinateAgentSyncV1(storage, { ...request(), freshness: "FRESH" }, 1_787_472_010);
+    const retry = await coordinateAgentSyncV1(storage, { ...request(), freshness: "STALE" }, 1_787_472_099);
+
+    if (first.code !== "OK" || retry.code !== "OK") throw new Error("expected stale exact retry to be replayed");
+    expect(retry.replayed).toBe(true);
+    expect(retry.responseBytes).toBe(first.responseBytes);
+  });
+
+  it("rejects a stale new sequence without advancing coordinator state", async () => {
+    const storage = new MemoryStorage();
+    await coordinateAgentSyncV1(storage, { ...request(), freshness: "FRESH" }, 1_787_472_010);
+
+    await expect(coordinateAgentSyncV1(storage, {
+      ...request(), request_sequence: 2, body_sha256: D("d"), freshness: "STALE",
+    }, 1_787_472_099)).resolves.toEqual({ code: "STALE_TIMESTAMP" });
+    expect(await getAccountCoordinatorStatusV1(storage)).toEqual({ mode: "DRY_RUN", last_request_sequence: 1 });
+    expect(storage.values.get("last_accepted_request_digest")).toBe(D("b"));
+  });
+
   it("rejects a same-sequence request whose canonical digest changes", async () => {
     const storage = new MemoryStorage();
     await coordinateAgentSyncV1(storage, request(), 1_787_472_010);

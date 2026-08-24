@@ -63,6 +63,7 @@ export interface AgentSyncRequestV1 {
   readonly last_acknowledged_server_sequence: number;
   readonly nonce: string;
   readonly sent_at_epoch: number;
+  readonly freshness: "FRESH" | "STALE";
   readonly body_sha256: string;
   readonly account_snapshot: Readonly<Record<string, unknown>>;
   readonly events: readonly Readonly<Record<string, unknown>>[];
@@ -530,7 +531,6 @@ export async function parseAgentSyncRequest(
   const sentAt = safeInteger(input.sent_at_epoch, 0);
   const bodySha = digest(input.body_sha256);
   if (!Number.isSafeInteger(context.nowEpoch) || context.nowEpoch < 0) invalid();
-  if (Math.abs(sentAt - context.nowEpoch) > 30) throw new Error("AGENT_SYNC_TIMESTAMP_INVALID");
   const accountSnapshot = validateSnapshot(input.account_snapshot);
   if (!Array.isArray(input.events) || input.events.length > 256) invalid();
   const eventRequest = { installation_id: installationId, account_id: accountId, account_profile_sha256: profileSha, safety_epoch: safetyEpoch };
@@ -544,6 +544,7 @@ export async function parseAgentSyncRequest(
   });
   const { body_sha256: _digest, ...canonicalBody } = input;
   if (await sha256Hex(canonicalStringify(canonicalBody)) !== bodySha) throw new Error("AGENT_SYNC_BODY_DIGEST_MISMATCH");
+  const freshness = Math.abs(sentAt - context.nowEpoch) > 30 ? "STALE" as const : "FRESH" as const;
   return Object.freeze({
     schema_version: "AgentSyncRequestV1",
     installation_id: installationId,
@@ -554,6 +555,7 @@ export async function parseAgentSyncRequest(
     last_acknowledged_server_sequence: acknowledgedSequence,
     nonce,
     sent_at_epoch: sentAt,
+    freshness,
     body_sha256: bodySha,
     account_snapshot: accountSnapshot,
     events: Object.freeze(events),
