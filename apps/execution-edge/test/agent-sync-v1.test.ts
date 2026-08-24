@@ -1,0 +1,169 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  authenticateAgentSyncBearer,
+  createDryRunResponse,
+  parseAgentSyncRequest,
+} from "../src/agent-sync-v1";
+import { canonicalStringify, sha256Hex } from "../src/canonical";
+import worker, { type Env } from "../src/index";
+
+const NOW = 1_787_472_010;
+const D = (digit: string): string => digit.repeat(64);
+const SECRET = "agent-sync-test-token";
+
+const snapshot = {
+  terminal_build: 4410,
+  ea_sha256: D("a"),
+  manifest_sha256: D("b"),
+  account_fingerprint_sha256: D("c"),
+  broker_time_epoch: NOW,
+  windows_time_epoch: NOW,
+  terminal_connection_state: "CONNECTED",
+  account_trade_permission: "DENIED",
+  terminal_trade_permission: "DENIED",
+  algo_trading_permission: "DENIED",
+  balance_minor_units: 10_000_000,
+  equity_minor_units: 10_000_000,
+  margin_minor_units: 0,
+  free_margin_minor_units: 10_000_000,
+  margin_level_bps: null,
+  symbols: [{
+    source_symbol: "EURUSD",
+    broker_symbol: "EURUSD",
+    synchronization_state: "SYNCHRONIZED",
+    selection_state: "SELECTED",
+    capability_state: "CURRENT",
+    symbol_capability_sha256: D("f"),
+    trade_mode: "FULL",
+    bid_ticks: 109999,
+    ask_ticks: 110001,
+    observed_at_epoch: NOW,
+  }],
+  open_orders: [],
+  positions: [],
+  reconciliation_watermark: {
+    watermark: "cursor-1",
+    state: "STABLE",
+    reconciliation_sha256: D("d"),
+    history_through_epoch: NOW,
+    consecutive_stable_sweeps: 1,
+  },
+  observed_at_epoch: NOW,
+};
+
+async function validRequest(overrides: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const withoutDigest: Record<string, unknown> = {
+    schema_version: "AgentSyncRequestV1",
+    installation_id: "installation-1",
+    account_id: "account-1",
+    account_profile_sha256: D("e"),
+    safety_epoch: 7,
+    request_sequence: 2,
+    last_acknowledged_server_sequence: 1,
+    nonce: "nonce-2",
+    sent_at_epoch: NOW,
+    account_snapshot: snapshot,
+    events: [],
+    broker_bar_evidence: [],
+    ...overrides,
+  };
+  const { body_sha256: _ignored, ...body } = withoutDigest;
+  return { ...withoutDigest, body_sha256: await sha256Hex(canonicalStringify(body)) };
+}
+
+async function encodedRequest(overrides: Record<string, unknown> = {}): Promise<string> {
+  return JSON.stringify(await validRequest(overrides));
+}
+
+async function enabledEnv(): Promise<Env> {
+  return {
+    CANDIDATE_INBOX_ENABLED: "false",
+    AGENT_SYNC_ENABLED: "true",
+    EXECUTION_AUTHORITY_ENABLED: "false",
+    EXECUTION_MODE_CEILING: "DRY_RUN",
+    ROUTING_MANIFEST_SHA256: "INERT_NOT_CONFIGURED",
+    AGENT_SYNC_SHARED_SECRET_SHA256: await sha256Hex(SECRET),
+  } as Env;
+}
+
+async function route(body: string, authorization?: string, env?: Env): Promise<Response> {
+  const request = new Request("https://execution-edge.example/api/v1/agent/sync", {
+    method: "POST",
+    headers: authorization === undefined ? {} : { authorization },
+    body,
+  });
+  const fetch = worker.fetch as unknown as (
+    incomingRequest: Request,
+    environment: Env,
+    context: ExecutionContext,
+  ) => Promise<Response>;
+  return fetch(request, env ?? await enabledEnv(), {} as ExecutionContext);
+}
+
+describe("AgentSyncRequestV1", () => {
+  it("parses a canonical bounded request and returns a canonical dry-run response", async () => {
+    const parsed = await parseAgentSyncRequest(await encodedRequest(), { nowEpoch: NOW });
+    expect(parsed).toMatchObject({ request_sequence: 2, events: [] });
+
+    const response = await createDryRunResponse(parsed, 3, NOW);
+    expect(response).toEqual({
+      schema_version: "AgentSyncResponseV1",
+      response_body_sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      server_sequence: 3,
+      server_time_epoch: NOW,
+      mode: "DRY_RUN",
+      freeze_reasons: [],
+      acknowledged_event_sequence: 0,
+      evidence_requests: [],
+      command: null,
+    });
+    const { response_body_sha256, ...body } = response;
+    expect(await sha256Hex(canonicalStringify(body))).toBe(response_body_sha256);
+  });
+
+  it("rejects unknown or duplicate JSON keys", async () => {
+    await expect(parseAgentSyncRequest(await encodedRequest({ unexpected: true }), { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_INVALID");
+    await expect(parseAgentSyncRequest('{"schema_version":"AgentSyncRequestV1","schema_version":"AgentSyncRequestV1"}', { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_INVALID");
+  });
+
+  it("rejects a body digest mismatch and stale timestamps", async () => {
+    const wrongDigest = await validRequest();
+    wrongDigest.body_sha256 = D("f");
+    await expect(parseAgentSyncRequest(JSON.stringify(wrongDigest), { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_BODY_DIGEST_MISMATCH");
+    await expect(parseAgentSyncRequest(await encodedRequest({ sent_at_epoch: NOW - 31 }), { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_TIMESTAMP_INVALID");
+  });
+
+  it("authenticates a bearer token only against a configured digest", async () => {
+    const configured = await sha256Hex(SECRET);
+    await expect(authenticateAgentSyncBearer(`Bearer ${SECRET}`, configured)).resolves.toBe(true);
+    await expect(authenticateAgentSyncBearer(undefined, configured)).resolves.toBe(false);
+    await expect(authenticateAgentSyncBearer("Bearer wrong", configured)).resolves.toBe(false);
+    await expect(authenticateAgentSyncBearer(`Bearer ${SECRET}`, "not-a-digest")).resolves.toBe(false);
+  });
+});
+
+describe("agent sync Worker route", () => {
+  it("requires POST and a valid bearer, then never returns a command", async () => {
+    const body = await encodedRequest({ sent_at_epoch: Math.floor(Date.now() / 1000) });
+    expect((await route(body)).status).toBe(401);
+    expect((await route(body, "Bearer wrong")).status).toBe(401);
+    const success = await route(body, `Bearer ${SECRET}`);
+    expect(success.status).toBe(200);
+    expect((await success.json() as { command: unknown }).command).toBeNull();
+
+    const nonPost = new Request("https://execution-edge.example/api/v1/agent/sync");
+    const fetch = worker.fetch as unknown as (request: Request, env: Env, context: ExecutionContext) => Promise<Response>;
+    expect((await fetch(nonPost, await enabledEnv(), {} as ExecutionContext)).status).toBe(405);
+  });
+
+  it("returns 400 for malformed bodies and remains disabled without an exact enablement", async () => {
+    expect((await route("{", `Bearer ${SECRET}`)).status).toBe(400);
+    const disabled = { ...await enabledEnv(), AGENT_SYNC_ENABLED: "false" } as Env;
+    expect((await route(await encodedRequest({ sent_at_epoch: Math.floor(Date.now() / 1000) }), `Bearer ${SECRET}`, disabled)).status).toBe(503);
+  });
+});
