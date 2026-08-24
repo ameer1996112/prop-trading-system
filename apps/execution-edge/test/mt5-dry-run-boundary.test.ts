@@ -120,6 +120,39 @@ describe("MT5 dry-run boundary", () => {
     }
   });
 
+  it("rejects a dashboard integrity manifest with an unreviewed top-level property", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+    const manifestPath = join(root, "apps/agent-health-console/dashboard-integrity-manifest.v1.json");
+
+    try {
+      writeDashboardIntegrityFixture(root);
+      writeFileSync(manifestPath, `${JSON.stringify({
+        ...JSON.parse(readFileSync(manifestPath, "utf8")),
+        extra: true,
+      }, null, 2)}\n`);
+
+      expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an integrity violation instead of throwing when an approved dashboard source is missing", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+
+    try {
+      writeDashboardIntegrityFixture(root);
+      rmSync(join(root, "apps/agent-health-console/src/index.ts"));
+
+      expect(() => verifyDashboardIntegrityManifest(root)).not.toThrow();
+      expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_UNALLOWED_SOURCE_FILE");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("allows only the frozen PAPER_ONLY candidate contract in the real repository", async () => {
     const { runBoundaryVerifier } = await loadVerifier();
 

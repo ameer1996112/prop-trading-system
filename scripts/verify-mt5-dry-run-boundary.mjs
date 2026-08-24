@@ -506,6 +506,7 @@ export function verifyDashboardIntegrityManifest(root = repositoryRoot) {
   }
 
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)
+    || Object.keys(manifest).length !== 2 || !Object.hasOwn(manifest, "schema_version") || !Object.hasOwn(manifest, "files")
     || manifest.schema_version !== dashboardIntegrityManifestSchemaVersion || !Array.isArray(manifest.files)) {
     return sorted([...violations, "DASHBOARD_INTEGRITY_MANIFEST_INVALID"]);
   }
@@ -521,6 +522,8 @@ export function verifyDashboardIntegrityManifest(root = repositoryRoot) {
   if (!validEntries || !manifestHasExactPaths) {
     return sorted([...violations, "DASHBOARD_INTEGRITY_MANIFEST_INVALID"]);
   }
+
+  if (violations.includes("DASHBOARD_INTEGRITY_MANIFEST_UNALLOWED_SOURCE_FILE")) return sorted(violations);
 
   for (const entry of entries) {
     const file = join(sourceRoot, entry.path);
