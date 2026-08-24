@@ -1,0 +1,66 @@
+{
+  "request": {
+    "schema_version": "AgentSyncRequestV1",
+    "installation_id": "install-redacted-001",
+    "account_id": "account-redacted-001",
+    "account_profile_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "safety_epoch": 1,
+    "request_sequence": 1,
+    "last_acknowledged_server_sequence": 0,
+    "nonce": "nonce-redacted-001",
+    "sent_at_epoch": 1787472010,
+    "body_sha256": "61646781f1c80e59ce98c1b6822e44a8cd9b4489ab5dde9f9f87d02dcb5b7dbf",
+    "account_snapshot": {
+      "terminal_build": 5000,
+      "ea_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "manifest_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "account_fingerprint_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "broker_time_epoch": 1787472010,
+      "windows_time_epoch": 1787472010,
+      "terminal_connection_state": "CONNECTED",
+      "account_trade_permission": "DENIED",
+      "terminal_trade_permission": "DENIED",
+      "algo_trading_permission": "DENIED",
+      "balance_minor_units": null,
+      "equity_minor_units": null,
+      "margin_minor_units": null,
+      "free_margin_minor_units": null,
+      "margin_level_bps": null,
+      "symbols": [{
+        "source_symbol": "EURUSD",
+        "broker_symbol": "EURUSD",
+        "synchronization_state": "UNKNOWN",
+        "selection_state": "SELECTED",
+        "capability_state": "UNKNOWN",
+        "symbol_capability_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "trade_mode": "UNKNOWN",
+        "bid_ticks": null,
+        "ask_ticks": null,
+        "observed_at_epoch": 1787472010
+      }],
+      "open_orders": [],
+      "positions": [],
+      "reconciliation_watermark": {
+        "watermark": "not-started",
+        "state": "UNKNOWN",
+        "reconciliation_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "history_through_epoch": 0,
+        "consecutive_stable_sweeps": 0
+      },
+      "observed_at_epoch": 1787472010
+    },
+    "events": [],
+    "broker_bar_evidence": []
+  },
+  "response": {
+    "schema_version": "AgentSyncResponseV1",
+    "response_body_sha256": "4b8ae9a769afc7f3447deffcf1b0b0eb5f0560997652a13a0214e9b841aa7274",
+    "server_sequence": 1,
+    "server_time_epoch": 1787472010,
+    "mode": "DRY_RUN",
+    "freeze_reasons": [],
+    "acknowledged_event_sequence": 0,
+    "evidence_requests": [],
+    "command": null
+  }
+}

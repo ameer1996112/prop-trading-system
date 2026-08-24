@@ -120,6 +120,13 @@ describe("MT5 dry-run boundary", () => {
     expect(scan('#import "x.dll"')).toContain("MT5_DLL_IMPORT_FORBIDDEN");
   });
 
+  it("rejects MT5 shell and inbound-listener capability", async () => {
+    const { scan } = await loadVerifier();
+
+    expect(scan("ShellExecute(command);")).toContain("MT5_SHELL_FORBIDDEN");
+    expect(scan("SocketListen(socket, port);")).toContain("MT5_INBOUND_LISTENER_FORBIDDEN");
+  });
+
   it("rejects template MT5 credentials and WebRequest URLs", async () => {
     const { scan } = await loadVerifier();
 

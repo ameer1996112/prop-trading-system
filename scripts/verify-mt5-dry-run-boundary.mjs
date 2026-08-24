@@ -25,6 +25,12 @@ export function scan(source) {
   if (/\bOrderDelete\b/iu.test(source)) violations.push("MT5_ORDER_DELETE_FORBIDDEN");
   if (/\bOrderModify\b/iu.test(source)) violations.push("MT5_ORDER_MODIFY_FORBIDDEN");
   if (/#\s*import\b/iu.test(source)) violations.push("MT5_DLL_IMPORT_FORBIDDEN");
+  if (/\b(?:ShellExecute|WinExec|CreateProcess|system)\b/iu.test(source)) {
+    violations.push("MT5_SHELL_FORBIDDEN");
+  }
+  if (/\b(?:SocketListen|WebSocketServer|HttpServer|ServerSocket)\b/iu.test(source)) {
+    violations.push("MT5_INBOUND_LISTENER_FORBIDDEN");
+  }
   if (/(["'`])https:\/\/[^"'`]*\1/iu.test(source)) {
     violations.push("MT5_WEBREQUEST_URL_FORBIDDEN");
   }
