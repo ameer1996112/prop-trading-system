@@ -1,7 +1,7 @@
 import { validateBrokerBarEvidenceV1 } from "./contracts-v1";
 import { canonicalStringify, sha256Hex } from "./canonical";
 
-const MAX_BODY_BYTES = 256 * 1024;
+export const AGENT_SYNC_MAX_BODY_BYTES = 256 * 1024;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const IDENTIFIER = /^[\x21-\x5b\x5d-\x7e]{1,160}$/u;
 const ROOT_KEYS = [
@@ -504,7 +504,7 @@ class StrictJsonParser {
 
 function parseBoundedJson(body: string | Uint8Array): unknown {
   const bytes = typeof body === "string" ? new TextEncoder().encode(body) : new Uint8Array(body);
-  if (bytes.byteLength > MAX_BODY_BYTES) invalid();
+  if (bytes.byteLength > AGENT_SYNC_MAX_BODY_BYTES) invalid();
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);

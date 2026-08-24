@@ -1,4 +1,5 @@
 import {
+  AGENT_SYNC_MAX_BODY_BYTES,
   authenticateAgentSyncBearer,
   createDryRunResponse,
   parseAgentSyncRequest,
@@ -32,6 +33,46 @@ function json(body: unknown, status: number): Response {
       "content-type": "application/json; charset=utf-8",
     },
   });
+}
+
+async function rejectOversizedBody(body: ReadableStream<Uint8Array> | null): Promise<never> {
+  await body?.cancel("AGENT_SYNC_BODY_TOO_LARGE");
+  throw new Error("AGENT_SYNC_BODY_TOO_LARGE");
+}
+
+async function readBoundedAgentSyncBody(request: Request): Promise<Uint8Array> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null && /^[0-9]+$/u.test(contentLength) && Number(contentLength) > AGENT_SYNC_MAX_BODY_BYTES) {
+    return rejectOversizedBody(request.body);
+  }
+  if (request.body === null) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value === undefined || value.byteLength > AGENT_SYNC_MAX_BODY_BYTES - total) {
+        await reader.cancel("AGENT_SYNC_BODY_TOO_LARGE");
+        throw new Error("AGENT_SYNC_BODY_TOO_LARGE");
+      }
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
 }
 
 function isSafeConfiguration(env: Env): boolean {
@@ -90,7 +131,7 @@ const worker: ExportedHandler<Env> = {
         return json({ error: "UNAUTHORIZED" }, 401);
       }
       try {
-        const parsed = await parseAgentSyncRequest(new Uint8Array(await request.arrayBuffer()), {
+        const parsed = await parseAgentSyncRequest(await readBoundedAgentSyncBody(request), {
           nowEpoch: Math.floor(Date.now() / 1000),
         });
         if (parsed.last_acknowledged_server_sequence >= Number.MAX_SAFE_INTEGER) {

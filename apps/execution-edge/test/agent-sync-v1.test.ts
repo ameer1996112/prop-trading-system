@@ -314,4 +314,29 @@ describe("agent sync Worker route", () => {
     const disabled = { ...await enabledEnv(), AGENT_SYNC_ENABLED: "false" } as Env;
     expect((await route(await encodedRequest({ sent_at_epoch: Math.floor(Date.now() / 1000) }), `Bearer ${SECRET}`, disabled)).status).toBe(503);
   });
+
+  it("rejects an oversized streaming body before complete parsing", async () => {
+    let cancelled = false;
+    const oversized = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(256 * 1024 + 1));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request("https://execution-edge.example/api/v1/agent/sync", {
+      method: "POST",
+      headers: { authorization: `Bearer ${SECRET}` },
+      body: oversized,
+      // Node requires this for a ReadableStream request body; Workers ignore it.
+      duplex: "half",
+    } as RequestInit);
+    const fetch = worker.fetch as unknown as (request: Request, env: Env, context: ExecutionContext) => Promise<Response>;
+
+    const response = await fetch(request, await enabledEnv(), {} as ExecutionContext);
+
+    expect(response.status).toBe(400);
+    expect(cancelled).toBe(true);
+  });
 });
