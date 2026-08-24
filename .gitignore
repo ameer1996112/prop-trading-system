@@ -23,3 +23,6 @@ node_modules/
 coverage/
 tick-data/
 reports/*.tmp
+*.ex5
+mt5/TradeOpsAgent/local/
+mt5/TradeOpsAgent/journal/
