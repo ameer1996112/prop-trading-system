@@ -1,0 +1,17 @@
+{
+  "schema_version": "DashboardIntegrityManifestV1",
+  "files": [
+    {
+      "path": "dashboard-html.ts",
+      "sha256": "8049c73c3fb6a617e27336b6755b1c8af643c43f7cfb66ae1a12dd9ea555a17b"
+    },
+    {
+      "path": "health-summary-v1.ts",
+      "sha256": "9829eb91ea18595b53961d67b4bcc39f75815b9bc60c41c98fcde3d207898131"
+    },
+    {
+      "path": "index.ts",
+      "sha256": "da92882b5a24c54cbb3673835013e7ae1235e77ac843e117cd7222aca1193425"
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,7 +11,115 @@ async function loadVerifier() {
   return import(verifier.href);
 }
 
+const dashboardFixtureFiles = [
+  ["dashboard-html.ts", "export const dashboard = true;\n", "087ec181c702af59101dc20acb36e24731a34d9db19ea593bf7e5ec833a0f346"],
+  ["health-summary-v1.ts", "export const health = true;\n", "c2421597efcdf166f1c9ba0d68fb8bfd9806fffd13510a43595aa5f2f08770cd"],
+  ["index.ts", "export const index = true;\n", "48afe2a06bf66c168d1858387c1477488592fa55f785a2cc24fd13784172edad"],
+] as const;
+
+function writeDashboardIntegrityFixture(root: string, manifestFiles = dashboardFixtureFiles) {
+  const sourceDirectory = join(root, "apps/agent-health-console/src");
+  mkdirSync(sourceDirectory, { recursive: true });
+  for (const [path, source] of dashboardFixtureFiles) writeFileSync(join(sourceDirectory, path), source);
+  writeFileSync(join(root, "apps/agent-health-console/dashboard-integrity-manifest.v1.json"), `${JSON.stringify({
+    schema_version: "DashboardIntegrityManifestV1",
+    files: manifestFiles.map(([path, , sha256]) => ({ path, sha256 })),
+  }, null, 2)}\n`);
+}
+
+function writeDashboardIntegrityManifestForSources(root: string, sourceDirectory: string) {
+  const files = ["dashboard-html.ts", "health-summary-v1.ts", "index.ts"].map((path) => ({
+    path,
+    sha256: createHash("sha256").update(readFileSync(join(sourceDirectory, path))).digest("hex"),
+  }));
+  writeFileSync(join(root, "apps/agent-health-console/dashboard-integrity-manifest.v1.json"), `${JSON.stringify({
+    schema_version: "DashboardIntegrityManifestV1",
+    files,
+  }, null, 2)}\n`);
+}
+
+function writeRealDashboardIntegrityFixture(root: string) {
+  const sourceDirectory = join(root, "apps/agent-health-console/src");
+  const dashboardSources = new URL("../../agent-health-console/src/", import.meta.url);
+  mkdirSync(sourceDirectory, { recursive: true });
+  for (const path of ["dashboard-html.ts", "health-summary-v1.ts", "index.ts"]) {
+    writeFileSync(join(sourceDirectory, path), readFileSync(new URL(path, dashboardSources), "utf8"));
+  }
+  writeDashboardIntegrityManifestForSources(root, sourceDirectory);
+}
+
 describe("MT5 dry-run boundary", () => {
+  it("accepts an exact reviewed dashboard integrity manifest", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+
+    try {
+      writeDashboardIntegrityFixture(root);
+
+      expect(verifyDashboardIntegrityManifest(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a dashboard source whose reviewed digest no longer matches", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+
+    try {
+      writeDashboardIntegrityFixture(root);
+      writeFileSync(join(root, "apps/agent-health-console/src/index.ts"), "export const index = false;\n");
+
+      expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_DIGEST_MISMATCH");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a dashboard TypeScript source outside the reviewed set", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+
+    try {
+      writeDashboardIntegrityFixture(root);
+      writeFileSync(join(root, "apps/agent-health-console/src/extra.ts"), "export const extra = true;\n");
+
+      expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_UNALLOWED_SOURCE_FILE");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a dashboard integrity manifest with duplicate paths", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+
+    try {
+      writeDashboardIntegrityFixture(root, [...dashboardFixtureFiles, dashboardFixtureFiles[0]]);
+
+      expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a dashboard integrity manifest with a malformed digest", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+
+    try {
+      writeDashboardIntegrityFixture(root, [
+        ["dashboard-html.ts", "export const dashboard = true;\n", "not-a-digest"],
+        dashboardFixtureFiles[1],
+        dashboardFixtureFiles[2],
+      ]);
+
+      expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("allows only the frozen PAPER_ONLY candidate contract in the real repository", async () => {
     const { runBoundaryVerifier } = await loadVerifier();
 
@@ -178,7 +287,12 @@ describe("MT5 dry-run boundary", () => {
       mkdirSync(dashboard, { recursive: true });
       mkdirSync(execution, { recursive: true });
       mkdirSync(mt5, { recursive: true });
-      writeFileSync(join(dashboard, "index.ts"), 'const endpoint = "/api/v1/agent/sync";\n');
+      const dashboardSources = new URL("../../agent-health-console/src/", import.meta.url);
+      for (const path of ["dashboard-html.ts", "health-summary-v1.ts", "index.ts"]) {
+        writeFileSync(join(dashboard, path), readFileSync(new URL(path, dashboardSources), "utf8"));
+      }
+      writeFileSync(join(dashboard, "index.ts"), `${readFileSync(join(dashboard, "index.ts"), "utf8")}\nconst endpoint = "/api/v1/agent/sync";\n`);
+      writeDashboardIntegrityManifestForSources(root, dashboard);
       writeFileSync(join(execution, "safe.ts"), 'const config = { execution_mode: "DRY_RUN" };\n');
       writeFileSync(join(mt5, "safe.mq5"), "void f() {}\n");
 
@@ -322,6 +436,7 @@ describe("MT5 dry-run boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
 
     try {
+      writeRealDashboardIntegrityFixture(root);
       const local = join(root, "mt5/TradeOpsAgent/local");
       mkdirSync(local, { recursive: true });
       writeFileSync(join(local, "generated.mqh"), "void f(){ OrderSend(r,q); }\n");
@@ -337,6 +452,7 @@ describe("MT5 dry-run boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
 
     try {
+      writeRealDashboardIntegrityFixture(root);
       const generated = join(root, "mt5/TradeOpsAgent/generated");
       const include = join(root, "mt5/TradeOpsAgent/Include");
       mkdirSync(generated, { recursive: true });
@@ -358,6 +474,7 @@ describe("MT5 dry-run boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
 
     try {
+      writeRealDashboardIntegrityFixture(root);
       const source = join(root, "apps/execution-edge/src");
       mkdirSync(source, { recursive: true });
       writeFileSync(join(source, "index.ts"), 'const config = { execution_mode: "DRY_RUN" };\n');
@@ -381,6 +498,7 @@ describe("MT5 dry-run boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
 
     try {
+      writeRealDashboardIntegrityFixture(root);
       const executionGenerated = join(root, "apps/execution-edge/src/generated");
       const observationSource = join(root, "apps/observation-edge/src");
       mkdirSync(executionGenerated, { recursive: true });
@@ -402,6 +520,7 @@ describe("MT5 dry-run boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
 
     try {
+      writeRealDashboardIntegrityFixture(root);
       const source = join(root, "apps/execution-edge/src");
       mkdirSync(source, { recursive: true });
       writeFileSync(join(source, "execution-candidate-v2.ts"), [
@@ -425,6 +544,7 @@ describe("MT5 dry-run boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
 
     try {
+      writeRealDashboardIntegrityFixture(root);
       const source = join(root, "apps/execution-edge/src");
       mkdirSync(source, { recursive: true });
       writeFileSync(join(source, "execution-candidate-v2.ts"), [
@@ -452,6 +572,7 @@ describe("MT5 dry-run boundary", () => {
     const { runBoundaryVerifier } = await loadVerifier();
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
     try {
+      writeRealDashboardIntegrityFixture(root);
       const source = join(root, "apps/execution-edge/src");
       mkdirSync(source, { recursive: true });
       writeFileSync(join(source, "execution-candidate-v2.ts"), [

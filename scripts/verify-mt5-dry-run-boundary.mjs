@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -41,7 +42,11 @@ export function scan(source) {
   return sorted(violations);
 }
 
-const allowedDashboardSourceFiles = new Set(["dashboard-html.ts", "health-summary-v1.ts", "index.ts"]);
+const allowedDashboardSourceFilePaths = ["dashboard-html.ts", "health-summary-v1.ts", "index.ts"];
+const allowedDashboardSourceFiles = new Set(allowedDashboardSourceFilePaths);
+const dashboardSourceDirectoryPath = "apps/agent-health-console/src";
+const dashboardIntegrityManifestPath = "apps/agent-health-console/dashboard-integrity-manifest.v1.json";
+const dashboardIntegrityManifestSchemaVersion = "DashboardIntegrityManifestV1";
 const allowedDashboardQueries = new Map([
   [
     "SELECT last_accepted_epoch, request_sequence, server_sequence, terminal_build, source_symbol, terminal_connection_state, account_trade_permission, terminal_trade_permission, algo_trading_permission FROM agent_health_current_v1 WHERE account_id = ? AND installation_id = ?;",
@@ -478,6 +483,54 @@ function sourceFiles(root, extensions, skipped = skippedDirectories) {
   return files;
 }
 
+export function verifyDashboardIntegrityManifest(root = repositoryRoot) {
+  const violations = [];
+  const sourceRoot = join(root, dashboardSourceDirectoryPath);
+  const manifestPath = join(root, dashboardIntegrityManifestPath);
+  const sourcePaths = sourceFiles(sourceRoot, new Set([".ts"]), new Set())
+    .map((file) => relative(sourceRoot, file))
+    .sort();
+
+  if (sourcePaths.length !== allowedDashboardSourceFilePaths.length
+    || sourcePaths.some((path, index) => path !== allowedDashboardSourceFilePaths[index])) {
+    violations.push("DASHBOARD_INTEGRITY_MANIFEST_UNALLOWED_SOURCE_FILE");
+  }
+
+  if (!existsSync(manifestPath)) return sorted([...violations, "DASHBOARD_INTEGRITY_MANIFEST_INVALID"]);
+
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch {
+    return sorted([...violations, "DASHBOARD_INTEGRITY_MANIFEST_INVALID"]);
+  }
+
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)
+    || manifest.schema_version !== dashboardIntegrityManifestSchemaVersion || !Array.isArray(manifest.files)) {
+    return sorted([...violations, "DASHBOARD_INTEGRITY_MANIFEST_INVALID"]);
+  }
+
+  const entries = manifest.files;
+  const validEntries = entries.every((entry) => entry && typeof entry === "object" && !Array.isArray(entry)
+    && Object.keys(entry).length === 2 && Object.hasOwn(entry, "path") && Object.hasOwn(entry, "sha256")
+    && typeof entry.path === "string" && typeof entry.sha256 === "string"
+    && /^[a-f0-9]{64}$/u.test(entry.sha256));
+  const manifestPaths = validEntries ? entries.map((entry) => entry.path).sort() : [];
+  const manifestHasExactPaths = manifestPaths.length === allowedDashboardSourceFilePaths.length
+    && manifestPaths.every((path, index) => path === allowedDashboardSourceFilePaths[index]);
+  if (!validEntries || !manifestHasExactPaths) {
+    return sorted([...violations, "DASHBOARD_INTEGRITY_MANIFEST_INVALID"]);
+  }
+
+  for (const entry of entries) {
+    const file = join(sourceRoot, entry.path);
+    const digest = createHash("sha256").update(readFileSync(file)).digest("hex");
+    if (digest !== entry.sha256) violations.push("DASHBOARD_INTEGRITY_MANIFEST_DIGEST_MISMATCH");
+  }
+
+  return sorted(violations);
+}
+
 function identifierText(node) { return ts.isIdentifier(node) ? node.text : undefined; }
 function propertyNameText(node) { return node.name && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) ? node.name.text : undefined; }
 function frozenCandidateModeIndexes(source) {
@@ -517,7 +570,7 @@ function scanWorkerFile(root, file) {
 }
 
 export function runBoundaryVerifier(root = repositoryRoot) {
-  const violations = [];
+  const violations = [...verifyDashboardIntegrityManifest(root)];
   for (const file of sourceFiles(join(root, "apps/execution-edge/src"), new Set([".ts"]))) {
     violations.push(...scanWorkerFile(root, file));
   }
