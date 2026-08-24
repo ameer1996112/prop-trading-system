@@ -148,11 +148,14 @@ async function coordinatorResponse(
 
 const worker: ExportedHandler<Env> = {
   async fetch(request, env): Promise<Response> {
+    const { pathname } = new URL(request.url);
     if (!isSafeConfiguration(env)) {
+      if (pathname === "/api/v1/agent/sync" || pathname === "/api/v1/agent/sync/status") {
+        return dryRunFailure("UNSAFE_CONFIGURATION", 500);
+      }
       return json({ error: "UNSAFE_CONFIGURATION" }, 500);
     }
 
-    const { pathname } = new URL(request.url);
     if (request.method === "GET" && pathname === "/health/live") {
       return json({
         ok: true,
@@ -167,27 +170,27 @@ const worker: ExportedHandler<Env> = {
 
     if (pathname === "/api/v1/agent/sync/status") {
       if (env.AGENT_SYNC_ENABLED !== "true") {
-        return json({ error: "AGENT_SYNC_DISABLED" }, 503);
+        return dryRunFailure("AGENT_SYNC_DISABLED", 503);
       }
       if (request.method !== "GET") {
-        return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+        return dryRunFailure("METHOD_NOT_ALLOWED", 405);
       }
       if (!await authenticateAgentSyncBearer(request.headers.get("authorization"), env.AGENT_SYNC_SHARED_SECRET_SHA256)) {
-        return json({ error: "UNAUTHORIZED" }, 401);
+        return dryRunFailure("UNAUTHORIZED", 401);
       }
       const accountId = new URL(request.url).searchParams.get("account_id");
-      if (accountId === null || accountId.length === 0) return json({ error: "AGENT_SYNC_INVALID" }, 400);
+      if (accountId === null || accountId.length === 0) return dryRunFailure("AGENT_SYNC_INVALID", 400);
       try {
         const response = await coordinatorResponse(env, accountId, new Request("https://account-coordinator.internal/status"));
-        if (!response.ok) return json({ error: "COORDINATOR_UNAVAILABLE" }, 503);
+        if (!response.ok) return dryRunFailure("COORDINATOR_UNAVAILABLE", 503);
         const status = await response.json() as Readonly<{ mode?: unknown; last_request_sequence?: unknown }>;
         if (status.mode !== "DRY_RUN" || typeof status.last_request_sequence !== "number"
           || !Number.isSafeInteger(status.last_request_sequence) || status.last_request_sequence < 0) {
-          return json({ error: "COORDINATOR_UNAVAILABLE" }, 503);
+          return dryRunFailure("COORDINATOR_UNAVAILABLE", 503);
         }
         return json({ mode: "DRY_RUN", last_request_sequence: status.last_request_sequence }, 200);
       } catch {
-        return json({ error: "COORDINATOR_UNAVAILABLE" }, 503);
+        return dryRunFailure("COORDINATOR_UNAVAILABLE", 503);
       }
     }
 

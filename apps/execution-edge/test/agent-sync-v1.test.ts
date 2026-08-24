@@ -420,6 +420,23 @@ describe("agent sync Worker route", () => {
     }
   });
 
+  it("envelopes unsafe configuration and every status rejection as dry-run null-command responses", async () => {
+    const unsafe = { ...await enabledEnv(), EXECUTION_AUTHORITY_ENABLED: "true" } as unknown as Env;
+    const unsafeResponse = await route("{", undefined, unsafe);
+    const fetch = worker.fetch as unknown as (request: Request, env: Env, context: ExecutionContext) => Promise<Response>;
+    const disabledStatus = await fetch(new Request("https://execution-edge.example/api/v1/agent/sync/status?account_id=account-1"), {
+      ...await enabledEnv(), AGENT_SYNC_ENABLED: "false",
+    } as Env, {} as ExecutionContext);
+    const unauthorizedStatus = await fetch(new Request("https://execution-edge.example/api/v1/agent/sync/status?account_id=account-1"), await enabledEnv(), {} as ExecutionContext);
+    const invalidStatus = await fetch(new Request("https://execution-edge.example/api/v1/agent/sync/status", {
+      headers: { authorization: `Bearer ${SECRET}` },
+    }), await enabledEnv(), {} as ExecutionContext);
+
+    for (const response of [unsafeResponse, disabledStatus, unauthorizedStatus, invalidStatus]) {
+      expect((await response.json()) as { mode: unknown; command: unknown }).toMatchObject({ mode: "DRY_RUN", command: null });
+    }
+  });
+
   it("keys the enabled local coordinator by exact account id and maps replay conflicts to 409", async () => {
     const names: string[] = [];
     const conflictEnv = {

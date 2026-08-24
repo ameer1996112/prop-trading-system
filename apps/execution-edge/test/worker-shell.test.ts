@@ -76,7 +76,7 @@ describe("inert execution Worker shell", () => {
     expect(inboxResponse.status).toBe(503);
     expect(await inboxResponse.json()).toEqual({ error: "FOUNDATION_ONLY" });
     expect(coordinatorResponse.status).toBe(503);
-    expect(await coordinatorResponse.json()).toEqual({ error: "FOUNDATION_ONLY" });
+    expect(await coordinatorResponse.json()).toEqual({ error: "FOUNDATION_ONLY", mode: "DRY_RUN", command: null });
   });
 
   it("returns unsafe configuration when an inert value differs", async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 
-import { coordinateAgentSyncV1, getAccountCoordinatorStatusV1 } from "../src/account-coordinator-v1";
+import { AccountCoordinatorV1, coordinateAgentSyncV1, getAccountCoordinatorStatusV1 } from "../src/account-coordinator-v1";
 
 const D = (digit: string): string => digit.repeat(64);
 
@@ -131,5 +131,17 @@ describe("account coordinator v1", () => {
     expect(migration).not.toMatch(/bearer|credential|password|login|price|order|payload/iu);
     expect(migration).toMatch(/CREATE TRIGGER agent_sync_audit_v1_no_update[\s\S]*BEFORE UPDATE ON agent_sync_audit_v1[\s\S]*RAISE\(ABORT/u);
     expect(migration).toMatch(/CREATE TRIGGER agent_sync_audit_v1_no_delete[\s\S]*BEFORE DELETE ON agent_sync_audit_v1[\s\S]*RAISE\(ABORT/u);
+  });
+
+  it("envelopes internal coordinator sync outcomes and errors as dry-run null-command bodies", async () => {
+    const coordinator = new AccountCoordinatorV1({ storage: new MemoryStorage() } as unknown as DurableObjectState);
+    const invalid = await coordinator.fetch(new Request("https://account-coordinator.internal/not-a-route"));
+    const accepted = await coordinator.fetch(new Request("https://account-coordinator.internal/sync", {
+      method: "POST",
+      body: JSON.stringify({ request: request(), now_epoch: 1_787_472_010 }),
+    }));
+
+    expect(await invalid.json()).toMatchObject({ code: "COORDINATOR_INVALID", mode: "DRY_RUN", command: null });
+    expect(await accepted.json()).toMatchObject({ code: "OK", mode: "DRY_RUN", command: null });
   });
 });

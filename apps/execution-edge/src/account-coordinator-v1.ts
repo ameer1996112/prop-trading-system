@@ -114,25 +114,29 @@ function coordinatorJson(body: unknown, status = 200): Response {
   });
 }
 
+function coordinatorDryRun(body: Record<string, unknown>, status = 200): Response {
+  return coordinatorJson({ ...body, mode: "DRY_RUN", command: null }, status);
+}
+
 export class AccountCoordinatorV1 {
   constructor(private readonly state: DurableObjectState) {}
 
   async fetch(request?: Request): Promise<Response> {
-    if (request === undefined) return coordinatorJson({ error: "FOUNDATION_ONLY" }, 503);
+    if (request === undefined) return coordinatorDryRun({ error: "FOUNDATION_ONLY" }, 503);
     const { pathname } = new URL(request.url);
     if (request.method === "GET" && pathname === "/status") {
       return coordinatorJson(await getAccountCoordinatorStatusV1(this.state.storage));
     }
-    if (request.method !== "POST" || pathname !== "/sync") return coordinatorJson({ code: "COORDINATOR_INVALID" }, 400);
+    if (request.method !== "POST" || pathname !== "/sync") return coordinatorDryRun({ code: "COORDINATOR_INVALID" }, 400);
     try {
       const body = await request.json() as Readonly<{ request: AgentSyncRequestV1; now_epoch: number }>;
-      if (!Number.isSafeInteger(body.now_epoch) || body.now_epoch < 0) return coordinatorJson({ code: "COORDINATOR_INVALID" }, 400);
+      if (!Number.isSafeInteger(body.now_epoch) || body.now_epoch < 0) return coordinatorDryRun({ code: "COORDINATOR_INVALID" }, 400);
       const result = await coordinateAgentSyncV1(this.state.storage, body.request, body.now_epoch);
       return result.code === "OK"
-        ? coordinatorJson({ code: "OK", replayed: result.replayed, response_bytes: result.responseBytes })
-        : coordinatorJson({ code: result.code });
+        ? coordinatorDryRun({ code: "OK", replayed: result.replayed, response_bytes: result.responseBytes })
+        : coordinatorDryRun({ code: result.code });
     } catch {
-      return coordinatorJson({ code: "COORDINATOR_INVALID" }, 400);
+      return coordinatorDryRun({ code: "COORDINATOR_INVALID" }, 400);
     }
   }
 }
