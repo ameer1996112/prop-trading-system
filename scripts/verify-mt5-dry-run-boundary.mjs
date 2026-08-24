@@ -70,12 +70,13 @@ export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()
     if (ts.isPropertySignature(node) && node.type && ts.isLiteralTypeNode(node.type)) check(nameOf(node.name), node.type.literal, node.name.getStart(tree));
     if (ts.isPropertyDeclaration(node) && node.initializer) check(nameOf(node.name), node.initializer, node.name.getStart(tree));
     if (ts.isVariableDeclaration(node) && node.initializer) check(nameOf(node.name), node.initializer, node.name.getStart(tree));
+    if (ts.isBindingElement(node) && node.initializer) check(nameOf(node.propertyName ?? node.name), node.initializer, (node.propertyName ?? node.name).getStart(tree));
     if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken].includes(node.operatorToken.kind)) {
       const name = nameOf(node.left); if (name === undefined && ts.isElementAccessExpression(node.left)) { violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN", "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN"); } else check(name, node.right, node.left.getStart(tree));
     }
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const owner = identifierText(node.expression.expression); const method = node.expression.name.text;
-      if (owner === "Object" && method === "defineProperty" && node.arguments.length >= 3) { const name = staticString(node.arguments[1]); const descriptor = node.arguments[2]; if (ts.isObjectLiteralExpression(descriptor)) { const value = descriptor.properties.find((p) => ts.isPropertyAssignment(p) && propertyNameText(p) === "value"); if (value && ts.isPropertyAssignment(value)) check(name, value.initializer, node.arguments[1].getStart(tree)); } }
+      if ((owner === "Object" || owner === "Reflect") && method === "defineProperty" && node.arguments.length >= 3) { const name = staticString(node.arguments[1]); const descriptor = node.arguments[2]; if (ts.isObjectLiteralExpression(descriptor)) { const value = descriptor.properties.find((p) => ts.isPropertyAssignment(p) && propertyNameText(p) === "value"); if (value && ts.isPropertyAssignment(value)) check(name, value.initializer, node.arguments[1].getStart(tree)); } }
       if (owner === "Reflect" && method === "set" && node.arguments.length >= 3) check(staticString(node.arguments[1]), node.arguments[2], node.arguments[1].getStart(tree));
     }
     ts.forEachChild(node, visit);
