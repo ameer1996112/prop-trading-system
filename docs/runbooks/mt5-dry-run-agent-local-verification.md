@@ -202,3 +202,14 @@ The only authorized result is a local source-verification record containing:
 - the two verifier success messages; and
 - confirmation that `git status --short` is clean after committing the
   documentation.
+
+## Private dashboard completion checks
+
+1. execution-edge accepts a fresh DRY_RUN heartbeat and writes one projection.
+2. health summary returns ONLINE and no forbidden field names.
+3. after 21 seconds without a fresh accepted heartbeat it returns STALE.
+4. after 61 seconds without a fresh accepted heartbeat it returns OFFLINE.
+5. a missing projection or D1 error returns UNKNOWN.
+6. Cloudflare Access email sign-in succeeds for the approved operator and fails outside the policy.
+7. MT5 still displays SYNC_OK after Access protects only the dashboard hostname.
+8. Algo Trading remains disabled and no order appears in MT5.
