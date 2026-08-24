@@ -50,6 +50,14 @@ It sends a bounded zero-event heartbeat every five seconds only after a future,
 separate attachment approval. A failed or rejected response merely changes the
 redacted chart status and waits for the next timer interval.
 
+At runtime the EA creates an ignored local journal at
+`TradeOpsAgent/journal/sync-state.ini`. It stores only the request sequence, the
+last verified server sequence, and the exact pending canonical payload. It never
+stores the bearer. The pending payload is written before its first outbound
+attempt, is replayed byte-for-byte after a lost response or restart, and is
+cleared together with the advanced sequence only after a strict valid `DRY_RUN`
+response with `command: null` and zero acknowledged events.
+
 For future installation evidence, capture only: the EA version/hash, chart symbol
 and timeframe, status label, HTTP status class, and the server response digest.
 Do not capture the local configuration contents, bearer, endpoint, account login,

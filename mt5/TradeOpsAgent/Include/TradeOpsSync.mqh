@@ -108,16 +108,129 @@ bool TradeOpsBuildHeartbeatRequest(const TradeOpsConfig &config,const long reque
    return StringLen(payload)<=262144;
 }
 
-bool TradeOpsPostHeartbeat(const TradeOpsConfig &config,long &request_sequence,long &last_acknowledged_server_sequence,string &status)
+struct TradeOpsSyncState
 {
-   string payload="";
-   if(!TradeOpsBuildHeartbeatRequest(config,request_sequence,last_acknowledged_server_sequence,payload))
+   long request_sequence;
+   long last_acknowledged_server_sequence;
+   string pending_payload;
+};
+
+string TradeOpsSyncJournalPath()
+{
+   return "TradeOpsAgent\\journal\\sync-state.ini";
+}
+
+bool TradeOpsLineValue(const string line,const string key,string &value)
+{
+   string prefix=key+"=";
+   if(StringFind(line,prefix)!=0) return false;
+   value=StringSubstr(line,StringLen(prefix));
+   return true;
+}
+
+bool TradeOpsPendingPayloadMatchesState(const string payload,const long request_sequence,const long last_acknowledged_server_sequence)
+{
+   if(StringLen(payload)==0 || StringLen(payload)>262144) return false;
+   const string body_prefix=",\"body_sha256\":\"";
+   int body_index=StringFind(payload,body_prefix);
+   if(body_index<0 || StringFind(payload,body_prefix,body_index+1)>=0) return false;
+   int digest_index=body_index+StringLen(body_prefix);
+   if(digest_index+65>StringLen(payload)) return false;
+   string digest=StringSubstr(payload,digest_index,64);
+   if(!TradeOpsIsLowerHexSha256(digest) || StringGetCharacter(payload,digest_index+64)!=34) return false;
+   string canonical_without_digest=StringSubstr(payload,0,body_index)+StringSubstr(payload,digest_index+65);
+   string calculated_digest="";
+   if(!TradeOpsSha256Hex(canonical_without_digest,calculated_digest) || calculated_digest!=digest) return false;
+   const string acknowledged_prefix=",\"last_acknowledged_server_sequence\":";
+   int acknowledged_index=StringFind(payload,acknowledged_prefix);
+   if(acknowledged_index<0) return false;
+   int cursor=acknowledged_index+StringLen(acknowledged_prefix);
+   long persisted_acknowledged=0;
+   if(!TradeOpsReadNonnegativeInteger(payload,cursor,",\"nonce\":",persisted_acknowledged) || persisted_acknowledged!=last_acknowledged_server_sequence) return false;
+   const string sequence_prefix=",\"request_sequence\":";
+   int sequence_index=StringFind(payload,sequence_prefix);
+   if(sequence_index<0) return false;
+   cursor=sequence_index+StringLen(sequence_prefix);
+   long persisted_sequence=0;
+   return TradeOpsReadNonnegativeInteger(payload,cursor,",\"safety_epoch\":",persisted_sequence)
+      && persisted_sequence==request_sequence;
+}
+
+bool TradeOpsSaveSyncState(const TradeOpsSyncState &state)
+{
+   if(state.request_sequence<1 || state.last_acknowledged_server_sequence<0) return false;
+   if(StringLen(state.pending_payload)>0 && !TradeOpsPendingPayloadMatchesState(state.pending_payload,state.request_sequence,state.last_acknowledged_server_sequence)) return false;
+   string path=TradeOpsSyncJournalPath();
+   string temporary_path=path+".tmp";
+   int handle=FileOpen(temporary_path,FILE_WRITE|FILE_TXT|FILE_ANSI);
+   if(handle==INVALID_HANDLE) return false;
+   bool written=FileWrite(handle,"request_sequence="+LongToString(state.request_sequence))>0
+      && FileWrite(handle,"last_acknowledged_server_sequence="+LongToString(state.last_acknowledged_server_sequence))>0
+      && FileWrite(handle,"pending_payload="+state.pending_payload)>0;
+   FileClose(handle);
+   if(!written)
    {
-      status="PROFILE_REJECTED";
+      FileDelete(temporary_path);
+      return false;
+   }
+   if(!FileMove(temporary_path,0,path,FILE_REWRITE))
+   {
+      FileDelete(temporary_path);
+      return false;
+   }
+   return true;
+}
+
+bool TradeOpsLoadSyncState(TradeOpsSyncState &state)
+{
+   state.request_sequence=1;
+   state.last_acknowledged_server_sequence=0;
+   state.pending_payload="";
+   int handle=FileOpen(TradeOpsSyncJournalPath(),FILE_READ|FILE_TXT|FILE_ANSI);
+   if(handle==INVALID_HANDLE) return true;
+   string request_line=FileReadString(handle);
+   string acknowledged_line=FileReadString(handle);
+   string pending_line=FileReadString(handle);
+   bool complete=FileIsEnding(handle);
+   FileClose(handle);
+   string request_value="";
+   string acknowledged_value="";
+   string pending_value="";
+   if(!complete || !TradeOpsLineValue(request_line,"request_sequence",request_value)
+      || !TradeOpsLineValue(acknowledged_line,"last_acknowledged_server_sequence",acknowledged_value)
+      || !TradeOpsLineValue(pending_line,"pending_payload",pending_value)) return false;
+   state.request_sequence=StringToInteger(request_value);
+   state.last_acknowledged_server_sequence=StringToInteger(acknowledged_value);
+   state.pending_payload=pending_value;
+   if(state.request_sequence<1 || state.last_acknowledged_server_sequence<0) return false;
+   return StringLen(state.pending_payload)==0
+      || TradeOpsPendingPayloadMatchesState(state.pending_payload,state.request_sequence,state.last_acknowledged_server_sequence);
+}
+
+bool TradeOpsPostHeartbeat(const TradeOpsConfig &config,TradeOpsSyncState &state,string &status)
+{
+   if(StringLen(state.pending_payload)==0)
+   {
+      TradeOpsSyncState pending_state=state;
+      if(!TradeOpsBuildHeartbeatRequest(config,pending_state.request_sequence,pending_state.last_acknowledged_server_sequence,pending_state.pending_payload))
+      {
+         status="PROFILE_REJECTED";
+         return false;
+      }
+      if(!TradeOpsSaveSyncState(pending_state))
+      {
+         status="JOURNAL_REJECTED";
+         return false;
+      }
+      state=pending_state;
+   }
+   if(!TradeOpsPendingPayloadMatchesState(state.pending_payload,state.request_sequence,state.last_acknowledged_server_sequence))
+   {
+      status="JOURNAL_REJECTED";
       return false;
    }
    char request_bytes[];
-   int request_size=StringToCharArray(payload,request_bytes,0,WHOLE_ARRAY,CP_UTF8);
+   int request_size=StringToCharArray(state.pending_payload,request_bytes,0,WHOLE_ARRAY,CP_UTF8);
    if(request_size<=0) { status="PAYLOAD_REJECTED"; return false; }
    if(request_bytes[request_size-1]==0) ArrayResize(request_bytes,request_size-1);
    if(ArraySize(request_bytes)>262144) { status="PAYLOAD_REJECTED"; return false; }
@@ -132,14 +245,23 @@ bool TradeOpsPostHeartbeat(const TradeOpsConfig &config,long &request_sequence,l
       return false;
    }
    string response=CharArrayToString(response_bytes,0,WHOLE_ARRAY,CP_UTF8);
+   long server_sequence=0;
    long acknowledged=0;
-   if(!TradeOpsResponseIsSafe(response,request_sequence,acknowledged))
+   if(!TradeOpsResponseIsSafe(response,state.request_sequence,server_sequence,acknowledged) || acknowledged!=0)
    {
       status="SYNC_REJECTED";
       return false;
    }
-   last_acknowledged_server_sequence=acknowledged;
-   request_sequence++;
+   TradeOpsSyncState advanced_state=state;
+   advanced_state.last_acknowledged_server_sequence=server_sequence;
+   advanced_state.request_sequence++;
+   advanced_state.pending_payload="";
+   if(!TradeOpsSaveSyncState(advanced_state))
+   {
+      status="JOURNAL_REJECTED";
+      return false;
+   }
+   state=advanced_state;
    status="SYNC_OK";
    return true;
 }

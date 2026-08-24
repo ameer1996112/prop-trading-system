@@ -43,6 +43,8 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(ea).toContain("EventSetTimer(5)");
     expect(ea).toContain("EventKillTimer()");
     expect(ea).toContain("if(g_timer_busy)");
+    expect(ea).toContain("TradeOpsLoadSyncState");
+    expect(ea.indexOf("TradeOpsLoadSyncState")).toBeLessThan(ea.indexOf("EventSetTimer(5)"));
     expect(ea).toContain("TradeOpsPostHeartbeat");
     expect(ea.match(/TradeOpsPostHeartbeat/g)).toHaveLength(1);
     expect(ea).not.toContain("OnTradeTransaction");
@@ -61,7 +63,17 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(sync.match(/\bWebRequest\b/g)).toHaveLength(1);
     expect(sync).toContain("1500");
     expect(sync).toContain("SYNC_REJECTED");
+    expect(sync).toContain("TradeOpsSaveSyncState");
+    expect(sync).toContain("TradeOpsAgent\\\\journal\\\\sync-state.ini");
+    expect(sync).toContain("pending_payload");
+    expect(sync).toContain("FileMove");
+    expect(sync).toContain("server_sequence");
+    expect(sync).toContain("acknowledged!=0");
+    expect(sync).toContain("advanced_state.last_acknowledged_server_sequence=server_sequence");
+    expect(sync).toContain("StringToCharArray(state.pending_payload");
+    expect(sync.indexOf("TradeOpsSaveSyncState(pending_state)")).toBeLessThan(sync.indexOf("WebRequest"));
     expect(canonical).toContain("TradeOpsSha256Hex");
+    expect(canonical).toContain("acknowledged_event_sequence");
     expect(canonical).toContain('mode\\\":\\\"DRY_RUN');
     expect(canonical).toContain('command\\\":null');
     expect(readme).toContain("Do not attach");

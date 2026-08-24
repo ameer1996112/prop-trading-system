@@ -85,7 +85,7 @@ bool TradeOpsReadNonnegativeInteger(const string value,int &cursor,const string 
    return true;
 }
 
-bool TradeOpsResponseIsSafe(const string response,const long expected_server_sequence,long &acknowledged_event_sequence)
+bool TradeOpsResponseIsSafe(const string response,const long expected_server_sequence,long &verified_server_sequence,long &acknowledged_event_sequence)
 {
    const string ack_prefix="{\"acknowledged_event_sequence\":";
    if(StringFind(response,ack_prefix)!=0) return false;
@@ -110,6 +110,7 @@ bool TradeOpsResponseIsSafe(const string response,const long expected_server_seq
       +",\"server_time_epoch\":"+LongToString(server_time)+"}";
    string calculated_digest="";
    if(!TradeOpsSha256Hex(canonical_body,calculated_digest) || calculated_digest!=digest) return false;
+   verified_server_sequence=server_sequence;
    acknowledged_event_sequence=acknowledged;
    return true;
 }

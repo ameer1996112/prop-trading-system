@@ -8,9 +8,8 @@
 input string InpProfile = "DRY_RUN";
 
 TradeOpsConfig g_config;
+TradeOpsSyncState g_sync_state;
 bool g_timer_busy=false;
-long g_request_sequence=1;
-long g_last_acknowledged_server_sequence=0;
 string g_status="INITIALIZING";
 
 void TradeOpsRenderStatus()
@@ -32,6 +31,12 @@ int OnInit()
       TradeOpsRenderStatus();
       return INIT_PARAMETERS_INCORRECT;
    }
+   if(!TradeOpsLoadSyncState(g_sync_state))
+   {
+      g_status="JOURNAL_REJECTED";
+      TradeOpsRenderStatus();
+      return INIT_PARAMETERS_INCORRECT;
+   }
    if(!EventSetTimer(5))
    {
       g_status="TIMER_REJECTED";
@@ -47,7 +52,7 @@ void OnTimer()
 {
    if(g_timer_busy) return;
    g_timer_busy=true;
-   TradeOpsPostHeartbeat(g_config,g_request_sequence,g_last_acknowledged_server_sequence,g_status);
+   TradeOpsPostHeartbeat(g_config,g_sync_state,g_status);
    TradeOpsRenderStatus();
    g_timer_busy=false;
 }
