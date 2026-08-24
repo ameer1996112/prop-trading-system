@@ -156,7 +156,21 @@ async function enabledEnv(): Promise<Env> {
     EXECUTION_MODE_CEILING: "DRY_RUN",
     ROUTING_MANIFEST_SHA256: "INERT_NOT_CONFIGURED",
     AGENT_SYNC_SHARED_SECRET_SHA256: await sha256Hex(SECRET),
-  } as Env;
+    ACCOUNT_COORDINATOR: {
+      idFromName(name: string) {
+        return name;
+      },
+      get() {
+        return {
+          async fetch(request: Request): Promise<Response> {
+            const body = await request.json() as { request: Parameters<typeof createDryRunResponse>[0]; now_epoch: number };
+            const response = await createDryRunResponse(body.request, 1, body.now_epoch);
+            return new Response(JSON.stringify({ code: "OK", response_bytes: canonicalStringify(response) }));
+          },
+        };
+      },
+    },
+  } as unknown as Env;
 }
 
 async function route(body: string, authorization?: string, env?: Env): Promise<Response> {
@@ -296,6 +310,62 @@ describe("AgentSyncRequestV1", () => {
 });
 
 describe("agent sync Worker route", () => {
+  it("keys the enabled local coordinator by exact account id and maps replay conflicts to 409", async () => {
+    const names: string[] = [];
+    const conflictEnv = {
+      ...await enabledEnv(),
+      ACCOUNT_COORDINATOR: {
+        idFromName(name: string) {
+          names.push(name);
+          return name;
+        },
+        get() {
+          return {
+            fetch: async () => new Response(JSON.stringify({ code: "REPLAY_CONFLICT" })),
+          };
+        },
+      },
+    } as unknown as Env;
+
+    const response = await route(await encodedRequest({
+      request_sequence: 1,
+      last_acknowledged_server_sequence: 0,
+      sent_at_epoch: Math.floor(Date.now() / 1000),
+    }), `Bearer ${SECRET}`, conflictEnv);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "REPLAY_CONFLICT", mode: "DRY_RUN", command: null });
+    expect(names).toEqual(["account-1"]);
+  });
+
+  it("exposes only DRY_RUN status and the last request sequence", async () => {
+    const statusEnv = {
+      ...await enabledEnv(),
+      ACCOUNT_COORDINATOR: {
+        idFromName(name: string) {
+          return name;
+        },
+        get() {
+          return {
+            fetch: async () => new Response(JSON.stringify({
+              mode: "DRY_RUN",
+              last_request_sequence: 7,
+              unexpected_secret: "must-not-leak",
+            })),
+          };
+        },
+      },
+    } as unknown as Env;
+    const fetch = worker.fetch as unknown as (request: Request, env: Env, context: ExecutionContext) => Promise<Response>;
+
+    const response = await fetch(new Request("https://execution-edge.example/api/v1/agent/sync/status?account_id=account-1", {
+      headers: { authorization: `Bearer ${SECRET}` },
+    }), statusEnv, {} as ExecutionContext);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ mode: "DRY_RUN", last_request_sequence: 7 });
+  });
+
   it("requires POST and a valid bearer, then never returns a command", async () => {
     const body = await encodedRequest({ sent_at_epoch: Math.floor(Date.now() / 1000) });
     expect((await route(body)).status).toBe(401);

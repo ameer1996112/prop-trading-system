@@ -592,13 +592,14 @@ export async function authenticateAgentSyncBearer(
 }
 
 export async function createDryRunResponse(
-  request: Pick<AgentSyncRequestV1, "events">,
+  request: Pick<AgentSyncRequestV1, "events"> & Readonly<{ last_acknowledged_event_sequence?: number }>,
   nextServerSequence: number,
   nowEpoch: number,
 ): Promise<AgentSyncResponseV1> {
   const serverSequence = safeInteger(nextServerSequence, 1);
   const serverTime = safeInteger(nowEpoch, 0);
-  let acknowledgedEventSequence = 0;
+  let acknowledgedEventSequence = request.last_acknowledged_event_sequence ?? 0;
+  if (!Number.isSafeInteger(acknowledgedEventSequence) || acknowledgedEventSequence < 0) invalid();
   for (const event of request.events) {
     const sequence = event.sequence;
     if (typeof sequence !== "number" || !Number.isSafeInteger(sequence) || sequence < 1) invalid();

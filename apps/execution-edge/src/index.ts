@@ -1,9 +1,10 @@
 import {
   AGENT_SYNC_MAX_BODY_BYTES,
   authenticateAgentSyncBearer,
-  createDryRunResponse,
   parseAgentSyncRequest,
 } from "./agent-sync-v1";
+import { AccountCoordinatorV1 } from "./account-coordinator-v1";
+import { canonicalStringify } from "./canonical";
 
 export interface Env {
   EXECUTION_DB: D1Database;
@@ -33,6 +34,10 @@ function json(body: unknown, status: number): Response {
       "content-type": "application/json; charset=utf-8",
     },
   });
+}
+
+function dryRunFailure(error: string, status: number): Response {
+  return json({ error, mode: "DRY_RUN", command: null }, status);
 }
 
 async function rejectOversizedBody(body: ReadableStream<Uint8Array> | null): Promise<never> {
@@ -93,12 +98,19 @@ export class CandidateInbox {
   }
 }
 
-export class AccountCoordinator {
-  constructor(_state: DurableObjectState, _env: Env) {}
-
-  fetch(): Response {
-    return json({ error: "FOUNDATION_ONLY" }, 503);
+export class AccountCoordinator extends AccountCoordinatorV1 {
+  constructor(state: DurableObjectState, _env: Env) {
+    super(state);
   }
+}
+
+async function coordinatorResponse(
+  env: Env,
+  accountId: string,
+  request: Request,
+): Promise<Response> {
+  const id = env.ACCOUNT_COORDINATOR.idFromName(accountId);
+  return env.ACCOUNT_COORDINATOR.get(id).fetch(request);
 }
 
 const worker: ExportedHandler<Env> = {
@@ -120,31 +132,56 @@ const worker: ExportedHandler<Env> = {
       }, 200);
     }
 
-    if (pathname === "/api/v1/agent/sync") {
+    if (pathname === "/api/v1/agent/sync/status") {
       if (env.AGENT_SYNC_ENABLED !== "true") {
         return json({ error: "AGENT_SYNC_DISABLED" }, 503);
       }
-      if (request.method !== "POST") {
+      if (request.method !== "GET") {
         return json({ error: "METHOD_NOT_ALLOWED" }, 405);
       }
       if (!await authenticateAgentSyncBearer(request.headers.get("authorization"), env.AGENT_SYNC_SHARED_SECRET_SHA256)) {
         return json({ error: "UNAUTHORIZED" }, 401);
       }
+      const accountId = new URL(request.url).searchParams.get("account_id");
+      if (accountId === null || accountId.length === 0) return json({ error: "AGENT_SYNC_INVALID" }, 400);
       try {
-        const parsed = await parseAgentSyncRequest(await readBoundedAgentSyncBody(request), {
-          nowEpoch: Math.floor(Date.now() / 1000),
-        });
-        if (parsed.last_acknowledged_server_sequence >= Number.MAX_SAFE_INTEGER) {
-          return json({ error: "AGENT_SYNC_INVALID" }, 400);
+        const response = await coordinatorResponse(env, accountId, new Request("https://account-coordinator.internal/status"));
+        if (!response.ok) return json({ error: "COORDINATOR_UNAVAILABLE" }, 503);
+        const status = await response.json() as Readonly<{ mode?: unknown; last_request_sequence?: unknown }>;
+        if (status.mode !== "DRY_RUN" || typeof status.last_request_sequence !== "number"
+          || !Number.isSafeInteger(status.last_request_sequence) || status.last_request_sequence < 0) {
+          return json({ error: "COORDINATOR_UNAVAILABLE" }, 503);
         }
-        return json(
-          await createDryRunResponse(
-            parsed,
-            parsed.last_acknowledged_server_sequence + 1,
-            Math.floor(Date.now() / 1000),
-          ),
-          200,
-        );
+        return json({ mode: "DRY_RUN", last_request_sequence: status.last_request_sequence }, 200);
+      } catch {
+        return json({ error: "COORDINATOR_UNAVAILABLE" }, 503);
+      }
+    }
+
+    if (pathname === "/api/v1/agent/sync") {
+      if (env.AGENT_SYNC_ENABLED !== "true") return json({ error: "AGENT_SYNC_DISABLED" }, 503);
+      if (request.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+      if (!await authenticateAgentSyncBearer(request.headers.get("authorization"), env.AGENT_SYNC_SHARED_SECRET_SHA256)) {
+        return json({ error: "UNAUTHORIZED" }, 401);
+      }
+      try {
+        const nowEpoch = Math.floor(Date.now() / 1000);
+        const parsed = await parseAgentSyncRequest(await readBoundedAgentSyncBody(request), { nowEpoch });
+        const response = await coordinatorResponse(env, parsed.account_id, new Request("https://account-coordinator.internal/sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: canonicalStringify({ request: parsed, now_epoch: nowEpoch }),
+        }));
+        if (!response.ok) return json({ error: "COORDINATOR_UNAVAILABLE" }, 503);
+        const result = await response.json() as Readonly<{ code?: string; response_bytes?: unknown }>;
+        if (result.code === "REPLAY_CONFLICT") return dryRunFailure("REPLAY_CONFLICT", 409);
+        if (result.code !== "OK" || typeof result.response_bytes !== "string") {
+          return dryRunFailure("AGENT_SYNC_CONFLICT", 409);
+        }
+        return new Response(result.response_bytes, {
+          status: 200,
+          headers: { "cache-control": "no-store", "content-type": "application/json; charset=utf-8" },
+        });
       } catch {
         return json({ error: "AGENT_SYNC_INVALID" }, 400);
       }
