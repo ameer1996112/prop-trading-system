@@ -232,10 +232,10 @@ function validateSnapshot(value: unknown): Readonly<Record<string, unknown>> {
   permission(input.account_trade_permission);
   permission(input.terminal_trade_permission);
   permission(input.algo_trading_permission);
-  safeInteger(input.balance_minor_units);
-  safeInteger(input.equity_minor_units);
-  safeInteger(input.margin_minor_units);
-  safeInteger(input.free_margin_minor_units);
+  nullableSafeInteger(input.balance_minor_units);
+  nullableSafeInteger(input.equity_minor_units);
+  nullableNonnegativeInteger(input.margin_minor_units);
+  nullableSafeInteger(input.free_margin_minor_units);
   nullableNonnegativeInteger(input.margin_level_bps);
   if (!Array.isArray(input.symbols) || input.symbols.length < 1 || input.symbols.length > 5) invalid();
   input.symbols.forEach(validateSymbol);
@@ -342,8 +342,12 @@ function validateEventFact(kind: string, value: unknown): void {
       return;
     case "UNATTRIBUTED_EXPOSURE_STATE":
       identifier(input.exposure_id); enumeration(input.exposure_kind, ["ORDER", "POSITION"]); safeInteger(input.broker_ticket, 1);
-      identifier(input.broker_symbol); direction(input.direction); safeInteger(input.volume_steps, 1); nullableSafeInteger(input.price_ticks);
-      enumeration(input.pricing_state, ["PRICED", "UNPRICED"]); nullableNonnegativeInteger(input.modeled_loss_minor_units);
+      identifier(input.broker_symbol); direction(input.direction); safeInteger(input.volume_steps, 1);
+      const priceTicks = nullableSafeInteger(input.price_ticks);
+      const pricingState = enumeration(input.pricing_state, ["PRICED", "UNPRICED"]);
+      const modeledLoss = nullableNonnegativeInteger(input.modeled_loss_minor_units);
+      if ((pricingState === "PRICED" && (priceTicks === null || modeledLoss === null)) ||
+        (pricingState === "UNPRICED" && (priceTicks !== null || modeledLoss !== null))) invalid();
       protectionState(input.protection_state); enumeration(input.state, ["DISCOVERED", "ATTRIBUTED", "CLOSED", "UNKNOWN"]);
       return;
     case "RECONCILIATION_STATE":

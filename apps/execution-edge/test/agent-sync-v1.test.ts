@@ -97,6 +97,36 @@ async function validHeartbeatEvent(overrides: Record<string, unknown> = {}): Pro
   return { ...withoutDigest, body_sha256: await sha256Hex(canonicalStringify(body)) };
 }
 
+async function validUnpricedExposureEvent(overrides: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  const withoutDigest: Record<string, unknown> = {
+    schema_version: "AgentEventV1",
+    event_id: "exposure-event-1",
+    installation_id: "installation-1",
+    account_id: "account-1",
+    account_profile_sha256: D("e"),
+    safety_epoch: 7,
+    sequence: 1,
+    observed_at_epoch: NOW,
+    kind: "UNATTRIBUTED_EXPOSURE_STATE",
+    fact: {
+      exposure_id: "exposure-1",
+      exposure_kind: "POSITION",
+      broker_ticket: 123,
+      broker_symbol: "EURUSD",
+      direction: "LONG",
+      volume_steps: 1,
+      price_ticks: null,
+      pricing_state: "UNPRICED",
+      modeled_loss_minor_units: null,
+      protection_state: "UNKNOWN",
+      state: "DISCOVERED",
+    },
+    ...overrides,
+  };
+  const { body_sha256: _ignored, ...body } = withoutDigest;
+  return { ...withoutDigest, body_sha256: await sha256Hex(canonicalStringify(body)) };
+}
+
 const validOpenOrder = {
   order_ticket: 123,
   attribution_state: "UNATTRIBUTED",
@@ -204,6 +234,56 @@ describe("AgentSyncRequestV1", () => {
     event.body_sha256 = D("f");
     await expect(parseAgentSyncRequest(await encodedRequest({ events: [event] }), { nowEpoch: NOW }))
       .rejects.toThrow("AGENT_SYNC_EVENT_BODY_DIGEST_MISMATCH");
+  });
+
+  it("rejects numeric price and loss values for an unpriced exposure", async () => {
+    const event = await validUnpricedExposureEvent({
+      fact: {
+        exposure_id: "exposure-1",
+        exposure_kind: "POSITION",
+        broker_ticket: 123,
+        broker_symbol: "EURUSD",
+        direction: "LONG",
+        volume_steps: 1,
+        price_ticks: 110000,
+        pricing_state: "UNPRICED",
+        modeled_loss_minor_units: 100,
+        protection_state: "UNKNOWN",
+        state: "DISCOVERED",
+      },
+    });
+    await expect(parseAgentSyncRequest(await encodedRequest({ events: [event] }), { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_INVALID");
+
+    const pricedWithoutValues = await validUnpricedExposureEvent({
+      fact: {
+        exposure_id: "exposure-1",
+        exposure_kind: "POSITION",
+        broker_ticket: 123,
+        broker_symbol: "EURUSD",
+        direction: "LONG",
+        volume_steps: 1,
+        price_ticks: null,
+        pricing_state: "PRICED",
+        modeled_loss_minor_units: null,
+        protection_state: "UNKNOWN",
+        state: "DISCOVERED",
+      },
+    });
+    await expect(parseAgentSyncRequest(await encodedRequest({ events: [pricedWithoutValues] }), { nowEpoch: NOW }))
+      .rejects.toThrow("AGENT_SYNC_INVALID");
+  });
+
+  it("accepts nullable account amounts", async () => {
+    await expect(parseAgentSyncRequest(await encodedRequest({
+      account_snapshot: {
+        ...snapshot,
+        balance_minor_units: null,
+        equity_minor_units: null,
+        margin_minor_units: null,
+        free_margin_minor_units: null,
+      },
+    }), { nowEpoch: NOW })).resolves.toMatchObject({ account_snapshot: { balance_minor_units: null } });
   });
 
   it("authenticates a bearer token only against a configured digest", async () => {
