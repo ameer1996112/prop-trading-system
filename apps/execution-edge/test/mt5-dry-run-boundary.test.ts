@@ -33,6 +33,20 @@ describe("MT5 dry-run boundary", () => {
     expect(scanHealthDashboardSource('export default { async fetch(){ return fetch("https://broker.example"); } };')).toContain(
       "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
     );
+    expect(scanHealthDashboardSource('const endpoint = "https://broker.example"; fetch(endpoint);')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('fetch(new URL("https://broker.example"));')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('fetch?.("https://broker.example");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('globalThis.fetch("https://broker.example");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('fetch("/api/v1/health-summary");')).toEqual([]);
+    expect(scanHealthDashboardSource('const title = "MT5 DRY_RUN Health";')).toEqual([]);
   });
 
   it("scans health dashboard TypeScript without changing execution-edge or MT5 scope", async () => {

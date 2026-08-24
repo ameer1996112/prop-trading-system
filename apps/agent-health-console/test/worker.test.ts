@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import worker, { type Env } from "../src/index";
 
 const env = {
-  AGENT_HEALTH_ACCOUNT_ID: "account-server-only",
+  DASHBOARD_ACCOUNT_ID: "account-server-only",
   AGENT_HEALTH_DB: {
     prepare() {
       return {
@@ -19,7 +19,7 @@ const env = {
       };
     },
   } as unknown as D1Database,
-  AGENT_HEALTH_INSTALLATION_ID: "installation-server-only",
+  DASHBOARD_INSTALLATION_ID: "installation-server-only",
 } satisfies Env;
 
 describe("agent health console worker", () => {

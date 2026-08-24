@@ -1,7 +1,18 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { healthSummaryV1, type AgentHealthConsoleEnv } from "../src/health-summary-v1";
 
 type Run = Readonly<{ query: string; parameters: readonly unknown[] }>;
+type DashboardWranglerConfig = Readonly<{
+  vars: Readonly<{
+    DASHBOARD_ACCOUNT_ID: string;
+    DASHBOARD_INSTALLATION_ID: string;
+  }>;
+}>;
+
+const dashboardWranglerConfig = JSON.parse(
+  readFileSync(new URL("../wrangler.dry-run.jsonc", import.meta.url), "utf8"),
+) as DashboardWranglerConfig;
 
 const current = {
   last_accepted_epoch: 100,
@@ -19,7 +30,7 @@ function database(currentRow: typeof current | null, recentRows: readonly object
   const runs: Run[] = [];
   return {
     env: {
-      AGENT_HEALTH_ACCOUNT_ID: "account-server-only",
+      DASHBOARD_ACCOUNT_ID: dashboardWranglerConfig.vars.DASHBOARD_ACCOUNT_ID,
       AGENT_HEALTH_DB: {
         prepare(query: string) {
           return {
@@ -39,7 +50,7 @@ function database(currentRow: typeof current | null, recentRows: readonly object
           };
         },
       } as unknown as D1Database,
-      AGENT_HEALTH_INSTALLATION_ID: "installation-server-only",
+      DASHBOARD_INSTALLATION_ID: dashboardWranglerConfig.vars.DASHBOARD_INSTALLATION_ID,
     },
     runs,
   };
@@ -94,8 +105,24 @@ describe("health summary v1", () => {
     expect(summary.recent).toEqual(recent);
     expect(runs).toHaveLength(2);
     expect(runs).toEqual(expect.arrayContaining([
-      expect.objectContaining({ parameters: ["account-server-only", "installation-server-only"] }),
+      expect.objectContaining({ parameters: [
+        dashboardWranglerConfig.vars.DASHBOARD_ACCOUNT_ID,
+        dashboardWranglerConfig.vars.DASHBOARD_INSTALLATION_ID,
+      ] }),
       expect.objectContaining({ query: expect.stringMatching(/ORDER BY received_at_epoch DESC, request_sequence DESC\s+LIMIT 20/u) }),
+    ]));
+  });
+
+  it("uses the dashboard selector names and values configured by Wrangler", async () => {
+    const { env, runs } = database(current);
+
+    await healthSummaryV1(env, 120);
+
+    expect(runs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ parameters: [
+        dashboardWranglerConfig.vars.DASHBOARD_ACCOUNT_ID,
+        dashboardWranglerConfig.vars.DASHBOARD_INSTALLATION_ID,
+      ] }),
     ]));
   });
 });

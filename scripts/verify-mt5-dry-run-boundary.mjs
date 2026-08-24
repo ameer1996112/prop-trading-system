@@ -43,6 +43,27 @@ export function scan(source) {
 
 export function scanHealthDashboardSource(source) {
   const violations = [];
+  const tree = ts.createSourceFile("dashboard.ts", source, ts.ScriptTarget.Latest, true);
+  const isFetchReference = (node) => {
+    if (ts.isParenthesizedExpression(node)) return isFetchReference(node.expression);
+    if (ts.isIdentifier(node)) return node.text === "fetch";
+    if (ts.isPropertyAccessExpression(node)) {
+      return node.name.text === "fetch" || ((node.name.text === "call" || node.name.text === "apply") && isFetchReference(node.expression));
+    }
+    if (ts.isElementAccessExpression(node)) {
+      return (ts.isStringLiteral(node.argumentExpression) && node.argumentExpression.text === "fetch") || isFetchReference(node.expression);
+    }
+    return false;
+  };
+  const visit = (node) => {
+    if (ts.isCallExpression(node) && isFetchReference(node.expression)) {
+      const [argument] = node.arguments;
+      if (node.arguments.length !== 1 || !argument || !ts.isStringLiteral(argument) || argument.text !== "/api/v1/health-summary") {
+        violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
 
   if (/\/api\/v1\/agent\/sync/iu.test(source)) {
     violations.push("DASHBOARD_MT5_SYNC_REFERENCE_FORBIDDEN");
@@ -50,11 +71,7 @@ export function scanHealthDashboardSource(source) {
   if (/\b(?:OrderSend|CTrade|PositionClose|OrderModify|OrderDelete|placeOrder|closePosition|candidate|execution\s+authority)\b/iu.test(source)) {
     violations.push("DASHBOARD_EXECUTION_REFERENCE_FORBIDDEN");
   }
-  for (const match of source.matchAll(/\bfetch\s*\(\s*(["'`])([^"'`]*)\1/giu)) {
-    if (match[2] !== "/api/v1/health-summary") {
-      violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
-    }
-  }
+  visit(tree);
 
   return sorted(violations);
 }

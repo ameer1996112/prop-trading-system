@@ -23,8 +23,8 @@ export type HealthSummaryResponseV1 = {
 
 export interface AgentHealthConsoleEnv {
   AGENT_HEALTH_DB: D1Database;
-  AGENT_HEALTH_ACCOUNT_ID: string;
-  AGENT_HEALTH_INSTALLATION_ID: string;
+  DASHBOARD_ACCOUNT_ID: string;
+  DASHBOARD_INSTALLATION_ID: string;
 }
 
 type CurrentRow = NonNullable<HealthSummaryResponseV1["current"]>;
@@ -87,7 +87,7 @@ export async function healthSummaryV1(
   nowEpoch: number,
 ): Promise<HealthSummaryResponseV1> {
   try {
-    const selectors = [env.AGENT_HEALTH_ACCOUNT_ID, env.AGENT_HEALTH_INSTALLATION_ID] as const;
+    const selectors = [env.DASHBOARD_ACCOUNT_ID, env.DASHBOARD_INSTALLATION_ID] as const;
     const currentRow = await env.AGENT_HEALTH_DB.prepare(CURRENT_QUERY).bind(...selectors).first<CurrentRow>();
     if (currentRow === null) return unknownSummary(nowEpoch);
 
