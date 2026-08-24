@@ -11,13 +11,15 @@ async function loadVerifier() {
   return import(verifier.href);
 }
 
-const dashboardFixtureFiles = [
+type DashboardFixtureFile = readonly [path: string, source: string, sha256: string];
+
+const dashboardFixtureFiles: readonly DashboardFixtureFile[] = [
   ["dashboard-html.ts", "export const dashboard = true;\n", "087ec181c702af59101dc20acb36e24731a34d9db19ea593bf7e5ec833a0f346"],
   ["health-summary-v1.ts", "export const health = true;\n", "c2421597efcdf166f1c9ba0d68fb8bfd9806fffd13510a43595aa5f2f08770cd"],
   ["index.ts", "export const index = true;\n", "48afe2a06bf66c168d1858387c1477488592fa55f785a2cc24fd13784172edad"],
 ] as const;
 
-function writeDashboardIntegrityFixture(root: string, manifestFiles = dashboardFixtureFiles) {
+function writeDashboardIntegrityFixture(root: string, manifestFiles: readonly DashboardFixtureFile[] = dashboardFixtureFiles) {
   const sourceDirectory = join(root, "apps/agent-health-console/src");
   mkdirSync(sourceDirectory, { recursive: true });
   for (const [path, source] of dashboardFixtureFiles) writeFileSync(join(sourceDirectory, path), source);
@@ -95,7 +97,20 @@ describe("MT5 dry-run boundary", () => {
     const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
 
     try {
-      writeDashboardIntegrityFixture(root, [...dashboardFixtureFiles, dashboardFixtureFiles[0]]);
+      writeDashboardIntegrityFixture(root, [...dashboardFixtureFiles, dashboardFixtureFiles[0]!]);
+
+      expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a dashboard integrity manifest that omits an approved source entry", async () => {
+    const { verifyDashboardIntegrityManifest } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "dashboard-integrity-"));
+
+    try {
+      writeDashboardIntegrityFixture(root, dashboardFixtureFiles.slice(0, 2));
 
       expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_INVALID");
     } finally {
@@ -110,8 +125,8 @@ describe("MT5 dry-run boundary", () => {
     try {
       writeDashboardIntegrityFixture(root, [
         ["dashboard-html.ts", "export const dashboard = true;\n", "not-a-digest"],
-        dashboardFixtureFiles[1],
-        dashboardFixtureFiles[2],
+        dashboardFixtureFiles[1]!,
+        dashboardFixtureFiles[2]!,
       ]);
 
       expect(verifyDashboardIntegrityManifest(root)).toContain("DASHBOARD_INTEGRITY_MANIFEST_INVALID");
