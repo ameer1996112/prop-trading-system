@@ -14,6 +14,11 @@ const dashboardWranglerConfig = JSON.parse(
   readFileSync(new URL("../wrangler.dry-run.jsonc", import.meta.url), "utf8"),
 ) as DashboardWranglerConfig;
 
+const auditIndexMigration = readFileSync(
+  new URL("../../execution-edge/migrations/0003_agent_health_dashboard_index.sql", import.meta.url),
+  "utf8",
+);
+
 const current = {
   last_accepted_epoch: 100,
   request_sequence: 11,
@@ -109,8 +114,14 @@ describe("health summary v1", () => {
         dashboardWranglerConfig.vars.DASHBOARD_ACCOUNT_ID,
         dashboardWranglerConfig.vars.DASHBOARD_INSTALLATION_ID,
       ] }),
-      expect.objectContaining({ query: expect.stringMatching(/ORDER BY received_at_epoch DESC, request_sequence DESC\s+LIMIT 20/u) }),
+      expect.objectContaining({ query: expect.stringMatching(/ORDER BY received_at_epoch DESC, request_sequence DESC, audit_id DESC\s+LIMIT 20/u) }),
     ]));
+  });
+
+  it("ships a composite audit index in the same order as the bounded recent query", () => {
+    expect(auditIndexMigration).toMatch(
+      /ON agent_sync_audit_v1 \(\s*account_id,\s*installation_id,\s*received_at_epoch DESC,\s*request_sequence DESC,\s*audit_id DESC\s*\)/u,
+    );
   });
 
   it("uses the dashboard selector names and values configured by Wrangler", async () => {

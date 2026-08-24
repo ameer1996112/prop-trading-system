@@ -205,10 +205,39 @@ The only authorized result is a local source-verification record containing:
 
 ## Approval-gated private dashboard rollout
 
-Only **after Ameer explicitly approves** are exactly two Cloudflare state
-changes authorized: deploy the new dashboard Worker and configure its
-Cloudflare Access email policy. Do not make any change to execution-edge, the
-MT5 EA, the MT5 WebRequest allowlist, Algo Trading, or the broker account.
+No remote dashboard rollout is authorized by source verification. Only **after
+Ameer explicitly approves the complete rollout** are these Cloudflare state
+changes authorized:
+
+1. pre-stage and activate a Cloudflare Access application and approved-email
+   policy for the deterministic future Worker URL
+   `https://prop-trading-agent-health-console-dry-run.<workers-subdomain>.workers.dev`;
+2. apply execution-edge D1 migrations `0002_agent_health_current.sql` and
+   `0003_agent_health_dashboard_index.sql` to the existing DRY_RUN database;
+3. deploy the reviewed execution-edge commit that writes accepted heartbeat
+   projections; and
+4. deploy the dashboard Worker using `wrangler.dry-run.jsonc`.
+
+Use that order. The exact Worker URL follows from the checked-in Worker name
+and the account's known Workers subdomain, so Access can be active before the
+Worker exists. Confirm in Cloudflare that the Access application and email
+policy match that exact hostname before either Worker deployment. If the
+policy cannot be pre-staged or its active state cannot be verified, stop and
+do not deploy the dashboard. After deployment, verify an unauthenticated
+request is denied before completing an authenticated check. This fail-closed
+sequence prevents any interval in which the dashboard is intentionally
+reachable without Access.
+
+The approval does not authorize any other change. In particular, do not change
+the MT5 EA, the MT5 WebRequest allowlist, Algo Trading, the broker account,
+execution authority, or any trading setting. If any rollout step requires one
+of those actions, stop and request a new review rather than expanding scope.
+
+The composite audit index is deliberately ordered as
+`(account_id, installation_id, received_at_epoch DESC, request_sequence DESC,
+audit_id DESC)`, matching the dashboard's bounded newest-20 query. This keeps
+the read inexpensive while preserving deterministic ordering for tied audit
+timestamps.
 
 ## Private dashboard completion checks
 

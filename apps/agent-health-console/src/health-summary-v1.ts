@@ -39,7 +39,7 @@ WHERE account_id = ? AND installation_id = ?;`;
 const RECENT_QUERY = `SELECT request_sequence, result_code, server_sequence, received_at_epoch
 FROM agent_sync_audit_v1
 WHERE account_id = ? AND installation_id = ?
-ORDER BY received_at_epoch DESC, request_sequence DESC
+ORDER BY received_at_epoch DESC, request_sequence DESC, audit_id DESC
 LIMIT 20;`;
 
 function unknownSummary(nowEpoch: number): HealthSummaryResponseV1 {

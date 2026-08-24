@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -362,6 +364,26 @@ describe("agent sync Worker route", () => {
       query: expect.stringContaining("INSERT INTO agent_health_current_v1"),
       parameters: ["account-1", "installation-1", expect.any(Number), 1, 1, 4410, "EURUSD", "CONNECTED", "DENIED", "DENIED", "DENIED"],
     });
+    expect(runs[1]?.query).toMatch(
+      /DO UPDATE SET[\s\S]+WHERE excluded\.request_sequence > agent_health_current_v1\.request_sequence/u,
+    );
+    const sqlite = new DatabaseSync(":memory:");
+    sqlite.exec(readFileSync(new URL("../migrations/0002_agent_health_current.sql", import.meta.url), "utf8"));
+    const acceptedParameters = runs[1]!.parameters as readonly SQLInputValue[];
+    sqlite.prepare(runs[1]!.query).run(...acceptedParameters);
+    const staleParameters = [...acceptedParameters];
+    staleParameters[2] = (acceptedParameters[2] as number) + 100;
+    staleParameters[3] = 0;
+    staleParameters[4] = (acceptedParameters[4] as number) + 1;
+    sqlite.prepare(runs[1]!.query).run(...staleParameters);
+    expect(sqlite.prepare(
+      "SELECT last_accepted_epoch, request_sequence, server_sequence FROM agent_health_current_v1",
+    ).get()).toEqual({
+      last_accepted_epoch: acceptedParameters[2],
+      request_sequence: 1,
+      server_sequence: 1,
+    });
+    sqlite.close();
     expect(JSON.stringify(runs[0])).not.toMatch(/price_ticks|open_orders|positions|agent-sync-test-token/u);
 
     const conflictRuns: AuditRun[] = [];

@@ -43,6 +43,8 @@ export function scan(source) {
 
 export function scanHealthDashboardSource(source) {
   const violations = [];
+  const forbiddenBrowserNetworkIdentifiers = new Set(["XMLHttpRequest", "WebSocket"]);
+  const forbiddenWriteMethods = new Set(["batch", "delete", "exec", "put", "run"]);
   const isFetchReference = (node) => {
     if (ts.isIdentifier(node)) return node.text === "fetch";
     if (ts.isPropertyAccessExpression(node)) {
@@ -81,6 +83,30 @@ export function scanHealthDashboardSource(source) {
         if (!isHandlerMethodName(node) && (!node.parent || !ts.isCallExpression(node.parent) || node.parent.expression !== node || !isAllowedDirectFetchCall(node.parent))) {
           violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
         }
+      }
+      if (ts.isIdentifier(node) && forbiddenBrowserNetworkIdentifiers.has(node.text)) {
+        violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+      }
+      if (ts.isPropertyAccessExpression(node) && node.name.text === "sendBeacon") {
+        violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+      }
+      if (ts.isElementAccessExpression(node)
+        && ts.isStringLiteral(node.argumentExpression)
+        && node.argumentExpression.text === "sendBeacon") {
+        violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && forbiddenWriteMethods.has(node.expression.name.text)) {
+        violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+      }
+      if (ts.isCallExpression(node) && ts.isElementAccessExpression(node.expression)
+        && ts.isStringLiteral(node.expression.argumentExpression)
+        && forbiddenWriteMethods.has(node.expression.argumentExpression.text)) {
+        violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+      }
+      if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+        && /^\s*(?:ALTER|CREATE|DELETE|DROP|INSERT|REPLACE|UPDATE)\b/iu.test(node.text)) {
+        violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
       }
       if (ts.isTemplateExpression(node)) {
         violations.push("DASHBOARD_TEMPLATE_EXPRESSION_FORBIDDEN");

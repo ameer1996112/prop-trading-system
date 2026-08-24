@@ -432,4 +432,3 @@ Do not deploy automatically. Present verified commits and test results, then ask
 - Dashboard alerts, notifications, historical charts, multi-account selection, role management, custom domain, custom login, data export, and any write endpoint.
 - Reading or displaying financial data, prices, positions, orders, broker server/login, credentials, Pine/TradingView signals, candidate data, or execution state.
 - Demo, challenge, funded, or live trading; MetaApi; Railway; order entry; modifying/closing an order; enabling Algo Trading; or changing any MT5 configuration.
-

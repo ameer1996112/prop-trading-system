@@ -7,7 +7,7 @@
     "node": ">=22.0.0 <27"
   },
   "scripts": {
-    "build": "wrangler deploy src/index.ts --name agent-health-console --compatibility-date 2026-08-24 --dry-run --outdir dist",
+    "build": "wrangler deploy --config wrangler.dry-run.jsonc --dry-run --outdir dist",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

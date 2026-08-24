@@ -75,6 +75,24 @@ describe("MT5 dry-run boundary", () => {
     expect(scanHealthDashboardSource('const label = `health-${status}`;')).toContain(
       "DASHBOARD_TEMPLATE_EXPRESSION_FORBIDDEN",
     );
+    expect(scanHealthDashboardSource("const request = new XMLHttpRequest();")).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('const socket = new WebSocket("wss://example.invalid");')).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('navigator.sendBeacon("/collect", "data");')).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('env.AGENT_HEALTH_DB.prepare("DELETE FROM agent_health_current_v1").run();')).toContain(
+      "DASHBOARD_DATA_WRITE_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource("env.AGENT_HEALTH_DB.batch([]);")).toContain(
+      "DASHBOARD_DATA_WRITE_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('const page = `<script>navigator.sendBeacon("/collect", "data")</script>`;')).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
     expect(scanHealthDashboardSource('fetch("/api/v1/health-summary", { method: "GET" });')).toContain(
       "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
     );

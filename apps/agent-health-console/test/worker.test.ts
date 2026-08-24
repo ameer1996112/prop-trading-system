@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import worker, { type Env } from "../src/index";
 
@@ -23,6 +24,14 @@ const env = {
 } satisfies Env;
 
 describe("agent health console worker", () => {
+  it("builds with the checked-in dry-run Wrangler configuration", () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { scripts: { build: string } };
+
+    expect(packageJson.scripts.build).toContain("--config wrangler.dry-run.jsonc");
+  });
+
   it("returns a redacted no-store summary from the same-origin GET route", async () => {
     const response = await worker.fetch(new Request("https://console.example/api/v1/health-summary"), env);
     const body = await response.json();
