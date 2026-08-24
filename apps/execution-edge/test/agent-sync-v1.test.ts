@@ -167,7 +167,7 @@ async function enabledEnv(): Promise<Env> {
           async fetch(request: Request): Promise<Response> {
             const body = await request.json() as { request: AgentSyncRequestV1; now_epoch: number };
             const response = await createDryRunResponse(body.request, body.request.request_sequence, body.now_epoch);
-            return new Response(JSON.stringify({ code: "OK", response_bytes: canonicalStringify(response) }));
+            return new Response(JSON.stringify({ code: "OK", replayed: false, response_bytes: canonicalStringify(response) }));
           },
         };
       },
@@ -182,15 +182,26 @@ function auditDatabase(runs: AuditRun[] = [], fail = false): D1Database {
     prepare(query: string) {
       return {
         bind(...parameters: unknown[]) {
+          const run = { query, parameters };
           return {
             async run() {
               if (fail) throw new Error("audit unavailable");
-              runs.push({ query, parameters });
+              runs.push(run);
               return { success: true };
             },
+            __agentSyncAuditRun: run,
           };
         },
       };
+    },
+    async batch(statements: unknown[]) {
+      if (fail) throw new Error("audit unavailable");
+      for (const statement of statements) {
+        const run = (statement as { __agentSyncAuditRun?: AuditRun }).__agentSyncAuditRun;
+        if (run === undefined) throw new Error("unexpected batch statement");
+        runs.push(run);
+      }
+      return [];
     },
   } as unknown as D1Database;
 }
@@ -332,7 +343,7 @@ describe("AgentSyncRequestV1", () => {
 });
 
 describe("agent sync Worker route", () => {
-  it("writes bounded accepted and rejected audit rows only after parsing", async () => {
+  it("writes health only for a newly accepted sync while auditing conflicts", async () => {
     const runs: AuditRun[] = [];
     const acceptedEnv = { ...await enabledEnv(), EXECUTION_DB: auditDatabase(runs) } as Env;
     const body = await encodedRequest({
@@ -342,10 +353,14 @@ describe("agent sync Worker route", () => {
     });
 
     expect((await route(body, `Bearer ${SECRET}`, acceptedEnv)).status).toBe(200);
-    expect(runs).toHaveLength(1);
+    expect(runs).toHaveLength(2);
     expect(runs[0]).toMatchObject({
       query: expect.stringContaining("INSERT INTO agent_sync_audit_v1"),
       parameters: [expect.any(String), "account-1", "installation-1", 1, expect.stringMatching(/^[a-f0-9]{64}$/u), "ACCEPTED", 1, expect.any(Number)],
+    });
+    expect(runs[1]).toMatchObject({
+      query: expect.stringContaining("INSERT INTO agent_health_current_v1"),
+      parameters: ["account-1", "installation-1", expect.any(Number), 1, 1, 4410, "EURUSD", "CONNECTED", "DENIED", "DENIED", "DENIED"],
     });
     expect(JSON.stringify(runs[0])).not.toMatch(/price_ticks|open_orders|positions|agent-sync-test-token/u);
 
@@ -360,6 +375,7 @@ describe("agent sync Worker route", () => {
     } as unknown as Env;
     expect((await route(body, `Bearer ${SECRET}`, conflictEnv)).status).toBe(409);
     expect(conflictRuns[0]?.parameters.slice(5, 7)).toEqual(["REPLAY_CONFLICT", null]);
+    expect(conflictRuns.filter((run) => run.query.includes("agent_health_current_v1"))).toHaveLength(0);
   });
 
   it("fails closed when audit persistence fails", async () => {
@@ -465,7 +481,9 @@ describe("agent sync Worker route", () => {
 
       const response = await route(body, `Bearer ${SECRET}`, env);
       expect(response.status).toBe(code === "OK" ? 200 : 409);
+      expect(runs).toHaveLength(1);
       expect(runs[0]?.parameters[5]).toBe(expected);
+      expect(runs.filter((run) => run.query.includes("agent_health_current_v1"))).toHaveLength(0);
     }
   });
 

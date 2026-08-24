@@ -5,6 +5,7 @@ import {
 } from "./agent-sync-v1";
 import type { AgentSyncRequestV1 } from "./agent-sync-v1";
 import { AccountCoordinatorV1 } from "./account-coordinator-v1";
+import { projectAcceptedHeartbeatV1 } from "./agent-health-projection-v1";
 import { canonicalStringify, sha256Hex } from "./canonical";
 
 export interface Env {
@@ -41,14 +42,14 @@ function dryRunFailure(error: string, status: number): Response {
   return json({ error, mode: "DRY_RUN", command: null }, status);
 }
 
-async function writeAgentSyncAudit(
+function syncAuditStatement(
   env: Env,
   request: AgentSyncRequestV1,
   resultCode: string,
   serverSequence: number | null,
   receivedAtEpoch: number,
-): Promise<void> {
-  await env.EXECUTION_DB.prepare(
+): D1PreparedStatement {
+  return env.EXECUTION_DB.prepare(
     "INSERT INTO agent_sync_audit_v1 (audit_id, account_id, installation_id, request_sequence, request_body_sha256, result_code, server_sequence, received_at_epoch) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   ).bind(
     crypto.randomUUID(),
@@ -59,7 +60,45 @@ async function writeAgentSyncAudit(
     resultCode,
     serverSequence,
     receivedAtEpoch,
-  ).run();
+  );
+}
+
+async function writeSyncAudit(
+  env: Env,
+  request: AgentSyncRequestV1,
+  resultCode: string,
+  serverSequence: number | null,
+  receivedAtEpoch: number,
+): Promise<void> {
+  await syncAuditStatement(env, request, resultCode, serverSequence, receivedAtEpoch).run();
+}
+
+async function writeAcceptedSyncAuditAndHealth(
+  env: Env,
+  request: AgentSyncRequestV1,
+  serverSequence: number,
+  receivedAtEpoch: number,
+): Promise<void> {
+  const health = projectAcceptedHeartbeatV1(request, serverSequence, receivedAtEpoch);
+  const healthStatement = env.EXECUTION_DB.prepare(
+    "INSERT INTO agent_health_current_v1 (account_id, installation_id, last_accepted_epoch, request_sequence, server_sequence, terminal_build, source_symbol, terminal_connection_state, account_trade_permission, terminal_trade_permission, algo_trading_permission) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(account_id, installation_id) DO UPDATE SET last_accepted_epoch = excluded.last_accepted_epoch, request_sequence = excluded.request_sequence, server_sequence = excluded.server_sequence, terminal_build = excluded.terminal_build, source_symbol = excluded.source_symbol, terminal_connection_state = excluded.terminal_connection_state, account_trade_permission = excluded.account_trade_permission, terminal_trade_permission = excluded.terminal_trade_permission, algo_trading_permission = excluded.algo_trading_permission",
+  ).bind(
+    health.account_id,
+    health.installation_id,
+    health.last_accepted_epoch,
+    health.request_sequence,
+    health.server_sequence,
+    health.terminal_build,
+    health.source_symbol,
+    health.terminal_connection_state,
+    health.account_trade_permission,
+    health.terminal_trade_permission,
+    health.algo_trading_permission,
+  );
+  await env.EXECUTION_DB.batch([
+    syncAuditStatement(env, request, "ACCEPTED", serverSequence, receivedAtEpoch),
+    healthStatement,
+  ]);
 }
 
 const AGENT_SYNC_RESPONSE_KEYS = [
@@ -252,7 +291,7 @@ const worker: ExportedHandler<Env> = {
           ? await validateCoordinatorResponse(result.response_bytes, parsed.request_sequence, minimumAcknowledgedEventSequence)
           : null;
         const outcome = result.code === "OK"
-          ? result.replayed === true ? "EXACT_RETRY" : "ACCEPTED"
+          ? result.replayed === false ? "ACCEPTED" : result.replayed === true ? "EXACT_RETRY" : null
           : result.code === "REPLAY_CONFLICT" || result.code === "SEQUENCE_INVALID" || result.code === "IDENTITY_MISMATCH" || result.code === "STALE_TIMESTAMP"
             ? result.code
             : null;
@@ -261,7 +300,11 @@ const worker: ExportedHandler<Env> = {
           return dryRunFailure("COORDINATOR_UNAVAILABLE", 503);
         }
         try {
-          await writeAgentSyncAudit(env, parsed, outcome, serverSequence, nowEpoch);
+          if (outcome === "ACCEPTED" && serverSequence !== null) {
+            await writeAcceptedSyncAuditAndHealth(env, parsed, serverSequence, nowEpoch);
+          } else {
+            await writeSyncAudit(env, parsed, outcome, serverSequence, nowEpoch);
+          }
         } catch {
           return dryRunFailure("AGENT_SYNC_AUDIT_UNAVAILABLE", 503);
         }
