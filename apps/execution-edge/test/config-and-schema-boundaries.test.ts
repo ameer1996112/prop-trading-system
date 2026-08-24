@@ -15,6 +15,28 @@ function json(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(new URL(path, root), "utf8")) as Record<string, unknown>;
 }
 
+function validateLocalOnlyExecutionEdgeConfig(
+  config: Record<string, unknown>,
+  packageJson: Record<string, unknown>,
+): string[] {
+  const violations: string[] = [];
+  const d1 = config.d1_databases;
+  if (!Array.isArray(d1) || d1.length !== 1 || d1[0]?.database_id !== "00000000-0000-0000-0000-000000000000") {
+    violations.push("D1_DATABASE_ID_MUST_BE_LOCAL_PLACEHOLDER");
+  }
+  if (JSON.stringify(config.migrations) !== JSON.stringify([
+    { tag: "v1", new_sqlite_classes: ["CandidateInbox", "AccountCoordinator"] },
+  ])) {
+    violations.push("DURABLE_OBJECT_MIGRATIONS_MUST_REMAIN_LOCAL_DECLARATIONS");
+  }
+  const scripts = packageJson.scripts;
+  if (scripts === null || Array.isArray(scripts) || typeof scripts !== "object"
+    || (scripts as Record<string, unknown>).build !== "wrangler deploy --dry-run --outdir dist") {
+    violations.push("BUILD_SCRIPT_MUST_BE_DRY_RUN_ONLY");
+  }
+  return violations;
+}
+
 const schemas = [
   ["broker-bar-evidence-v1.schema.json", "BrokerBarEvidenceV1"],
   ["account-profile-v1.schema.json", "AccountProfileV1"],
@@ -36,6 +58,7 @@ const schemas = [
 describe("execution-edge configuration and schema boundaries", () => {
   it("keeps the checked-in Worker configuration inert and unbound to remote resources", () => {
     const config = json("apps/execution-edge/wrangler.jsonc");
+    const packageJson = json("apps/execution-edge/package.json");
     expect(config).toMatchObject({
       name: "prop-trading-execution-edge",
       main: "src/index.ts",
@@ -65,6 +88,40 @@ describe("execution-edge configuration and schema boundaries", () => {
     expect(config.migrations).toEqual([
       { tag: "v1", new_sqlite_classes: ["CandidateInbox", "AccountCoordinator"] },
     ]);
+    expect(validateLocalOnlyExecutionEdgeConfig(config, packageJson)).toEqual([]);
+  });
+
+  it("rejects a non-placeholder D1 database ID in a mutated configuration fixture", () => {
+    const config = json("apps/execution-edge/wrangler.jsonc");
+    const packageJson = json("apps/execution-edge/package.json");
+    const mutated = structuredClone(config);
+    ((mutated.d1_databases as Record<string, unknown>[])[0]!).database_id = "12345678-1234-1234-1234-123456789abc";
+
+    expect(validateLocalOnlyExecutionEdgeConfig(mutated, packageJson)).toContain(
+      "D1_DATABASE_ID_MUST_BE_LOCAL_PLACEHOLDER",
+    );
+  });
+
+  it("rejects a changed Durable Object migration in a mutated configuration fixture", () => {
+    const config = json("apps/execution-edge/wrangler.jsonc");
+    const packageJson = json("apps/execution-edge/package.json");
+    const mutated = structuredClone(config);
+    mutated.migrations = [{ tag: "v2", new_sqlite_classes: ["AccountCoordinator"] }];
+
+    expect(validateLocalOnlyExecutionEdgeConfig(mutated, packageJson)).toContain(
+      "DURABLE_OBJECT_MIGRATIONS_MUST_REMAIN_LOCAL_DECLARATIONS",
+    );
+  });
+
+  it("rejects a non-dry-run deploy script in a mutated package fixture", () => {
+    const config = json("apps/execution-edge/wrangler.jsonc");
+    const packageJson = json("apps/execution-edge/package.json");
+    const mutatedPackage = structuredClone(packageJson);
+    (mutatedPackage.scripts as Record<string, unknown>).build = "wrangler deploy --outdir dist";
+
+    expect(validateLocalOnlyExecutionEdgeConfig(config, mutatedPackage)).toContain(
+      "BUILD_SCRIPT_MUST_BE_DRY_RUN_ONLY",
+    );
   });
 
   it("documents the only local agent-sync override without a raw bearer value", () => {
