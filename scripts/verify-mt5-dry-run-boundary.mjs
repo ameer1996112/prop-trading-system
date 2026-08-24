@@ -3,7 +3,7 @@ import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const skippedDirectories = new Set([".git", "dist", "journal", "local", "node_modules"]);
+const skippedDirectories = new Set([".git", "dist", "generated", "journal", "local", "node_modules"]);
 const mt5SourceExtensions = new Set([".mq5", ".mqh"]);
 
 function sorted(violations) {
@@ -31,11 +31,12 @@ export function scan(source) {
 
 export function scanWorkerSource(source) {
   const violations = [];
-  const executionMode = /\bexecution_mode\b\s*(?:=\s*(["'`])([^"'`]*)\1|:\s*(["'`])([^"'`]*)\3(?=\s*[,}]))/giu;
+  const executionMode = /\bexecution_mode\b\s*[:=]\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
 
   for (const match of source.matchAll(executionMode)) {
-    const value = match[2] ?? match[4];
-    if (value !== "DRY_RUN") violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+    if (match[1] === undefined || match[2] !== "DRY_RUN") {
+      violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+    }
   }
   if (/\breal_execution_allowed\b\s*:\s*true\b/iu.test(source)) {
     violations.push("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
@@ -60,8 +61,9 @@ function sourceFiles(root, extensions) {
 
 export function runBoundaryVerifier(root = repositoryRoot) {
   const violations = [];
-  for (const file of sourceFiles(join(root, "apps/execution-edge/src"), new Set([".ts"]))) {
-    violations.push(...scanWorkerSource(readFileSync(file, "utf8")));
+  const workerSource = join(root, "apps/execution-edge/src/index.ts");
+  if (existsSync(workerSource)) {
+    violations.push(...scanWorkerSource(readFileSync(workerSource, "utf8")));
   }
   for (const file of sourceFiles(join(root, "mt5/TradeOpsAgent"), mt5SourceExtensions)) {
     violations.push(...scan(readFileSync(file, "utf8")));

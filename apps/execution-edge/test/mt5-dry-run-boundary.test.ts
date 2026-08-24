@@ -24,6 +24,13 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource('const execution_mode = "LIVE";')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
+    expect(scanWorkerSource("const config = { execution_mode: LIVE }; ")).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
+    expect(scanWorkerSource('readonly execution_mode: "PAPER_ONLY";')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
+    expect(scanWorkerSource('const config = { execution_mode: "DRY_RUN" };')).toEqual([]);
     expect(scanWorkerSource("const config = { real_execution_allowed: true }; ")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
@@ -51,6 +58,27 @@ describe("MT5 dry-run boundary", () => {
       writeFileSync(join(local, "generated.mqh"), "void f(){ OrderSend(r,q); }\n");
 
       expect(runBoundaryVerifier(root)).toEqual({ ok: true, violations: [] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("skips generated MT5 source while scanning ordinary EA source", async () => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
+
+    try {
+      const generated = join(root, "mt5/TradeOpsAgent/generated");
+      const include = join(root, "mt5/TradeOpsAgent/Include");
+      mkdirSync(generated, { recursive: true });
+      mkdirSync(include, { recursive: true });
+      writeFileSync(join(generated, "generated.mqh"), "void f(){ CTrade trade; }\n");
+      writeFileSync(join(include, "active.mqh"), "void f(){ OrderSend(r,q); }\n");
+
+      expect(runBoundaryVerifier(root)).toEqual({
+        ok: false,
+        violations: ["MT5_ORDER_API_FORBIDDEN"],
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
