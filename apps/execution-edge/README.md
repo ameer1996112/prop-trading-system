@@ -57,6 +57,13 @@ The build is a Wrangler dry-run only. The verification script removes common
 Cloudflare API-token variables and enables CI/no-metrics mode before it runs;
 it must not be used to deploy or contact Cloudflare resources.
 
+For the complete operator handoff, including the distinct **source verified
+locally**, **Worker running locally**, and future **Windows compile/attachment**
+states, use
+[`docs/runbooks/mt5-dry-run-agent-local-verification.md`](../../docs/runbooks/mt5-dry-run-agent-local-verification.md).
+None of those states enables a demo, evaluation, or live trading system. The
+runbook is the source of truth for expected evidence and stop conditions.
+
 ## Local secrets
 
 `apps/execution-edge/.dev.vars` is local and secret: keep it out of version
