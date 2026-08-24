@@ -82,8 +82,9 @@ function frozenCandidateModeIndexes(source) {
   const interfaceProperty = interfaces.length === 1 ? interfaces[0].members.filter((m) => ts.isPropertySignature(m) && propertyNameText(m) === "execution_mode") : [];
   const typedPaperOnly = interfaceProperty.length === 1 && ts.isLiteralTypeNode(interfaceProperty[0].type) && ts.isStringLiteral(interfaceProperty[0].type.literal) && interfaceProperty[0].type.literal.text === "PAPER_ONLY";
   const keys = tree.statements.filter((node) => ts.isVariableStatement(node)).flatMap((node) => node.declarationList.declarations).filter((node) => identifierText(node.name) === "CANDIDATE_KEYS");
-  const keyValues = keys.length === 1 && keys[0].initializer && ts.isAsExpression(keys[0].initializer) && ts.isArrayLiteralExpression(keys[0].initializer.expression) ? keys[0].initializer.expression.elements.filter(ts.isStringLiteral).map((n) => n.text) : [];
-  const accountFree = keyValues.includes("execution_mode") && !keyValues.some((key) => /(?:account|installation|command|order|broker|password|secret|token)/iu.test(key));
+  const keyElements = keys.length === 1 && keys[0].initializer && ts.isAsExpression(keys[0].initializer) && ts.isArrayLiteralExpression(keys[0].initializer.expression) ? keys[0].initializer.expression.elements : [];
+  const keyValues = keyElements.every(ts.isStringLiteral) ? keyElements.map((node) => node.text) : [];
+  const accountFree = keyElements.length > 0 && keyValues.length === keyElements.length && keyValues.includes("execution_mode") && !keyValues.some((key) => /(?:account|installation|command|order|broker|password|secret|token)/iu.test(key));
   const validators = tree.statements.filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === "validateExecutionCandidateV2");
   if (!typedPaperOnly || !accountFree || validators.length !== 1 || !validators[0].body) return new Set();
   const tries = validators[0].body.statements.filter(ts.isTryStatement);

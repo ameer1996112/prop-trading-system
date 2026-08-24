@@ -87,6 +87,10 @@ describe("MT5 dry-run boundary", () => {
     const { scan } = await loadVerifier();
 
     expect(scan("void f(){ OrderSend(r,q); }")).toContain("MT5_ORDER_API_FORBIDDEN");
+    expect(scan("void f(){ CTrade trade; }")).toContain("MT5_CTRADE_FORBIDDEN");
+    expect(scan("void f(){ PositionClose(1); }")).toContain("MT5_POSITION_CLOSE_FORBIDDEN");
+    expect(scan("void f(){ OrderDelete(1); }")).toContain("MT5_ORDER_DELETE_FORBIDDEN");
+    expect(scan("void f(){ OrderModify(1); }")).toContain("MT5_ORDER_MODIFY_FORBIDDEN");
   });
 
   it("rejects MT5 DLL imports", async () => {
@@ -225,7 +229,7 @@ describe("MT5 dry-run boundary", () => {
       mkdirSync(source, { recursive: true });
       writeFileSync(join(source, "execution-candidate-v2.ts"), [
         'export interface ExecutionCandidateV2 { readonly execution_mode: "PAPER_ONLY"; }',
-        'const CANDIDATE_KEYS = ["execution_mode"];',
+        'const CANDIDATE_KEYS = ["execution_mode"] as const;',
         "export function validateExecutionCandidateV2(input: Record<string, unknown>) {",
         "  try {",
         '    const executionMode = literal(input.execution_mode, "PAPER_ONLY");',
@@ -242,5 +246,22 @@ describe("MT5 dry-run boundary", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("rejects candidate key spreads in the allowlisted filename", async () => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
+    try {
+      const source = join(root, "apps/execution-edge/src");
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "execution-candidate-v2.ts"), [
+        'export interface ExecutionCandidateV2 { readonly execution_mode: "PAPER_ONLY"; }',
+        'const CANDIDATE_KEYS = ["execution_mode", ...["account_id"]] as const;',
+        "export function validateExecutionCandidateV2(input: Record<string, unknown>) { try {",
+        'const executionMode = literal(input.execution_mode, "PAPER_ONLY");',
+        "return Object.freeze({ execution_mode: executionMode, }); } catch { return null; } }",
+      ].join("\n"));
+      expect(runBoundaryVerifier(root)).toEqual({ ok: false, violations: ["WORKER_EXECUTION_MODE_NOT_DRY_RUN"] });
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
