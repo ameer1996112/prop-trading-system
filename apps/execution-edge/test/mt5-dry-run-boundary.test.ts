@@ -101,6 +101,72 @@ describe("MT5 dry-run boundary", () => {
     expect(scanHealthDashboardSource('const title = "MT5 DRY_RUN Health";')).toEqual([]);
   });
 
+  it("rejects EventSource as an unapproved dashboard browser capability", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(scanHealthDashboardSource('new EventSource("https://example.invalid/events");')).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
+  });
+
+  it("rejects external resource URLs embedded in static dashboard HTML", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(scanHealthDashboardSource('const page = `<img src="https://example.invalid/pixel">`;')).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
+  });
+
+  it("rejects network-capable DOM elements in the static dashboard script", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(scanHealthDashboardSource('document.createElement("img");')).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
+  });
+
+  it("rejects external resource URLs assembled from static string fragments", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(scanHealthDashboardSource('const endpoint = "ht" + "tps://example.invalid/pixel";')).toContain(
+      "DASHBOARD_BROWSER_NETWORK_FORBIDDEN",
+    );
+  });
+
+  it("rejects dynamically assembled mutation SQL passed through a read-named D1 method", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(scanHealthDashboardSource('const sql = "DE" + "LETE FROM agent_health_current_v1 RETURNING account_id"; await env.AGENT_HEALTH_DB.prepare(sql).first();')).toContain(
+      "DASHBOARD_DATA_WRITE_FORBIDDEN",
+    );
+  });
+
+  it("rejects dashboard source files outside the three-file capability allowlist", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(scanHealthDashboardSource("export const helper = true;", "extra-helper.ts")).toContain(
+      "DASHBOARD_SOURCE_FILE_NOT_ALLOWLISTED",
+    );
+  });
+
+  it("requires the dashboard HTML file to contain exactly the one reviewed browser fetch", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+
+    expect(scanHealthDashboardSource(
+      "export function renderDashboardHtml() { return `<script>(() => {})();</script>`; }",
+      "dashboard-html.ts",
+    )).toContain("DASHBOARD_CAPABILITY_NOT_ALLOWLISTED");
+  });
+
+  it("requires the health summary file to use the two exact reviewed D1 SELECT chains", async () => {
+    const { scanHealthDashboardSource } = await loadVerifier();
+    const unreviewedRead = 'const QUERY = "SELECT secret FROM agent_health_current_v1"; export async function read(env) { return env.AGENT_HEALTH_DB.prepare(QUERY).bind("a", "b").first(); }';
+
+    expect(scanHealthDashboardSource(unreviewedRead, "health-summary-v1.ts")).toContain(
+      "DASHBOARD_DATA_WRITE_FORBIDDEN",
+    );
+  });
+
   it("scans health dashboard TypeScript without changing execution-edge or MT5 scope", async () => {
     const { runBoundaryVerifier } = await loadVerifier();
     const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
@@ -112,7 +178,7 @@ describe("MT5 dry-run boundary", () => {
       mkdirSync(dashboard, { recursive: true });
       mkdirSync(execution, { recursive: true });
       mkdirSync(mt5, { recursive: true });
-      writeFileSync(join(dashboard, "unsafe.ts"), 'const endpoint = "/api/v1/agent/sync";\n');
+      writeFileSync(join(dashboard, "index.ts"), 'const endpoint = "/api/v1/agent/sync";\n');
       writeFileSync(join(execution, "safe.ts"), 'const config = { execution_mode: "DRY_RUN" };\n');
       writeFileSync(join(mt5, "safe.mq5"), "void f() {}\n");
 

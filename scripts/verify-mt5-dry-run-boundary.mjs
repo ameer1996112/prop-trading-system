@@ -41,10 +41,136 @@ export function scan(source) {
   return sorted(violations);
 }
 
-export function scanHealthDashboardSource(source) {
+const allowedDashboardSourceFiles = new Set(["dashboard-html.ts", "health-summary-v1.ts", "index.ts"]);
+const allowedDashboardQueries = new Map([
+  [
+    "SELECT last_accepted_epoch, request_sequence, server_sequence, terminal_build, source_symbol, terminal_connection_state, account_trade_permission, terminal_trade_permission, algo_trading_permission FROM agent_health_current_v1 WHERE account_id = ? AND installation_id = ?;",
+    "first",
+  ],
+  [
+    "SELECT request_sequence, result_code, server_sequence, received_at_epoch FROM agent_sync_audit_v1 WHERE account_id = ? AND installation_id = ? ORDER BY received_at_epoch DESC, request_sequence DESC, audit_id DESC LIMIT 20;",
+    "all",
+  ],
+]);
+
+function dashboardBindingNames(name, names, declarationNodes) {
+  if (ts.isIdentifier(name)) {
+    names.add(name.text);
+    declarationNodes.add(name);
+    return;
+  }
+  if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) dashboardBindingNames(element.name, names, declarationNodes);
+    }
+  }
+}
+
+function dashboardDeclarations(program) {
+  const names = new Set();
+  const declarationNodes = new Set();
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) {
+      dashboardBindingNames(node.name, names, declarationNodes);
+    }
+    if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node)
+      || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node) || ts.isModuleDeclaration(node)) && node.name) {
+      dashboardBindingNames(node.name, names, declarationNodes);
+    }
+    if (ts.isImportClause(node)) {
+      if (node.name) dashboardBindingNames(node.name, names, declarationNodes);
+      if (node.namedBindings && ts.isNamespaceImport(node.namedBindings)) {
+        dashboardBindingNames(node.namedBindings.name, names, declarationNodes);
+      }
+    }
+    if (ts.isImportSpecifier(node)) dashboardBindingNames(node.name, names, declarationNodes);
+    ts.forEachChild(node, visit);
+  };
+  visit(program);
+  return { names, declarationNodes };
+}
+
+function dashboardPropertyNameNode(node) {
+  const parent = node.parent;
+  return !!parent && (
+    (ts.isPropertyAccessExpression(parent) && parent.name === node)
+    || ((ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent) || ts.isMethodDeclaration(parent)
+      || ts.isPropertyDeclaration(parent) || ts.isMethodSignature(parent)) && parent.name === node)
+  );
+}
+
+function dashboardStaticStrings(program) {
+  const constants = new Map();
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer
+      && ts.isVariableDeclarationList(node.parent)
+      && (node.parent.flags & ts.NodeFlags.Const) !== 0) {
+      constants.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(program);
+  const resolveString = (node, seen = new Set()) => {
+    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) {
+      return resolveString(node.expression, seen);
+    }
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = resolveString(node.left, seen);
+      const right = resolveString(node.right, seen);
+      return left === undefined || right === undefined ? undefined : left + right;
+    }
+    if (ts.isIdentifier(node) && constants.has(node.text) && !seen.has(node.text)) {
+      const nextSeen = new Set(seen);
+      nextSeen.add(node.text);
+      return resolveString(constants.get(node.text), nextSeen);
+    }
+    return undefined;
+  };
+  return resolveString;
+}
+
+function normalizedDashboardSql(value) {
+  return value.trim().replace(/\s+/gu, " ");
+}
+
+function isExternalDashboardResource(value) {
+  return /(?:https?:|wss?:)\/\//iu.test(value)
+    || /<\s*(?:img|iframe|link|object|embed|audio|video|source|form|base)\b/iu.test(value)
+    || /<\s*script\b[^>]*\bsrc\s*=/iu.test(value)
+    || /<\s*meta\b[^>]*\bhttp-equiv\s*=\s*["']?refresh\b/iu.test(value)
+    || /(?:@import\b|url\s*\()/iu.test(value);
+}
+
+function dashboardD1TerminalMethod(prepareCall) {
+  const bindAccess = prepareCall.parent;
+  if (!ts.isPropertyAccessExpression(bindAccess) || bindAccess.expression !== prepareCall || bindAccess.name.text !== "bind") return undefined;
+  const bindCall = bindAccess.parent;
+  if (!ts.isCallExpression(bindCall) || bindCall.expression !== bindAccess) return undefined;
+  const terminalAccess = bindCall.parent;
+  if (!ts.isPropertyAccessExpression(terminalAccess) || terminalAccess.expression !== bindCall) return undefined;
+  const terminalCall = terminalAccess.parent;
+  if (!ts.isCallExpression(terminalCall) || terminalCall.expression !== terminalAccess) return undefined;
+  return terminalAccess.name.text;
+}
+
+function validateDashboardGlobals(program, allowedGlobals, violations) {
+  const { names, declarationNodes } = dashboardDeclarations(program);
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && !names.has(node.text) && !allowedGlobals.has(node.text)
+      && !declarationNodes.has(node) && !dashboardPropertyNameNode(node)) {
+      violations.push("DASHBOARD_CAPABILITY_NOT_ALLOWLISTED");
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(program);
+}
+
+export function scanHealthDashboardSource(source, sourceFileName) {
   const violations = [];
-  const forbiddenBrowserNetworkIdentifiers = new Set(["XMLHttpRequest", "WebSocket"]);
+  const forbiddenBrowserNetworkIdentifiers = new Set(["EventSource", "XMLHttpRequest", "WebSocket"]);
   const forbiddenWriteMethods = new Set(["batch", "delete", "exec", "put", "run"]);
+  const allowedConstructors = new Set(["Error", "Response", "URL"]);
   const isFetchReference = (node) => {
     if (ts.isIdentifier(node)) return node.text === "fetch";
     if (ts.isPropertyAccessExpression(node)) {
@@ -68,15 +194,19 @@ export function scanHealthDashboardSource(source) {
   const isHandlerMethodName = (node) => !!node.parent
     && ts.isMethodDeclaration(node.parent)
     && node.parent.name === node;
-  const scanFetchCalls = (program) => {
+  const scanProgram = (program, strictInlineScript = false) => {
+    const resolveString = dashboardStaticStrings(program);
+    let allowedFetchCount = 0;
     if (program.parseDiagnostics.length > 0) {
       violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
-      return;
+      return { allowedFetchCount };
     }
     const visit = (node) => {
       if (ts.isCallExpression(node) && isFetchReference(node.expression)) {
         if (!isAllowedDirectFetchCall(node)) {
           violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
+        } else {
+          allowedFetchCount += 1;
         }
       }
       if (ts.isIdentifier(node) && node.text === "fetch") {
@@ -87,12 +217,36 @@ export function scanHealthDashboardSource(source) {
       if (ts.isIdentifier(node) && forbiddenBrowserNetworkIdentifiers.has(node.text)) {
         violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
       }
+      if (ts.isNewExpression(node)) {
+        if (!ts.isIdentifier(node.expression) || !allowedConstructors.has(node.expression.text)) {
+          violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+        }
+      }
       if (ts.isPropertyAccessExpression(node) && node.name.text === "sendBeacon") {
         violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
       }
       if (ts.isElementAccessExpression(node)
         && ts.isStringLiteral(node.argumentExpression)
         && node.argumentExpression.text === "sendBeacon") {
+        violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === "document"
+        && node.expression.name.text === "createElement") {
+        const tagName = node.arguments[0] ? resolveString(node.arguments[0]) : undefined;
+        if (tagName !== "td" && tagName !== "tr") violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+      }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && node.expression.name.text === "setAttribute") {
+        const attributeName = node.arguments[0] ? resolveString(node.arguments[0]) : undefined;
+        if (attributeName === undefined || /^(?:action|data|formaction|href|poster|src|srcset)$/iu.test(attributeName)) {
+          violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+        }
+      }
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        && ((ts.isPropertyAccessExpression(node.left) && /^(?:action|data|formAction|href|poster|src|srcset)$/u.test(node.left.name.text))
+          || (ts.isElementAccessExpression(node.left) && ts.isStringLiteral(node.left.argumentExpression)
+            && /^(?:action|data|formAction|href|poster|src|srcset)$/u.test(node.left.argumentExpression.text)))) {
         violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
       }
       if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
@@ -104,9 +258,26 @@ export function scanHealthDashboardSource(source) {
         && forbiddenWriteMethods.has(node.expression.argumentExpression.text)) {
         violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
       }
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && node.expression.name.text === "prepare") {
+        const query = node.arguments[0] ? resolveString(node.arguments[0]) : undefined;
+        if (query === undefined || !/^\s*SELECT\b/iu.test(query)) {
+          violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+        }
+      }
       if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
         && /^\s*(?:ALTER|CREATE|DELETE|DROP|INSERT|REPLACE|UPDATE)\b/iu.test(node.text)) {
         violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+      }
+      if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+        && isExternalDashboardResource(node.text)) {
+        violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+      }
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+        const value = resolveString(node);
+        if (value !== undefined && isExternalDashboardResource(value)) {
+          violations.push("DASHBOARD_BROWSER_NETWORK_FORBIDDEN");
+        }
       }
       if (ts.isTemplateExpression(node)) {
         violations.push("DASHBOARD_TEMPLATE_EXPRESSION_FORBIDDEN");
@@ -118,8 +289,16 @@ export function scanHealthDashboardSource(source) {
       ts.forEachChild(node, visit);
     };
     visit(program);
+    if (strictInlineScript) {
+      validateDashboardGlobals(
+        program,
+        new Set(["Array", "Error", "Math", "String", "document", "fetch", "setInterval", "undefined"]),
+        violations,
+      );
+    }
+    return { allowedFetchCount };
   };
-  const tree = ts.createSourceFile("dashboard.ts", source, ts.ScriptTarget.Latest, true);
+  const tree = ts.createSourceFile(sourceFileName ?? "dashboard.ts", source, ts.ScriptTarget.Latest, true);
   const scriptContent = [];
   const collectInlineScripts = (node) => {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
@@ -134,10 +313,101 @@ export function scanHealthDashboardSource(source) {
   if (/\b(?:OrderSend|CTrade|PositionClose|OrderModify|OrderDelete|placeOrder|closePosition|candidate|execution\s+authority)\b/iu.test(source)) {
     violations.push("DASHBOARD_EXECUTION_REFERENCE_FORBIDDEN");
   }
-  scanFetchCalls(tree);
+  scanProgram(tree);
   collectInlineScripts(tree);
+  let inlineFetchCount = 0;
   for (const script of scriptContent) {
-    scanFetchCalls(ts.createSourceFile("dashboard-inline-script.ts", script, ts.ScriptTarget.Latest, true));
+    inlineFetchCount += scanProgram(
+      ts.createSourceFile("dashboard-inline-script.ts", script, ts.ScriptTarget.Latest, true),
+      true,
+    ).allowedFetchCount;
+  }
+
+  if (sourceFileName !== undefined) {
+    if (!allowedDashboardSourceFiles.has(sourceFileName)) {
+      violations.push("DASHBOARD_SOURCE_FILE_NOT_ALLOWLISTED");
+    } else {
+      const allowedGlobalsByFile = new Map([
+        ["dashboard-html.ts", new Set()],
+        ["health-summary-v1.ts", new Set(["D1Database", "NonNullable", "Promise", "const"])],
+        ["index.ts", new Set(["Date", "ExportedHandler", "Math", "Promise", "Request", "Response", "URL"])],
+      ]);
+      validateDashboardGlobals(tree, allowedGlobalsByFile.get(sourceFileName), violations);
+    }
+
+    if (sourceFileName === "dashboard-html.ts") {
+      if (scriptContent.length !== 1 || inlineFetchCount !== 1) {
+        violations.push("DASHBOARD_CAPABILITY_NOT_ALLOWLISTED");
+      }
+      if (/\bAGENT_HEALTH_DB\b/u.test(source)) violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+    }
+
+    if (sourceFileName === "index.ts" && /\bAGENT_HEALTH_DB\b/u.test(source)) {
+      violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+    }
+
+    if (sourceFileName === "index.ts") {
+      const visitIndexEnv = (node) => {
+        if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+          && node.expression.text === "env") violations.push("DASHBOARD_CAPABILITY_NOT_ALLOWLISTED");
+        ts.forEachChild(node, visitIndexEnv);
+      };
+      visitIndexEnv(tree);
+    }
+
+    if (sourceFileName === "health-summary-v1.ts") {
+      const resolveString = dashboardStaticStrings(tree);
+      const prepareCalls = [];
+      const visitPrepare = (node) => {
+        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+          && node.expression.name.text === "prepare") prepareCalls.push(node);
+        ts.forEachChild(node, visitPrepare);
+      };
+      visitPrepare(tree);
+      const seenQueries = new Set();
+      for (const call of prepareCalls) {
+        const owner = call.expression.expression;
+        const query = call.arguments[0] ? resolveString(call.arguments[0]) : undefined;
+        const normalizedQuery = query === undefined ? undefined : normalizedDashboardSql(query);
+        const expectedTerminal = normalizedQuery === undefined ? undefined : allowedDashboardQueries.get(normalizedQuery);
+        const directDatabaseOwner = ts.isPropertyAccessExpression(owner) && owner.name.text === "AGENT_HEALTH_DB";
+        if (!directDatabaseOwner || expectedTerminal === undefined
+          || dashboardD1TerminalMethod(call) !== expectedTerminal || seenQueries.has(normalizedQuery)) {
+          violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+        } else {
+          seenQueries.add(normalizedQuery);
+        }
+      }
+      if (prepareCalls.length !== allowedDashboardQueries.size || seenQueries.size !== allowedDashboardQueries.size) {
+        violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+      }
+      const visitDatabaseBinding = (node) => {
+        if (ts.isIdentifier(node) && node.text === "AGENT_HEALTH_DB") {
+          const databaseAccess = node.parent;
+          const prepareAccess = databaseAccess?.parent;
+          const declarationOnly = (ts.isPropertySignature(databaseAccess) || ts.isPropertyDeclaration(databaseAccess))
+            && databaseAccess.name === node;
+          if (!declarationOnly && (!ts.isPropertyAccessExpression(databaseAccess) || databaseAccess.name !== node
+            || !ts.isPropertyAccessExpression(prepareAccess) || prepareAccess.expression !== databaseAccess
+            || prepareAccess.name.text !== "prepare")) {
+            violations.push("DASHBOARD_DATA_WRITE_FORBIDDEN");
+          }
+        }
+        ts.forEachChild(node, visitDatabaseBinding);
+      };
+      visitDatabaseBinding(tree);
+      const allowedHealthEnvProperties = new Set([
+        "AGENT_HEALTH_DB", "DASHBOARD_ACCOUNT_ID", "DASHBOARD_INSTALLATION_ID",
+      ]);
+      const visitHealthEnv = (node) => {
+        if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+          && node.expression.text === "env" && !allowedHealthEnvProperties.has(node.name.text)) {
+          violations.push("DASHBOARD_CAPABILITY_NOT_ALLOWLISTED");
+        }
+        ts.forEachChild(node, visitHealthEnv);
+      };
+      visitHealthEnv(tree);
+    }
   }
 
   return sorted(violations);
@@ -252,7 +522,7 @@ export function runBoundaryVerifier(root = repositoryRoot) {
     violations.push(...scanWorkerFile(root, file));
   }
   for (const file of sourceFiles(join(root, "apps/agent-health-console/src"), new Set([".ts"]))) {
-    violations.push(...scanHealthDashboardSource(readFileSync(file, "utf8")));
+    violations.push(...scanHealthDashboardSource(readFileSync(file, "utf8"), relative(join(root, "apps/agent-health-console/src"), file)));
   }
   for (const file of sourceFiles(join(root, "mt5/TradeOpsAgent"), mt5SourceExtensions, skippedMt5Directories)) {
     violations.push(...scan(readFileSync(file, "utf8")));
