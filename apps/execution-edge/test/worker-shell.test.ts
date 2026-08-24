@@ -43,6 +43,23 @@ describe("inert execution Worker shell", () => {
     expect(await nonGetResponse.json()).toEqual({ error: "NOT_FOUND" });
   });
 
+  it("reports an enabled heartbeat without changing the execution safety state", async () => {
+    const syncEnabledEnv = { ...inertEnv, AGENT_SYNC_ENABLED: "true" } as Env;
+
+    const response = await responseFor("/health/live", undefined, syncEnabledEnv);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      service: "prop-trading-execution-edge",
+      mode: "DRY_RUN_AGENT_SYNC",
+      candidate_inbox: "DISABLED",
+      agent_sync: "ENABLED",
+      execution_authority: "DISABLED",
+      execution_mode_ceiling: "DRY_RUN",
+    });
+  });
+
   it.each(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])(
     "fails closed for %s on the agent sync route",
     async (method) => {

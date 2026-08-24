@@ -178,12 +178,13 @@ const worker: ExportedHandler<Env> = {
     }
 
     if (request.method === "GET" && pathname === "/health/live") {
+      const agentSyncEnabled = env.AGENT_SYNC_ENABLED === "true";
       return json({
         ok: true,
         service: "prop-trading-execution-edge",
-        mode: "INERT_FOUNDATION",
+        mode: agentSyncEnabled ? "DRY_RUN_AGENT_SYNC" : "INERT_FOUNDATION",
         candidate_inbox: "DISABLED",
-        agent_sync: "DISABLED",
+        agent_sync: agentSyncEnabled ? "ENABLED" : "DISABLED",
         execution_authority: "DISABLED",
         execution_mode_ceiling: "DRY_RUN",
       }, 200);
