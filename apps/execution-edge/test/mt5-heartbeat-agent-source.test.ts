@@ -61,6 +61,8 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(config).not.toContain("TradeOpsAgent.local.mqh");
     expect(sync).toContain("WebRequest");
     expect(sync.match(/\bWebRequest\b/g)).toHaveLength(1);
+    expect(sync).toContain("long now=(long)TimeGMT();");
+    expect(sync).not.toContain("long now=(long)TimeLocal();");
     expect(sync).toContain("1500");
     expect(sync).toContain("SYNC_HTTP_");
     expect(sync).toContain("SYNC_WAITING_");

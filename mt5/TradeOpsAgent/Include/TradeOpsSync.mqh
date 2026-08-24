@@ -69,7 +69,7 @@ string TradeOpsBuildSnapshot(const TradeOpsConfig &config,const string account_f
 bool TradeOpsBuildHeartbeatRequest(const TradeOpsConfig &config,const long request_sequence,const long last_acknowledged_server_sequence,string &payload)
 {
    if(request_sequence<1 || last_acknowledged_server_sequence<0 || !TradeOpsBrokerServerMatches(config)) return false;
-   long now=(long)TimeLocal();
+   long now=(long)TimeGMT();
    if(now<=0) return false;
    string fingerprint="";
    if(!TradeOpsAccountFingerprint(fingerprint)) return false;
