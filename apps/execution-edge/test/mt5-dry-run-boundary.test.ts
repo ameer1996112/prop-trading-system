@@ -51,6 +51,9 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource('execution_mode ??= "LIVE";')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
+    expect(scanWorkerSource('obj["execution_mode"] &&= "LIVE";')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
     expect(scanWorkerSource("const config = { real_execution_allowed: true }; ")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
@@ -75,6 +78,9 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource("real_execution_allowed ??= true;")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
+    expect(scanWorkerSource('obj[`real_execution_allowed`] &&= true;')).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
   });
 
   it("rejects direct MT5 order APIs", async () => {
@@ -96,6 +102,15 @@ describe("MT5 dry-run boundary", () => {
     expect(scan('WebRequest("GET", `https://example.test`, body);')).toContain(
       "MT5_WEBREQUEST_URL_FORBIDDEN",
     );
+    expect(scan('string endpoint = "https://example.test";')).toContain(
+      "MT5_WEBREQUEST_URL_FORBIDDEN",
+    );
+    expect(scan("string endpoint = `https://example.test`; ")).toContain(
+      "MT5_WEBREQUEST_URL_FORBIDDEN",
+    );
+    expect(scan('string authToken = "secret-value";')).toContain("MT5_CREDENTIAL_LITERAL_FORBIDDEN");
+    expect(scan("string auth_token = `secret-value`; ")).toContain("MT5_CREDENTIAL_LITERAL_FORBIDDEN");
+    expect(scan('string api_secret = "secret-value";')).toContain("MT5_CREDENTIAL_LITERAL_FORBIDDEN");
   });
 
   it("skips ignored local MT5 artifacts", async () => {

@@ -25,10 +25,10 @@ export function scan(source) {
   if (/\bOrderDelete\b/iu.test(source)) violations.push("MT5_ORDER_DELETE_FORBIDDEN");
   if (/\bOrderModify\b/iu.test(source)) violations.push("MT5_ORDER_MODIFY_FORBIDDEN");
   if (/#\s*import\b/iu.test(source)) violations.push("MT5_DLL_IMPORT_FORBIDDEN");
-  if (/\bWebRequest\s*\([^)]*["'`]https?:\/\//isu.test(source)) {
+  if (/(["'`])https:\/\/[^"'`]*\1/iu.test(source)) {
     violations.push("MT5_WEBREQUEST_URL_FORBIDDEN");
   }
-  if (/\b(?:password|secret|token|api[_ -]?key)\b\s*[:=]\s*(["'`])[^"'`]+?\1/iu.test(source)) {
+  if (/\b(?:password|secret|token|auth[_ -]?token|api[_ -]?(?:key|secret))\b\s*[:=]\s*(["'`])[^"'`]+?\1/iu.test(source)) {
     violations.push("MT5_CREDENTIAL_LITERAL_FORBIDDEN");
   }
 
@@ -37,7 +37,7 @@ export function scan(source) {
 
 export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()) {
   const violations = [];
-  const executionMode = /(?:\bexecution_mode\b|["'`]execution_mode["'`]|\[\s*["'`]execution_mode["'`]\s*\])\s*(?::|=|\|\|=|\?\?=)\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
+  const executionMode = /(?:\bexecution_mode\b|["'`]execution_mode["'`]|\[\s*["'`]execution_mode["'`]\s*\])\s*(?::|=|\|\|=|\?\?=|&&=)\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
 
   for (const match of source.matchAll(executionMode)) {
     const trailing = source.slice((match.index ?? 0) + match[0].length).trimStart();
@@ -53,7 +53,7 @@ export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()
       violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
     }
   }
-  if (/(?:\breal_execution_allowed\b|["'`]real_execution_allowed["'`]|\[\s*["'`]real_execution_allowed["'`]\s*\])\s*(?::|=|\|\|=|\?\?=)\s*true\b/iu.test(source)) {
+  if (/(?:\breal_execution_allowed\b|["'`]real_execution_allowed["'`]|\[\s*["'`]real_execution_allowed["'`]\s*\])\s*(?::|=|\|\|=|\?\?=|&&=)\s*true\b/iu.test(source)) {
     violations.push("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
   }
 
