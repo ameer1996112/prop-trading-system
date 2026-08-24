@@ -22,6 +22,11 @@ string TradeOpsJsonString(const string value)
    return "\""+TradeOpsJsonEscape(value)+"\"";
 }
 
+string TradeOpsIntegerString(const long value)
+{
+   return StringFormat("%I64d",value);
+}
+
 string TradeOpsCanonicalObject2(const string first_key,const string first_value,const string second_key,const string second_value)
 {
    if(StringCompare(first_key,second_key)<=0)
@@ -32,11 +37,12 @@ string TradeOpsCanonicalObject2(const string first_key,const string first_value,
 bool TradeOpsSha256Hex(const string value,string &hex)
 {
    uchar bytes[];
+   uchar key[];
    uchar digest[];
    int count=StringToCharArray(value,bytes,0,WHOLE_ARRAY,CP_UTF8);
    if(count<=0) return false;
    if(bytes[count-1]==0) ArrayResize(bytes,count-1);
-   if(!CryptEncode(CRYPT_HASH_SHA256,bytes,digest)) return false;
+   if(CryptEncode(CRYPT_HASH_SHA256,bytes,key,digest)<=0) return false;
    hex="";
    for(int index=0; index<ArraySize(digest); index++)
       hex+=StringFormat("%02x",digest[index]);
@@ -80,7 +86,7 @@ bool TradeOpsReadNonnegativeInteger(const string value,int &cursor,const string 
    if(cursor==start || StringSubstr(value,cursor,StringLen(suffix))!=suffix) return false;
    string digits=StringSubstr(value,start,cursor-start);
    number=StringToInteger(digits);
-   if(number<0 || LongToString(number)!=digits) return false;
+   if(number<0 || TradeOpsIntegerString(number)!=digits) return false;
    cursor+=StringLen(suffix);
    return true;
 }
@@ -104,10 +110,10 @@ bool TradeOpsResponseIsSafe(const string response,const long expected_server_seq
    long server_time=0;
    if(!TradeOpsReadNonnegativeInteger(response,cursor,"}",server_time)) return false;
    if(cursor!=StringLen(response) || server_sequence!=expected_server_sequence) return false;
-   string canonical_body="{\"acknowledged_event_sequence\":"+LongToString(acknowledged)
+   string canonical_body="{\"acknowledged_event_sequence\":"+TradeOpsIntegerString(acknowledged)
       +",\"command\":null,\"evidence_requests\":[],\"freeze_reasons\":[],\"mode\":\"DRY_RUN\""
-      +",\"schema_version\":\"AgentSyncResponseV1\",\"server_sequence\":"+LongToString(server_sequence)
-      +",\"server_time_epoch\":"+LongToString(server_time)+"}";
+      +",\"schema_version\":\"AgentSyncResponseV1\",\"server_sequence\":"+TradeOpsIntegerString(server_sequence)
+      +",\"server_time_epoch\":"+TradeOpsIntegerString(server_time)+"}";
    string calculated_digest="";
    if(!TradeOpsSha256Hex(canonical_body,calculated_digest) || calculated_digest!=digest) return false;
    verified_server_sequence=server_sequence;

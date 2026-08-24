@@ -16,12 +16,12 @@ string TradeOpsConnectionState()
 string TradeOpsNullableEpoch(const datetime value)
 {
    if(value<=0) return "null";
-   return LongToString((long)value);
+   return TradeOpsIntegerString((long)value);
 }
 
 bool TradeOpsAccountFingerprint(string &fingerprint)
 {
-   string material=LongToString(AccountInfoInteger(ACCOUNT_LOGIN))+"|"+AccountInfoString(ACCOUNT_SERVER)+"|"+AccountInfoString(ACCOUNT_COMPANY);
+   string material=TradeOpsIntegerString(AccountInfoInteger(ACCOUNT_LOGIN))+"|"+AccountInfoString(ACCOUNT_SERVER)+"|"+AccountInfoString(ACCOUNT_COMPANY);
    return TradeOpsSha256Hex(material,fingerprint);
 }
 
@@ -39,7 +39,7 @@ string TradeOpsBuildSnapshot(const TradeOpsConfig &config,const string account_f
    string selection_state=SymbolInfoInteger(broker_symbol,SYMBOL_SELECT)!=0 ? "SELECTED" : "NOT_SELECTED";
    string symbol="{"
       +"\"ask_ticks\":null,\"bid_ticks\":null,\"broker_symbol\":"+TradeOpsJsonString(broker_symbol)
-      +",\"capability_state\":\"UNKNOWN\",\"observed_at_epoch\":"+LongToString(observed_at)
+      +",\"capability_state\":\"UNKNOWN\",\"observed_at_epoch\":"+TradeOpsIntegerString(observed_at)
       +",\"selection_state\":"+TradeOpsJsonString(selection_state)
       +",\"source_symbol\":"+TradeOpsJsonString(config.source_symbol)
       +",\"symbol_capability_sha256\":"+TradeOpsJsonString(config.symbol_capability_sha256)
@@ -56,10 +56,10 @@ string TradeOpsBuildSnapshot(const TradeOpsConfig &config,const string account_f
       +",\"equity_minor_units\":null,\"free_margin_minor_units\":null"
       +",\"manifest_sha256\":"+TradeOpsJsonString(config.manifest_sha256)
       +",\"margin_level_bps\":null,\"margin_minor_units\":null"
-      +",\"observed_at_epoch\":"+LongToString(observed_at)
+      +",\"observed_at_epoch\":"+TradeOpsIntegerString(observed_at)
       +",\"open_orders\":[],\"positions\":[],\"reconciliation_watermark\":"+watermark
       +",\"symbols\":["+symbol+"]"
-      +",\"terminal_build\":"+LongToString(TerminalInfoInteger(TERMINAL_BUILD))
+      +",\"terminal_build\":"+TradeOpsIntegerString(TerminalInfoInteger(TERMINAL_BUILD))
       +",\"terminal_connection_state\":"+TradeOpsJsonString(TradeOpsConnectionState())
       +",\"terminal_trade_permission\":"+TradeOpsJsonString(TradeOpsPermission(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)))
       +",\"windows_time_epoch\":"+TradeOpsNullableEpoch(TimeLocal())
@@ -75,19 +75,19 @@ bool TradeOpsBuildHeartbeatRequest(const TradeOpsConfig &config,const long reque
    if(!TradeOpsAccountFingerprint(fingerprint)) return false;
    string snapshot=TradeOpsBuildSnapshot(config,fingerprint,now);
    if(StringLen(snapshot)==0) return false;
-   string nonce="n-"+LongToString(request_sequence)+"-"+StringSubstr(fingerprint,0,24);
+   string nonce="n-"+TradeOpsIntegerString(request_sequence)+"-"+StringSubstr(fingerprint,0,24);
    string body_without_digest="{"
       +"\"account_id\":"+TradeOpsJsonString(config.account_id)
       +",\"account_profile_sha256\":"+TradeOpsJsonString(config.account_profile_sha256)
       +",\"account_snapshot\":"+snapshot
       +",\"broker_bar_evidence\":[],\"events\":[]"
       +",\"installation_id\":"+TradeOpsJsonString(config.installation_id)
-      +",\"last_acknowledged_server_sequence\":"+LongToString(last_acknowledged_server_sequence)
+      +",\"last_acknowledged_server_sequence\":"+TradeOpsIntegerString(last_acknowledged_server_sequence)
       +",\"nonce\":"+TradeOpsJsonString(nonce)
-      +",\"request_sequence\":"+LongToString(request_sequence)
-      +",\"safety_epoch\":"+LongToString(config.safety_epoch)
+      +",\"request_sequence\":"+TradeOpsIntegerString(request_sequence)
+      +",\"safety_epoch\":"+TradeOpsIntegerString(config.safety_epoch)
       +",\"schema_version\":\"AgentSyncRequestV1\""
-      +",\"sent_at_epoch\":"+LongToString(now)
+      +",\"sent_at_epoch\":"+TradeOpsIntegerString(now)
       +"}";
    string digest="";
    if(!TradeOpsSha256Hex(body_without_digest,digest)) return false;
@@ -98,12 +98,12 @@ bool TradeOpsBuildHeartbeatRequest(const TradeOpsConfig &config,const long reque
       +",\"body_sha256\":"+TradeOpsJsonString(digest)
       +",\"broker_bar_evidence\":[],\"events\":[]"
       +",\"installation_id\":"+TradeOpsJsonString(config.installation_id)
-      +",\"last_acknowledged_server_sequence\":"+LongToString(last_acknowledged_server_sequence)
+      +",\"last_acknowledged_server_sequence\":"+TradeOpsIntegerString(last_acknowledged_server_sequence)
       +",\"nonce\":"+TradeOpsJsonString(nonce)
-      +",\"request_sequence\":"+LongToString(request_sequence)
-      +",\"safety_epoch\":"+LongToString(config.safety_epoch)
+      +",\"request_sequence\":"+TradeOpsIntegerString(request_sequence)
+      +",\"safety_epoch\":"+TradeOpsIntegerString(config.safety_epoch)
       +",\"schema_version\":\"AgentSyncRequestV1\""
-      +",\"sent_at_epoch\":"+LongToString(now)
+      +",\"sent_at_epoch\":"+TradeOpsIntegerString(now)
       +"}";
    return StringLen(payload)<=262144;
 }
@@ -164,8 +164,8 @@ bool TradeOpsSaveSyncState(const TradeOpsSyncState &state)
    string temporary_path=path+".tmp";
    int handle=FileOpen(temporary_path,FILE_WRITE|FILE_TXT|FILE_ANSI);
    if(handle==INVALID_HANDLE) return false;
-   bool written=FileWrite(handle,"request_sequence="+LongToString(state.request_sequence))>0
-      && FileWrite(handle,"last_acknowledged_server_sequence="+LongToString(state.last_acknowledged_server_sequence))>0
+   bool written=FileWrite(handle,"request_sequence="+TradeOpsIntegerString(state.request_sequence))>0
+      && FileWrite(handle,"last_acknowledged_server_sequence="+TradeOpsIntegerString(state.last_acknowledged_server_sequence))>0
       && FileWrite(handle,"pending_payload="+state.pending_payload)>0;
    FileClose(handle);
    if(!written)
