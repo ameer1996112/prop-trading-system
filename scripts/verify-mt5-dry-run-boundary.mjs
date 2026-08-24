@@ -1,10 +1,14 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const skippedDirectories = new Set([".git", "dist", "generated", "journal", "local", "node_modules"]);
 const mt5SourceExtensions = new Set([".mq5", ".mqh"]);
+const frozenCandidateContractPath = "apps/execution-edge/src/execution-candidate-v2.ts";
+const frozenCandidateExecutionMode = /\breadonly\s+execution_mode\s*:\s*"PAPER_ONLY"\s*;/gu;
+const frozenCandidateExecutionModeValidation = 'const executionMode = literal(input.execution_mode, "PAPER_ONLY");';
+const frozenCandidateExecutionModeValue = "execution_mode: executionMode,";
 
 function sorted(violations) {
   return [...new Set(violations)].sort();
@@ -31,14 +35,14 @@ export function scan(source) {
 
 export function scanWorkerSource(source) {
   const violations = [];
-  const executionMode = /\bexecution_mode\b\s*[:=]\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
+  const executionMode = /(?:\bexecution_mode\b|["']execution_mode["']|\[\s*["']execution_mode["']\s*\])\s*[:=]\s*(?:(["'`])([^"'`]*)\1|([^\s,;}]+))/giu;
 
   for (const match of source.matchAll(executionMode)) {
     if (match[1] === undefined || match[2] !== "DRY_RUN") {
       violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
     }
   }
-  if (/\breal_execution_allowed\b\s*:\s*true\b/iu.test(source)) {
+  if (/\breal_execution_allowed\b\s*[:=]\s*true\b/iu.test(source)) {
     violations.push("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
   }
 
@@ -59,11 +63,25 @@ function sourceFiles(root, extensions) {
   return files;
 }
 
+function scanWorkerFile(root, file) {
+  let source = readFileSync(file, "utf8");
+
+  // This frozen, account-free candidate contract is not a command authority.
+  if (
+    relative(root, file) === frozenCandidateContractPath
+    && source.includes(frozenCandidateExecutionModeValidation)
+  ) {
+    source = source
+      .replace(frozenCandidateExecutionMode, "")
+      .replace(frozenCandidateExecutionModeValue, "");
+  }
+  return scanWorkerSource(source);
+}
+
 export function runBoundaryVerifier(root = repositoryRoot) {
   const violations = [];
-  const workerSource = join(root, "apps/execution-edge/src/index.ts");
-  if (existsSync(workerSource)) {
-    violations.push(...scanWorkerSource(readFileSync(workerSource, "utf8")));
+  for (const file of sourceFiles(join(root, "apps/execution-edge/src"), new Set([".ts"]))) {
+    violations.push(...scanWorkerFile(root, file));
   }
   for (const file of sourceFiles(join(root, "mt5/TradeOpsAgent"), mt5SourceExtensions)) {
     violations.push(...scan(readFileSync(file, "utf8")));

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -11,9 +11,11 @@ async function loadVerifier() {
 }
 
 describe("MT5 dry-run boundary", () => {
-  it("keeps Worker and MT5 source free of execution authority", async () => {
+  it("allows only the frozen PAPER_ONLY candidate contract in the real repository", async () => {
     const { runBoundaryVerifier } = await loadVerifier();
 
+    const candidateContract = new URL("../src/execution-candidate-v2.ts", import.meta.url);
+    expect(readFileSync(candidateContract, "utf8")).toContain('readonly execution_mode: "PAPER_ONLY";');
     expect(runBoundaryVerifier()).toEqual({ ok: true, violations: [] });
   });
 
@@ -30,8 +32,17 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource('readonly execution_mode: "PAPER_ONLY";')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
+    expect(scanWorkerSource('const config = { "execution_mode": "LIVE" };')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
+    expect(scanWorkerSource('const config = { ["execution_mode"]: "LIVE" };')).toContain(
+      "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+    );
     expect(scanWorkerSource('const config = { execution_mode: "DRY_RUN" };')).toEqual([]);
     expect(scanWorkerSource("const config = { real_execution_allowed: true }; ")).toContain(
+      "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+    );
+    expect(scanWorkerSource("real_execution_allowed = true;")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
   });
@@ -78,6 +89,29 @@ describe("MT5 dry-run boundary", () => {
       expect(runBoundaryVerifier(root)).toEqual({
         ok: false,
         violations: ["MT5_ORDER_API_FORBIDDEN"],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("scans every Worker TypeScript source file", async () => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), "mt5-dry-run-boundary-"));
+
+    try {
+      const source = join(root, "apps/execution-edge/src");
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "index.ts"), 'const config = { execution_mode: "DRY_RUN" };\n');
+      writeFileSync(join(source, "sibling.ts"), 'const config = { execution_mode: "PAPER_ONLY" };\n');
+      writeFileSync(join(source, "nested.ts"), "real_execution_allowed = true;\n");
+
+      expect(runBoundaryVerifier(root)).toEqual({
+        ok: false,
+        violations: [
+          "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
+          "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
+        ],
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
