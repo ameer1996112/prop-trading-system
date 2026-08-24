@@ -156,6 +156,7 @@ async function enabledEnv(): Promise<Env> {
     EXECUTION_MODE_CEILING: "DRY_RUN",
     ROUTING_MANIFEST_SHA256: "INERT_NOT_CONFIGURED",
     AGENT_SYNC_SHARED_SECRET_SHA256: await sha256Hex(SECRET),
+    EXECUTION_DB: auditDatabase(),
     ACCOUNT_COORDINATOR: {
       idFromName(name: string) {
         return name;
@@ -171,6 +172,26 @@ async function enabledEnv(): Promise<Env> {
       },
     },
   } as unknown as Env;
+}
+
+type AuditRun = Readonly<{ query: string; parameters: readonly unknown[] }>;
+
+function auditDatabase(runs: AuditRun[] = [], fail = false): D1Database {
+  return {
+    prepare(query: string) {
+      return {
+        bind(...parameters: unknown[]) {
+          return {
+            async run() {
+              if (fail) throw new Error("audit unavailable");
+              runs.push({ query, parameters });
+              return { success: true };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
 }
 
 async function route(body: string, authorization?: string, env?: Env): Promise<Response> {
@@ -310,6 +331,95 @@ describe("AgentSyncRequestV1", () => {
 });
 
 describe("agent sync Worker route", () => {
+  it("writes bounded accepted and rejected audit rows only after parsing", async () => {
+    const runs: AuditRun[] = [];
+    const acceptedEnv = { ...await enabledEnv(), EXECUTION_DB: auditDatabase(runs) } as Env;
+    const body = await encodedRequest({
+      request_sequence: 1,
+      last_acknowledged_server_sequence: 0,
+      sent_at_epoch: Math.floor(Date.now() / 1000),
+    });
+
+    expect((await route(body, `Bearer ${SECRET}`, acceptedEnv)).status).toBe(200);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      query: expect.stringContaining("INSERT INTO agent_sync_audit_v1"),
+      parameters: [expect.any(String), "account-1", "installation-1", 1, expect.stringMatching(/^[a-f0-9]{64}$/u), "ACCEPTED", 1, expect.any(Number)],
+    });
+    expect(JSON.stringify(runs[0])).not.toMatch(/price_ticks|open_orders|positions|agent-sync-test-token/u);
+
+    const conflictRuns: AuditRun[] = [];
+    const conflictEnv = {
+      ...await enabledEnv(),
+      EXECUTION_DB: auditDatabase(conflictRuns),
+      ACCOUNT_COORDINATOR: {
+        idFromName(name: string) { return name; },
+        get() { return { fetch: async () => new Response(JSON.stringify({ code: "REPLAY_CONFLICT" })) }; },
+      },
+    } as unknown as Env;
+    expect((await route(body, `Bearer ${SECRET}`, conflictEnv)).status).toBe(409);
+    expect(conflictRuns[0]?.parameters.slice(5, 7)).toEqual(["REPLAY_CONFLICT", null]);
+  });
+
+  it("fails closed when audit persistence fails", async () => {
+    const env = { ...await enabledEnv(), EXECUTION_DB: auditDatabase([], true) } as Env;
+    const response = await route(await encodedRequest({
+      request_sequence: 1,
+      last_acknowledged_server_sequence: 0,
+      sent_at_epoch: Math.floor(Date.now() / 1000),
+    }), `Bearer ${SECRET}`, env);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "AGENT_SYNC_AUDIT_UNAVAILABLE", mode: "DRY_RUN", command: null });
+  });
+
+  it("audits exact retries and every coordinator rejection code", async () => {
+    const body = await encodedRequest({
+      request_sequence: 1,
+      last_acknowledged_server_sequence: 0,
+      sent_at_epoch: Math.floor(Date.now() / 1000),
+    });
+    for (const [code, expected] of [
+      ["OK", "EXACT_RETRY"],
+      ["SEQUENCE_INVALID", "SEQUENCE_INVALID"],
+      ["IDENTITY_MISMATCH", "IDENTITY_MISMATCH"],
+      ["REPLAY_CONFLICT", "REPLAY_CONFLICT"],
+    ] as const) {
+      const runs: AuditRun[] = [];
+      const env = {
+        ...await enabledEnv(),
+        EXECUTION_DB: auditDatabase(runs),
+        ACCOUNT_COORDINATOR: {
+          idFromName(name: string) { return name; },
+          get() {
+            return {
+              fetch: async () => new Response(JSON.stringify(code === "OK"
+                ? { code, replayed: true, response_bytes: canonicalStringify(await createDryRunResponse({ events: [] }, 1, NOW)) }
+                : { code })),
+            };
+          },
+        },
+      } as unknown as Env;
+
+      const response = await route(body, `Bearer ${SECRET}`, env);
+      expect(response.status).toBe(code === "OK" ? 200 : 409);
+      expect(runs[0]?.parameters[5]).toBe(expected);
+    }
+  });
+
+  it("envelopes sync rejection outcomes as dry-run null-command responses", async () => {
+    const malformed = await route("{", `Bearer ${SECRET}`);
+    const unauthorized = await route(await encodedRequest({ sent_at_epoch: Math.floor(Date.now() / 1000) }));
+    const disabled = { ...await enabledEnv(), AGENT_SYNC_ENABLED: "false" } as Env;
+    const disabledResponse = await route(await encodedRequest({ sent_at_epoch: Math.floor(Date.now() / 1000) }), `Bearer ${SECRET}`, disabled);
+    const fetch = worker.fetch as unknown as (request: Request, env: Env, context: ExecutionContext) => Promise<Response>;
+    const methodResponse = await fetch(new Request("https://execution-edge.example/api/v1/agent/sync"), await enabledEnv(), {} as ExecutionContext);
+
+    for (const response of [malformed, unauthorized, disabledResponse, methodResponse]) {
+      expect((await response.json()) as { mode: unknown; command: unknown }).toMatchObject({ mode: "DRY_RUN", command: null });
+    }
+  });
+
   it("keys the enabled local coordinator by exact account id and maps replay conflicts to 409", async () => {
     const names: string[] = [];
     const conflictEnv = {

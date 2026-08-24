@@ -8,3 +8,15 @@ CREATE TABLE agent_sync_audit_v1 (
   server_sequence INTEGER,
   received_at_epoch INTEGER NOT NULL
 );
+
+CREATE TRIGGER agent_sync_audit_v1_no_update
+BEFORE UPDATE ON agent_sync_audit_v1
+BEGIN
+  SELECT RAISE(ABORT, 'agent_sync_audit_v1 is append only');
+END;
+
+CREATE TRIGGER agent_sync_audit_v1_no_delete
+BEFORE DELETE ON agent_sync_audit_v1
+BEGIN
+  SELECT RAISE(ABORT, 'agent_sync_audit_v1 is append only');
+END;

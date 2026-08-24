@@ -49,7 +49,7 @@ describe("inert execution Worker shell", () => {
       const response = await responseFor("/api/v1/agent/sync", { method });
 
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "AGENT_SYNC_DISABLED" });
+      expect(await response.json()).toEqual({ error: "AGENT_SYNC_DISABLED", mode: "DRY_RUN", command: null });
     },
   );
 

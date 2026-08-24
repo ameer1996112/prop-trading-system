@@ -8,6 +8,7 @@ export interface AccountCoordinatorStorageV1 {
 
 export type AccountCoordinatorResultV1 = Readonly<{
   code: "OK";
+  replayed: boolean;
   response: AgentSyncResponseV1;
   responseBytes: string;
 }> | Readonly<{
@@ -70,7 +71,7 @@ export async function coordinateAgentSyncV1(
       const response = typeof storedResponseBytes === "string" && typeof responseDigest === "string"
         ? storedResponse(storedResponseBytes, responseDigest)
         : null;
-      return response === null ? { code: "SEQUENCE_INVALID" } : { code: "OK", response, responseBytes: storedResponseBytes! };
+      return response === null ? { code: "SEQUENCE_INVALID" } : { code: "OK", replayed: true, response, responseBytes: storedResponseBytes! };
     }
     if (request.request_sequence !== lastSequence + 1) return { code: "SEQUENCE_INVALID" };
   } else if (request.request_sequence !== 1) {
@@ -96,7 +97,7 @@ export async function coordinateAgentSyncV1(
     last_acknowledged_event_sequence: nextAcknowledgedSequence,
     heartbeat_summary: heartbeatSummary(request),
   });
-  return { code: "OK", response, responseBytes };
+  return { code: "OK", replayed: false, response, responseBytes };
 }
 
 export async function getAccountCoordinatorStatusV1(
@@ -128,7 +129,7 @@ export class AccountCoordinatorV1 {
       if (!Number.isSafeInteger(body.now_epoch) || body.now_epoch < 0) return coordinatorJson({ code: "COORDINATOR_INVALID" }, 400);
       const result = await coordinateAgentSyncV1(this.state.storage, body.request, body.now_epoch);
       return result.code === "OK"
-        ? coordinatorJson({ code: "OK", response_bytes: result.responseBytes })
+        ? coordinatorJson({ code: "OK", replayed: result.replayed, response_bytes: result.responseBytes })
         : coordinatorJson({ code: result.code });
     } catch {
       return coordinatorJson({ code: "COORDINATOR_INVALID" }, 400);

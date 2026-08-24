@@ -129,6 +129,7 @@ describe("account coordinator v1", () => {
       "result_code", "server_sequence", "received_at_epoch",
     ]) expect(migration).toMatch(new RegExp(`\\b${column}\\b`, "u"));
     expect(migration).not.toMatch(/bearer|credential|password|login|price|order|payload/iu);
-    expect(migration).not.toMatch(/UPDATE|DELETE/iu);
+    expect(migration).toMatch(/CREATE TRIGGER agent_sync_audit_v1_no_update[\s\S]*BEFORE UPDATE ON agent_sync_audit_v1[\s\S]*RAISE\(ABORT/u);
+    expect(migration).toMatch(/CREATE TRIGGER agent_sync_audit_v1_no_delete[\s\S]*BEFORE DELETE ON agent_sync_audit_v1[\s\S]*RAISE\(ABORT/u);
   });
 });
