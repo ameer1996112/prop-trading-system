@@ -91,6 +91,39 @@ describe("execution-edge configuration and schema boundaries", () => {
     expect(validateLocalOnlyExecutionEdgeConfig(config, packageJson)).toEqual([]);
   });
 
+  it("keeps the separately approved remote dry-run profile command-free", () => {
+    const config = json("apps/execution-edge/wrangler.dry-run.jsonc");
+    expect(config).toMatchObject({
+      name: "prop-trading-execution-edge-dry-run",
+      workers_dev: true,
+      preview_urls: false,
+      vars: {
+        CANDIDATE_INBOX_ENABLED: "false",
+        AGENT_SYNC_ENABLED: "true",
+        EXECUTION_AUTHORITY_ENABLED: "false",
+        EXECUTION_MODE_CEILING: "DRY_RUN",
+        ROUTING_MANIFEST_SHA256: "INERT_NOT_CONFIGURED",
+      },
+      secrets: { required: ["AGENT_SYNC_SHARED_SECRET_SHA256"] },
+    });
+    const d1 = config.d1_databases as Record<string, unknown>[];
+    expect(d1).toEqual([expect.objectContaining({
+      binding: "EXECUTION_DB",
+      database_name: "prop-trading-execution-edge-dry-run",
+      database_id: "9385395b-b713-4ae9-a690-82737a5daaff",
+      migrations_dir: "migrations",
+    })]);
+    expect(config.durable_objects).toEqual({
+      bindings: [
+        { name: "CANDIDATE_INBOX", class_name: "CandidateInbox" },
+        { name: "ACCOUNT_COORDINATOR", class_name: "AccountCoordinator" },
+      ],
+    });
+    expect(config.migrations).toEqual([
+      { tag: "v1", new_sqlite_classes: ["CandidateInbox", "AccountCoordinator"] },
+    ]);
+  });
+
   it("rejects a non-placeholder D1 database ID in a mutated configuration fixture", () => {
     const config = json("apps/execution-edge/wrangler.jsonc");
     const packageJson = json("apps/execution-edge/package.json");

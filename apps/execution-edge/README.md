@@ -30,6 +30,26 @@ The local command bundles and runs against local resources only. It does not
 deploy a Worker, create a D1 database, apply a remote Durable Object migration,
 upload a secret, configure MT5, or connect to a broker.
 
+## Approved remote DRY_RUN deployment profile
+
+`wrangler.dry-run.jsonc` is a separately approved remote profile for the
+`prop-trading-execution-edge-dry-run` Worker. It is deliberately separate from
+the inert default config and is the only configuration permitted to bind the
+dedicated redacted-audit D1 database.
+
+It enables only the authenticated heartbeat route on a Workers.dev HTTPS URL:
+
+- `AGENT_SYNC_ENABLED` is `true`;
+- `EXECUTION_AUTHORITY_ENABLED` stays `false`;
+- `EXECUTION_MODE_CEILING` stays `DRY_RUN`;
+- every successful sync response remains `command: null`.
+
+The profile requires the hash-only `AGENT_SYNC_SHARED_SECRET_SHA256` binding.
+The raw bearer must never be committed, sent to Cloudflare, printed, or added
+to a Workers variable. A remote deployment is still not a broker connection:
+the MT5 EA must remain uncompiled/unattached and Algo Trading disabled until
+the endpoint itself has been health-checked.
+
 ## Future remote setup is a separate decision
 
 A remote deployment requires separate owner approval. Before that approval,
