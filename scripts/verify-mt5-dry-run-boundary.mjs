@@ -83,6 +83,7 @@ export function scanHealthDashboardSource(source) {
         }
       }
       if (ts.isTemplateExpression(node)) {
+        violations.push("DASHBOARD_TEMPLATE_EXPRESSION_FORBIDDEN");
         const textFragments = [node.head.text, ...node.templateSpans.map((span) => span.literal.text)];
         if (textFragments.some((text) => /<\/?script\b/iu.test(text))) {
           violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
