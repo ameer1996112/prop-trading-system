@@ -39,7 +39,13 @@ export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()
   const violations = [];
   const tree = ts.createSourceFile("worker.ts", source, ts.ScriptTarget.Latest, true);
   const staticString = (node) => {
+    if (ts.isParenthesizedExpression(node)) return staticString(node.expression);
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+    if (ts.isTemplateExpression(node)) {
+      let value = node.head.text;
+      for (const span of node.templateSpans) { const part = staticString(span.expression); if (part === undefined) return undefined; value += part + span.literal.text; }
+      return value;
+    }
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
       const left = staticString(node.left); const right = staticString(node.right);
       return left === undefined || right === undefined ? undefined : left + right;
@@ -64,7 +70,14 @@ export function scanWorkerSource(source, allowedExecutionModeIndexes = new Set()
     if (ts.isPropertySignature(node) && node.type && ts.isLiteralTypeNode(node.type)) check(nameOf(node.name), node.type.literal, node.name.getStart(tree));
     if (ts.isPropertyDeclaration(node) && node.initializer) check(nameOf(node.name), node.initializer, node.name.getStart(tree));
     if (ts.isVariableDeclaration(node) && node.initializer) check(nameOf(node.name), node.initializer, node.name.getStart(tree));
-    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken].includes(node.operatorToken.kind)) check(nameOf(node.left), node.right, node.left.getStart(tree));
+    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken].includes(node.operatorToken.kind)) {
+      const name = nameOf(node.left); if (name === undefined && ts.isElementAccessExpression(node.left)) { violations.push("WORKER_EXECUTION_MODE_NOT_DRY_RUN", "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN"); } else check(name, node.right, node.left.getStart(tree));
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const owner = identifierText(node.expression.expression); const method = node.expression.name.text;
+      if (owner === "Object" && method === "defineProperty" && node.arguments.length >= 3) { const name = staticString(node.arguments[1]); const descriptor = node.arguments[2]; if (ts.isObjectLiteralExpression(descriptor)) { const value = descriptor.properties.find((p) => ts.isPropertyAssignment(p) && propertyNameText(p) === "value"); if (value && ts.isPropertyAssignment(value)) check(name, value.initializer, node.arguments[1].getStart(tree)); } }
+      if (owner === "Reflect" && method === "set" && node.arguments.length >= 3) check(staticString(node.arguments[1]), node.arguments[2], node.arguments[1].getStart(tree));
+    }
     ts.forEachChild(node, visit);
   };
   visit(tree);
@@ -92,11 +105,12 @@ function frozenCandidateModeIndexes(source) {
   const tree = ts.createSourceFile("execution-candidate-v2.ts", source, ts.ScriptTarget.Latest, true);
   const interfaces = tree.statements.filter((node) => ts.isInterfaceDeclaration(node) && node.name.text === "ExecutionCandidateV2" && node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword));
   const interfaceProperty = interfaces.length === 1 ? interfaces[0].members.filter((m) => ts.isPropertySignature(m) && propertyNameText(m) === "execution_mode") : [];
-  const typedPaperOnly = interfaceProperty.length === 1 && ts.isLiteralTypeNode(interfaceProperty[0].type) && ts.isStringLiteral(interfaceProperty[0].type.literal) && interfaceProperty[0].type.literal.text === "PAPER_ONLY";
+  const typedPaperOnly = interfaceProperty.length === 1 && interfaceProperty[0].modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) && ts.isLiteralTypeNode(interfaceProperty[0].type) && ts.isStringLiteral(interfaceProperty[0].type.literal) && interfaceProperty[0].type.literal.text === "PAPER_ONLY";
   const keys = tree.statements.filter((node) => ts.isVariableStatement(node)).flatMap((node) => node.declarationList.declarations).filter((node) => identifierText(node.name) === "CANDIDATE_KEYS");
   const keyElements = keys.length === 1 && keys[0].initializer && ts.isAsExpression(keys[0].initializer) && ts.isArrayLiteralExpression(keys[0].initializer.expression) ? keys[0].initializer.expression.elements : [];
   const keyValues = keyElements.every(ts.isStringLiteral) ? keyElements.map((node) => node.text) : [];
-  const accountFree = keyElements.length > 0 && keyValues.length === keyElements.length && keyValues.includes("execution_mode") && !keyValues.some((key) => /(?:account|installation|command|order|broker|password|secret|token)/iu.test(key));
+  const forbiddenCandidateKey = /^(?:account|installation|command|lease|reservation|order|deal|position|broker_(?:password|credential|token))/iu;
+  const accountFree = keyElements.length > 0 && keyValues.length === keyElements.length && keyValues.includes("execution_mode") && !keyValues.some((key) => forbiddenCandidateKey.test(key));
   const validators = tree.statements.filter((node) => ts.isFunctionDeclaration(node) && node.name?.text === "validateExecutionCandidateV2");
   if (!typedPaperOnly || !accountFree || validators.length !== 1 || !validators[0].body) return new Set();
   const tries = validators[0].body.statements.filter(ts.isTryStatement);
@@ -107,7 +121,9 @@ function frozenCandidateModeIndexes(source) {
   const returns = statements.filter(ts.isReturnStatement).filter((node) => node.expression && ts.isCallExpression(node.expression) && ts.isPropertyAccessExpression(node.expression.expression) && identifierText(node.expression.expression.expression) === "Object" && node.expression.expression.name.text === "freeze" && ts.isObjectLiteralExpression(node.expression.arguments[0]));
   if (!validDeclaration || returns.length !== 1) return new Set();
   const properties = returns[0].expression.arguments[0].properties.filter((node) => ts.isPropertyAssignment(node) && propertyNameText(node) === "execution_mode");
-  if (properties.length !== 1 || identifierText(properties[0].initializer) !== "executionMode") return new Set();
+  const returnProperties = returns[0].expression.arguments[0].properties;
+  const returnAccountFree = returnProperties.every((property) => !ts.isSpreadAssignment(property) && propertyNameText(property) !== undefined && !forbiddenCandidateKey.test(propertyNameText(property)));
+  if (properties.length !== 1 || identifierText(properties[0].initializer) !== "executionMode" || !returnAccountFree) return new Set();
   return new Set([interfaceProperty[0].name.getStart(tree), properties[0].name.getStart(tree)]);
 }
 

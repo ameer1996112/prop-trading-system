@@ -47,6 +47,11 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource('const config = { ["execution" + "_mode"]: "LIVE" };')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
     );
+    expect(scanWorkerSource('const config = { [`execution_${"mode"}`]: "LIVE" };')).toContain("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+    expect(scanWorkerSource('const config = { [("execution_mode")]: "LIVE" };')).toContain("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+    expect(scanWorkerSource('class X { public execution_mode = "LIVE"; }')).toContain("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+    expect(scanWorkerSource('execution_mode += "LIVE";')).toContain("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
+    expect(scanWorkerSource('Object.defineProperty(x, "execution_mode", { value: "LIVE" });')).toContain("WORKER_EXECUTION_MODE_NOT_DRY_RUN");
     expect(scanWorkerSource('const config = { execution_mode: "DRY_RUN" };')).toEqual([]);
     expect(scanWorkerSource('const config = { execution_mode: "DRY_RUN" + "LIVE" };')).toContain(
       "WORKER_EXECUTION_MODE_NOT_DRY_RUN",
@@ -81,6 +86,9 @@ describe("MT5 dry-run boundary", () => {
     expect(scanWorkerSource("const config = { real_execution_allowed: Boolean(1) }; ")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
+    expect(scanWorkerSource("real_execution_allowed += true;")).toContain("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
+    expect(scanWorkerSource('Reflect.set(x, "real_execution_allowed", true);')).toContain("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
+    expect(scanWorkerSource("obj[key] = true;")).toContain("WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN");
     expect(scanWorkerSource("real_execution_allowed ||= true;")).toContain(
       "WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN",
     );
