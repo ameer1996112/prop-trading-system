@@ -53,6 +53,19 @@ export function scanHealthDashboardSource(source) {
     }
     return false;
   };
+  const isAllowedDirectFetchCall = (node) => {
+    const [argument] = node.arguments;
+    return ts.isIdentifier(node.expression)
+      && node.expression.text === "fetch"
+      && !node.questionDotToken
+      && node.arguments.length === 1
+      && !!argument
+      && ts.isStringLiteral(argument)
+      && argument.text === "/api/v1/health-summary";
+  };
+  const isHandlerMethodName = (node) => !!node.parent
+    && ts.isMethodDeclaration(node.parent)
+    && node.parent.name === node;
   const scanFetchCalls = (program) => {
     if (program.parseDiagnostics.length > 0) {
       violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
@@ -60,11 +73,18 @@ export function scanHealthDashboardSource(source) {
     }
     const visit = (node) => {
       if (ts.isCallExpression(node) && isFetchReference(node.expression)) {
-      const [argument] = node.arguments;
-        const directIdentifierFetch = ts.isIdentifier(node.expression)
-          && node.expression.text === "fetch"
-          && !node.questionDotToken;
-        if (!directIdentifierFetch || node.arguments.length !== 1 || !argument || !ts.isStringLiteral(argument) || argument.text !== "/api/v1/health-summary") {
+        if (!isAllowedDirectFetchCall(node)) {
+          violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
+        }
+      }
+      if (ts.isIdentifier(node) && node.text === "fetch") {
+        if (!isHandlerMethodName(node) && (!node.parent || !ts.isCallExpression(node.parent) || node.parent.expression !== node || !isAllowedDirectFetchCall(node.parent))) {
+          violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
+        }
+      }
+      if (ts.isTemplateExpression(node)) {
+        const textFragments = [node.head.text, ...node.templateSpans.map((span) => span.literal.text)];
+        if (textFragments.some((text) => /<\/?script\b/iu.test(text))) {
           violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
         }
       }

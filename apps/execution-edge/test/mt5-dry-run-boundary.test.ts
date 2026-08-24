@@ -57,7 +57,16 @@ describe("MT5 dry-run boundary", () => {
     expect(scanHealthDashboardSource('client["fetch"]("/api/v1/health-summary");')).toContain(
       "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
     );
+    expect(scanHealthDashboardSource('(fetch)("/api/v1/health-summary");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('const f = fetch; f("https://broker.example");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
     expect(scanHealthDashboardSource('const page = `<script>globalThis.fetch("https://broker.example")</script>`;')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('const page = `<script>${0}; globalThis.fetch("https://broker.example")</script>`;')).toContain(
       "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
     );
     expect(scanHealthDashboardSource('fetch("/api/v1/health-summary", { method: "GET" });')).toContain(
