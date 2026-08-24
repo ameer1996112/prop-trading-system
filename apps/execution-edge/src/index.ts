@@ -5,7 +5,7 @@ import {
 } from "./agent-sync-v1";
 import type { AgentSyncRequestV1 } from "./agent-sync-v1";
 import { AccountCoordinatorV1 } from "./account-coordinator-v1";
-import { canonicalStringify } from "./canonical";
+import { canonicalStringify, sha256Hex } from "./canonical";
 
 export interface Env {
   EXECUTION_DB: D1Database;
@@ -62,12 +62,33 @@ async function writeAgentSyncAudit(
   ).run();
 }
 
-function responseServerSequence(responseBytes: string): number | null {
+const AGENT_SYNC_RESPONSE_KEYS = [
+  "schema_version", "response_body_sha256", "server_sequence", "server_time_epoch", "mode",
+  "freeze_reasons", "acknowledged_event_sequence", "evidence_requests", "command",
+] as const;
+const SHA256 = /^[a-f0-9]{64}$/u;
+
+async function validateCoordinatorResponse(
+  responseBytes: string,
+  expectedServerSequence: number,
+  minimumAcknowledgedEventSequence: number,
+): Promise<Readonly<{ server_sequence: number }> | null> {
   try {
-    const value = JSON.parse(responseBytes) as Readonly<{ server_sequence?: unknown }>;
-    return typeof value.server_sequence === "number" && Number.isSafeInteger(value.server_sequence) && value.server_sequence > 0
-      ? value.server_sequence
-      : null;
+    const value = JSON.parse(responseBytes) as Record<string, unknown>;
+    if (value === null || Array.isArray(value) || typeof value !== "object") return null;
+    const actualKeys = Object.keys(value).sort();
+    const expectedKeys = [...AGENT_SYNC_RESPONSE_KEYS].sort();
+    if (actualKeys.length !== expectedKeys.length || actualKeys.some((key, index) => key !== expectedKeys[index])) return null;
+    if (value.schema_version !== "AgentSyncResponseV1" || value.mode !== "DRY_RUN" || value.command !== null) return null;
+    if (typeof value.response_body_sha256 !== "string" || !SHA256.test(value.response_body_sha256) || value.response_body_sha256 === "0".repeat(64)) return null;
+    if (value.server_sequence !== expectedServerSequence || !Number.isSafeInteger(value.server_sequence) || value.server_sequence < 1) return null;
+    if (typeof value.server_time_epoch !== "number" || !Number.isSafeInteger(value.server_time_epoch) || value.server_time_epoch < 0) return null;
+    if (typeof value.acknowledged_event_sequence !== "number" || !Number.isSafeInteger(value.acknowledged_event_sequence)
+      || value.acknowledged_event_sequence < minimumAcknowledgedEventSequence) return null;
+    if (!Array.isArray(value.freeze_reasons) || value.freeze_reasons.length !== 0 || !Array.isArray(value.evidence_requests) || value.evidence_requests.length !== 0) return null;
+    if (responseBytes !== canonicalStringify(value)) return null;
+    const { response_body_sha256: digest, ...body } = value;
+    return await sha256Hex(canonicalStringify(body)) === digest ? { server_sequence: value.server_sequence } : null;
   } catch {
     return null;
   }
@@ -215,13 +236,20 @@ const worker: ExportedHandler<Env> = {
         }));
         if (!response.ok) return dryRunFailure("COORDINATOR_UNAVAILABLE", 503);
         const result = await response.json() as Readonly<{ code?: string; replayed?: unknown; response_bytes?: unknown }>;
+        const minimumAcknowledgedEventSequence = parsed.events.reduce(
+          (maximum, event) => Math.max(maximum, event.sequence as number),
+          0,
+        );
+        const validResponse = result.code === "OK" && typeof result.response_bytes === "string"
+          ? await validateCoordinatorResponse(result.response_bytes, parsed.request_sequence, minimumAcknowledgedEventSequence)
+          : null;
         const outcome = result.code === "OK"
           ? result.replayed === true ? "EXACT_RETRY" : "ACCEPTED"
           : result.code === "REPLAY_CONFLICT" || result.code === "SEQUENCE_INVALID" || result.code === "IDENTITY_MISMATCH"
             ? result.code
             : null;
-        const serverSequence = typeof result.response_bytes === "string" ? responseServerSequence(result.response_bytes) : null;
-        if (outcome === null || (result.code === "OK" && serverSequence === null)) {
+        const serverSequence = validResponse?.server_sequence ?? null;
+        if (outcome === null || (result.code === "OK" && validResponse === null)) {
           return dryRunFailure("COORDINATOR_UNAVAILABLE", 503);
         }
         try {

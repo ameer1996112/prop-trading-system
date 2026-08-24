@@ -5,6 +5,7 @@ import {
   createDryRunResponse,
   parseAgentSyncRequest,
 } from "../src/agent-sync-v1";
+import type { AgentSyncRequestV1 } from "../src/agent-sync-v1";
 import { canonicalStringify, sha256Hex } from "../src/canonical";
 import worker, { type Env } from "../src/index";
 
@@ -164,8 +165,8 @@ async function enabledEnv(): Promise<Env> {
       get() {
         return {
           async fetch(request: Request): Promise<Response> {
-            const body = await request.json() as { request: Parameters<typeof createDryRunResponse>[0]; now_epoch: number };
-            const response = await createDryRunResponse(body.request, 1, body.now_epoch);
+            const body = await request.json() as { request: AgentSyncRequestV1; now_epoch: number };
+            const response = await createDryRunResponse(body.request, body.request.request_sequence, body.now_epoch);
             return new Response(JSON.stringify({ code: "OK", response_bytes: canonicalStringify(response) }));
           },
         };
@@ -371,6 +372,67 @@ describe("agent sync Worker route", () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "AGENT_SYNC_AUDIT_UNAVAILABLE", mode: "DRY_RUN", command: null });
+  });
+
+  it("rejects a malformed successful coordinator response before audit or forwarding", async () => {
+    const runs: AuditRun[] = [];
+    const env = {
+      ...await enabledEnv(),
+      EXECUTION_DB: auditDatabase(runs),
+      ACCOUNT_COORDINATOR: {
+        idFromName(name: string) { return name; },
+        get() {
+          return {
+            async fetch(): Promise<Response> {
+              const valid = await createDryRunResponse({ events: [] }, 1, NOW);
+              return new Response(JSON.stringify({
+                code: "OK",
+                response_bytes: canonicalStringify({ ...valid, command: { mode: "LIVE" } }),
+              }));
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+
+    const response = await route(await encodedRequest({
+      request_sequence: 1,
+      last_acknowledged_server_sequence: 0,
+      sent_at_epoch: Math.floor(Date.now() / 1000),
+    }), `Bearer ${SECRET}`, env);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "COORDINATOR_UNAVAILABLE", mode: "DRY_RUN", command: null });
+    expect(runs).toEqual([]);
+  });
+
+  it("rejects a coordinator acknowledgement below the parsed event sequence", async () => {
+    const runs: AuditRun[] = [];
+    const env = {
+      ...await enabledEnv(),
+      EXECUTION_DB: auditDatabase(runs),
+      ACCOUNT_COORDINATOR: {
+        idFromName(name: string) { return name; },
+        get() {
+          return {
+            async fetch(): Promise<Response> {
+              const response = await createDryRunResponse({ events: [] }, 1, NOW);
+              return new Response(JSON.stringify({ code: "OK", response_bytes: canonicalStringify(response) }));
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+
+    const response = await route(await encodedRequest({
+      request_sequence: 1,
+      last_acknowledged_server_sequence: 0,
+      sent_at_epoch: Math.floor(Date.now() / 1000),
+      events: [await validHeartbeatEvent()],
+    }), `Bearer ${SECRET}`, env);
+
+    expect(response.status).toBe(503);
+    expect(runs).toEqual([]);
   });
 
   it("audits exact retries and every coordinator rejection code", async () => {
