@@ -203,6 +203,13 @@ The only authorized result is a local source-verification record containing:
 - confirmation that `git status --short` is clean after committing the
   documentation.
 
+## Approval-gated private dashboard rollout
+
+Only **after Ameer explicitly approves** are exactly two Cloudflare state
+changes authorized: deploy the new dashboard Worker and configure its
+Cloudflare Access email policy. Do not make any change to execution-edge, the
+MT5 EA, the MT5 WebRequest allowlist, Algo Trading, or the broker account.
+
 ## Private dashboard completion checks
 
 1. execution-edge accepts a fresh DRY_RUN heartbeat and writes one projection.
