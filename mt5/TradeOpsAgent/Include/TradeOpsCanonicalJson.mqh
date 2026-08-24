@@ -103,6 +103,8 @@ bool TradeOpsResponseIsSafe(const string response,const long expected_server_seq
    string digest=StringSubstr(response,digest_start,64);
    if(!TradeOpsIsLowerHexSha256(digest)) return false;
    cursor+=64;
+   if(cursor>=StringLen(response) || StringGetCharacter(response,cursor)!=34) return false;
+   cursor++;
    const string sequence_prefix=",\"schema_version\":\"AgentSyncResponseV1\",\"server_sequence\":";
    if(StringSubstr(response,cursor,StringLen(sequence_prefix))!=sequence_prefix) return false;
    cursor+=StringLen(sequence_prefix);

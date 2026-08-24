@@ -77,6 +77,7 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(canonical).toContain("StringFormat(\"%I64d\",value)");
     expect(canonical).not.toContain("LongToString");
     expect(canonical).toContain("StringSubstr(response,cursor,StringLen(sequence_prefix))");
+    expect(canonical).toContain("StringGetCharacter(response,cursor)!=34");
     expect(sync).not.toContain("LongToString");
     expect(canonical).toContain("acknowledged_event_sequence");
     expect(canonical).toContain('mode\\\":\\\"DRY_RUN');
