@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/execution-decision-v1.schema.json",
+  "title": "ExecutionDecisionV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decision_sha256", "candidate_id", "candidate_body_sha256", "account_id", "account_profile_sha256", "symbol_capability_sha256", "reconstruction_sha256", "prop_rule_pack_sha256", "news_calendar_pack_sha256", "safety_epoch", "outcome", "reason_code", "modeled_risk_bps", "modeled_risk_minor_units", "reservation_id", "created_at_epoch", "expires_at_epoch", "authority", "real_execution_allowed"],
+  "properties": {
+    "schema_version": {"const": "ExecutionDecisionV1"}, "decision_sha256": {"$ref": "#/$defs/sha256"}, "candidate_id": {"$ref": "#/$defs/sha256"}, "candidate_body_sha256": {"$ref": "#/$defs/sha256"},
+    "account_id": {"$ref": "#/$defs/identifier"}, "account_profile_sha256": {"$ref": "#/$defs/sha256"}, "symbol_capability_sha256": {"$ref": "#/$defs/sha256"}, "reconstruction_sha256": {"$ref": "#/$defs/sha256"}, "prop_rule_pack_sha256": {"$ref": "#/$defs/sha256"}, "news_calendar_pack_sha256": {"$ref": "#/$defs/sha256"},
+    "safety_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "outcome": {"enum": ["BLOCKED", "DRY_RUN_AUTHORIZED", "EXPIRED"]},
+    "reason_code": {"enum": ["AUTHORIZED", "ACCOUNT_FROZEN", "PROFILE_INVALID", "CAPABILITY_MISMATCH", "RECONSTRUCTION_MISMATCH", "RULE_LIMIT", "NEWS_BLACKOUT", "RISK_LIMIT", "STALE_INPUT", "RESERVATION_UNAVAILABLE", "DECISION_EXPIRED"]},
+    "modeled_risk_bps": {"type": "integer", "minimum": 0, "maximum": 10000}, "modeled_risk_minor_units": {"$ref": "#/$defs/nonnegativeSafeInteger"},
+    "reservation_id": {"anyOf": [{"$ref": "#/$defs/identifier"}, {"type": "null"}]}, "created_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "expires_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"},
+    "authority": {"const": "DRY_RUN"}, "real_execution_allowed": {"const": false}
+  },
+  "oneOf": [
+    {"properties": {"outcome": {"const": "DRY_RUN_AUTHORIZED"}, "reason_code": {"const": "AUTHORIZED"}, "reservation_id": {"$ref": "#/$defs/identifier"}}},
+    {"properties": {"outcome": {"const": "EXPIRED"}, "reason_code": {"const": "DECISION_EXPIRED"}, "reservation_id": {"type": "null"}}},
+    {"properties": {"outcome": {"const": "BLOCKED"}, "reason_code": {"enum": ["ACCOUNT_FROZEN", "PROFILE_INVALID", "CAPABILITY_MISMATCH", "RECONSTRUCTION_MISMATCH", "RULE_LIMIT", "NEWS_BLACKOUT", "RISK_LIMIT", "STALE_INPUT", "RESERVATION_UNAVAILABLE"]}, "reservation_id": {"type": "null"}}}
+  ],
+  "$defs": {"identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}},
+  "description": "Immutable account-specific DRY_RUN risk decision with stable reason coding and no real-execution authority."
+}

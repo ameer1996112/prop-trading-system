@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/routing-manifest-v1.schema.json",
+  "title": "RoutingManifestV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_version", "manifest_sha256", "issued_at_epoch", "not_before_epoch", "expires_at_epoch", "authority_ceiling", "routes"],
+  "properties": {
+    "schema_version": {"const": "RoutingManifestV1"}, "manifest_version": {"$ref": "#/$defs/identifier"}, "manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "issued_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "not_before_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "expires_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"},
+    "authority_ceiling": {"const": "DRY_RUN"}, "routes": {"type": "array", "minItems": 0, "maxItems": 32, "items": {"$ref": "#/$defs/route"}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "route": {"type": "object", "additionalProperties": false, "required": ["source_symbol", "account_id", "account_profile_sha256", "symbol_capability_sha256"], "properties": {"source_symbol": {"enum": ["EURUSD", "GBPJPY", "USDJPY", "XAUUSD", "NAS100"]}, "account_id": {"$ref": "#/$defs/identifier"}, "account_profile_sha256": {"$ref": "#/$defs/sha256"}, "symbol_capability_sha256": {"$ref": "#/$defs/sha256"}}}
+  },
+  "description": "Credential-free immutable source-symbol routing capped at DRY_RUN."
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/prop-rule-pack-v1.schema.json",
+  "title": "PropRulePackV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pack_version", "pack_sha256", "environment", "daily_loss_bps", "overall_loss_bps", "risk_per_trade_bps", "max_concurrent_ideas", "weekend_holding_allowed", "high_impact_news_block_minutes_before", "high_impact_news_block_minutes_after", "issued_at_epoch", "not_before_epoch", "expires_at_epoch", "authority_ceiling"],
+  "properties": {
+    "schema_version": {"const": "PropRulePackV1"}, "pack_version": {"$ref": "#/$defs/identifier"}, "pack_sha256": {"$ref": "#/$defs/sha256"}, "environment": {"const": "DEMO"},
+    "daily_loss_bps": {"$ref": "#/$defs/basisPoints"}, "overall_loss_bps": {"$ref": "#/$defs/basisPoints"}, "risk_per_trade_bps": {"$ref": "#/$defs/basisPoints"},
+    "max_concurrent_ideas": {"type": "integer", "minimum": 1, "maximum": 32}, "weekend_holding_allowed": {"const": false},
+    "high_impact_news_block_minutes_before": {"type": "integer", "minimum": 0, "maximum": 1440}, "high_impact_news_block_minutes_after": {"type": "integer", "minimum": 0, "maximum": 1440},
+    "issued_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "not_before_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "expires_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "authority_ceiling": {"const": "DRY_RUN"}
+  },
+  "$defs": {"identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "basisPoints": {"type": "integer", "minimum": 1, "maximum": 10000}},
+  "description": "Versioned credential-free DEMO prop risk and calendar restrictions capped at DRY_RUN."
+}

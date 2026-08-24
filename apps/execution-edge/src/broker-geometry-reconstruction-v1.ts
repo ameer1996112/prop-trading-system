@@ -223,10 +223,14 @@ export async function reconstructBrokerGeometryV1(
 
   const firstBar = evidence.bars[0];
   const lastBar = evidence.bars.at(-1);
+  const evidenceOutsideCandidateTtl = lastBar !== undefined && (
+    (lastBar.close_epoch < candidate.observed_at_epoch && candidate.observed_at_epoch - lastBar.close_epoch > 30) ||
+    (lastBar.close_epoch > candidate.observed_at_epoch && lastBar.close_epoch - candidate.observed_at_epoch > 30)
+  );
   if (
     evidenceValidation.hasInternalGap || firstBar === undefined || lastBar === undefined ||
     firstBar.open_epoch > candidate.zone_active_from_epoch ||
-    lastBar.close_epoch < candidate.source_bar.close_epoch
+    lastBar.close_epoch < candidate.source_bar.close_epoch || evidenceOutsideCandidateTtl
   ) {
     return result(candidate, evidence.evidence_id, capability, "DATA_GAP", evidenceValidation.hasInternalGap
       ? "BROKER_EVIDENCE_GAP"
@@ -245,21 +249,34 @@ export async function reconstructBrokerGeometryV1(
     priceUnits(bar.low_ticks, brokerTickUnits) <= zoneTop &&
     priceUnits(bar.high_ticks, brokerTickUnits) >= zoneBottom
   ));
-  const sourceBar = bars.find((bar) => bar.close_epoch === candidate.source_bar.close_epoch);
 
   if (
-    engagement === undefined || sourceBar === undefined ||
+    engagement === undefined ||
     engagement.open_epoch !== candidate.engagement_candle.open_epoch
   ) {
     return result(candidate, evidence.evidence_id, capability, "BLOCKED", "GEOMETRY_MISMATCH", null);
   }
 
-  const sourceBarClose = priceUnits(sourceBar.close_ticks, brokerTickUnits);
-  const sourceBarOpen = priceUnits(sourceBar.open_ticks, brokerTickUnits);
-  const directionalCloseIsValid = candidate.direction === "LONG"
-    ? sourceBarClose > sourceBarOpen && sourceBarClose > zoneTop
-    : sourceBarClose < sourceBarOpen && sourceBarClose < zoneBottom;
-  if (!directionalCloseIsValid) {
+  let sourceBar: BrokerBarEvidenceV1["bars"][number] | undefined;
+  for (const bar of bars.slice(bars.indexOf(engagement))) {
+    const close = priceUnits(bar.close_ticks, brokerTickUnits);
+    const open = priceUnits(bar.open_ticks, brokerTickUnits);
+    const directionalCloseIsValid = candidate.direction === "LONG"
+      ? close > open && close > zoneTop
+      : close < open && close < zoneBottom;
+    if (directionalCloseIsValid) {
+      sourceBar = bar;
+      break;
+    }
+    const invalidatesBeforeEntry = candidate.direction === "LONG"
+      ? close <= zoneTop
+      : close >= zoneBottom;
+    if (invalidatesBeforeEntry) break;
+  }
+  if (
+    sourceBar === undefined ||
+    sourceBar.close_epoch !== candidate.source_bar.close_epoch
+  ) {
     return result(candidate, evidence.evidence_id, capability, "BLOCKED", "GEOMETRY_MISMATCH", null);
   }
 
