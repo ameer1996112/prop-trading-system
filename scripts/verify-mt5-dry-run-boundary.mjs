@@ -43,26 +43,42 @@ export function scan(source) {
 
 export function scanHealthDashboardSource(source) {
   const violations = [];
-  const tree = ts.createSourceFile("dashboard.ts", source, ts.ScriptTarget.Latest, true);
   const isFetchReference = (node) => {
-    if (ts.isParenthesizedExpression(node)) return isFetchReference(node.expression);
     if (ts.isIdentifier(node)) return node.text === "fetch";
     if (ts.isPropertyAccessExpression(node)) {
-      return node.name.text === "fetch" || ((node.name.text === "call" || node.name.text === "apply") && isFetchReference(node.expression));
+      return node.name.text === "fetch" || isFetchReference(node.expression);
     }
     if (ts.isElementAccessExpression(node)) {
       return (ts.isStringLiteral(node.argumentExpression) && node.argumentExpression.text === "fetch") || isFetchReference(node.expression);
     }
     return false;
   };
-  const visit = (node) => {
-    if (ts.isCallExpression(node) && isFetchReference(node.expression)) {
-      const [argument] = node.arguments;
-      if (node.arguments.length !== 1 || !argument || !ts.isStringLiteral(argument) || argument.text !== "/api/v1/health-summary") {
-        violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
-      }
+  const scanFetchCalls = (program) => {
+    if (program.parseDiagnostics.length > 0) {
+      violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
+      return;
     }
-    ts.forEachChild(node, visit);
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && isFetchReference(node.expression)) {
+      const [argument] = node.arguments;
+        const directIdentifierFetch = ts.isIdentifier(node.expression)
+          && node.expression.text === "fetch"
+          && !node.questionDotToken;
+        if (!directIdentifierFetch || node.arguments.length !== 1 || !argument || !ts.isStringLiteral(argument) || argument.text !== "/api/v1/health-summary") {
+          violations.push("DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN");
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(program);
+  };
+  const tree = ts.createSourceFile("dashboard.ts", source, ts.ScriptTarget.Latest, true);
+  const scriptContent = [];
+  const collectInlineScripts = (node) => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      for (const match of node.text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/giu)) scriptContent.push(match[1]);
+    }
+    ts.forEachChild(node, collectInlineScripts);
   };
 
   if (/\/api\/v1\/agent\/sync/iu.test(source)) {
@@ -71,7 +87,11 @@ export function scanHealthDashboardSource(source) {
   if (/\b(?:OrderSend|CTrade|PositionClose|OrderModify|OrderDelete|placeOrder|closePosition|candidate|execution\s+authority)\b/iu.test(source)) {
     violations.push("DASHBOARD_EXECUTION_REFERENCE_FORBIDDEN");
   }
-  visit(tree);
+  scanFetchCalls(tree);
+  collectInlineScripts(tree);
+  for (const script of scriptContent) {
+    scanFetchCalls(ts.createSourceFile("dashboard-inline-script.ts", script, ts.ScriptTarget.Latest, true));
+  }
 
   return sorted(violations);
 }

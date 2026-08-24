@@ -108,7 +108,7 @@ export function renderDashboardHtml(): string {
       };
       const loadSummary = async () => {
         try {
-          const response = await fetch("/api/v1/health-summary", { method: "GET", headers: { accept: "application/json" } });
+          const response = await fetch("/api/v1/health-summary");
           if (!response.ok) throw new Error("health summary unavailable");
           render(await response.json());
         } catch { clear(); }

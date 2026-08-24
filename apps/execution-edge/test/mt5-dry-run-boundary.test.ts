@@ -45,7 +45,26 @@ describe("MT5 dry-run boundary", () => {
     expect(scanHealthDashboardSource('globalThis.fetch("https://broker.example");')).toContain(
       "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
     );
+    expect(scanHealthDashboardSource('fetch?.("/api/v1/health-summary");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('globalThis.fetch("/api/v1/health-summary");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('window.fetch("/api/v1/health-summary");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('client["fetch"]("/api/v1/health-summary");')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('const page = `<script>globalThis.fetch("https://broker.example")</script>`;')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
+    expect(scanHealthDashboardSource('fetch("/api/v1/health-summary", { method: "GET" });')).toContain(
+      "DASHBOARD_OUTBOUND_NETWORK_FORBIDDEN",
+    );
     expect(scanHealthDashboardSource('fetch("/api/v1/health-summary");')).toEqual([]);
+    expect(scanHealthDashboardSource('const page = `<script>fetch("/api/v1/health-summary")</script>`;')).toEqual([]);
     expect(scanHealthDashboardSource('const title = "MT5 DRY_RUN Health";')).toEqual([]);
   });
 
