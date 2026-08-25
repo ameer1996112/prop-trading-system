@@ -10,7 +10,7 @@ RELEASE_PINE = Path("scripts/pinescript/SND_RD_5M_V3_RELEASE.pine")
 WORKER = Path("apps/observation-edge/src/index.ts")
 INGESTION = Path("apps/observation-edge/src/execution-proposal-ingestion.ts")
 DISPATCHER = Path("apps/observation-edge/src/observation-outbox-dispatcher.ts")
-MIGRATION = Path("apps/observation-edge/migrations/0030_observation_execution_proposal_v1.sql")
+MIGRATION = Path("apps/observation-edge/test/fixtures/execution-proposal-v1-legacy.sql")
 WRANGLER = Path("apps/observation-edge/wrangler.jsonc")
 V1_SCHEMA_BYTES = {
     Path("contracts/schema/rd-entry-execution-proposal-v1.schema.json"): (
@@ -523,6 +523,23 @@ def test_observation_edge_remains_account_free_and_private_transport_only() -> N
     ):
         assert forbidden_route not in worker
     assert "receiveExecutionCandidateV1" not in worker
+
+
+def test_public_observation_route_excludes_legacy_execution_proposals() -> None:
+    worker = WORKER.read_text(encoding="utf-8")
+    deployed_migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
+
+    assert "ingestParsedExecutionProposalV1" not in worker
+    assert not any(
+        path.name == "0030_observation_execution_proposal_v1.sql" for path in deployed_migrations
+    )
+    assert [path.name for path in deployed_migrations][-1] == (
+        "0030_observation_remote_schema_compatibility.sql"
+    )
+    compatibility = deployed_migrations[-1].read_text(encoding="utf-8")
+    assert "CREATE TABLE" not in compatibility
+    assert "CREATE INDEX" not in compatibility
+    assert "CREATE TRIGGER" not in compatibility
 
 
 def test_v1_contract_bytes_are_frozen_while_v2_reconstruction_is_paper_only() -> None:

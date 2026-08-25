@@ -23,7 +23,7 @@ Record the reviewed commit and local build artifacts before approval:
   `0027_observation_entry_v3_paper_fallback_shadow.sql`,
   `0028_observation_entry_v3_liquidity_cohorts.sql`,
   `0029_observation_entry_v3_one_candle_reason.sql`, and
-  `0030_observation_execution_proposal_v1.sql`.
+  `0030_observation_remote_schema_compatibility.sql`.
 
 The required runtime binding names are listed below without values. The five names marked
 **secret binding** are also listed under `secrets.required` in `wrangler.jsonc`, but that field is
@@ -75,13 +75,17 @@ Build the two production artifacts again and retain their output paths:
 Do not continue if the working tree differs from the reviewed commit.
 
 Candidate emission and dispatch are independent controls and both remain disabled. The receiver
-manifest is inert. Proposal persistence is diagnostic paper evidence only: no account or broker
-execution exists, and this rollout does not add a public dispatcher or receiver route.
+manifest is inert. This release exposes receipt-only observation ingress: it does not accept
+execution-proposal payloads, add a public dispatcher or receiver route, or add any account or
+broker execution surface.
 
-## 2. Apply D1 migrations through 0030
+## 2. Reconcile D1 migrations through 0030
 
-After explicit deployment approval, apply every pending migration through
-`0030_observation_execution_proposal_v1.sql`:
+After explicit deployment approval, inspect pending migrations. The remote D1 database has a
+historical proposal-table lineage that this receipt-only release must preserve. Do not recreate,
+rename, drop, alter, or manually mark those tables. The only permitted new migration is the
+no-schema-change compatibility ledger marker
+`0030_observation_remote_schema_compatibility.sql`:
 
 ```sh
 (cd apps/observation-edge && npm run db:migrate:remote)
@@ -93,8 +97,10 @@ The migration output must show that `0024_observation_entries_v3.sql`,
 `0027_observation_entry_v3_paper_fallback_shadow.sql`,
 `0028_observation_entry_v3_liquidity_cohorts.sql`,
 `0029_observation_entry_v3_one_candle_reason.sql`, and
-`0030_observation_execution_proposal_v1.sql` are already applied or were applied successfully.
-Do not delete, rename, or roll back any of these migrations.
+`0030_observation_remote_schema_compatibility.sql` are already applied or were applied
+successfully. Stop if any proposal-table-creating migration is reported as pending; reconcile the
+Worker source first rather than mutating the remote proposal schema. Do not delete, rename, roll
+back, or manually edit the migration ledger for any of these migrations.
 
 ## 3. Review and bind detector/settings identities
 

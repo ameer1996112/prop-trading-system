@@ -68,6 +68,12 @@ export class ProposalTestD1 {
       .sort()) {
       this.database.exec(readFileSync(`${root}/migrations/${migration}`, "utf8"));
     }
+    this.database.exec(
+      readFileSync(
+        `${root}/test/fixtures/execution-proposal-v1-legacy.sql`,
+        "utf8",
+      ),
+    );
   }
 
   prepare(sql: string): D1PreparedStatement {

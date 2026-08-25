@@ -1,4 +1,4 @@
--- Immutable, account-free paper proposal evidence and a private inert outbox.
+-- Test-only legacy proposal schema. It is intentionally excluded from Worker D1 migrations.
 CREATE TABLE observation_execution_proposal_v1_events (
     event_id TEXT PRIMARY KEY NOT NULL CHECK (length(event_id) = 64),
     producer_instance_id TEXT NOT NULL,

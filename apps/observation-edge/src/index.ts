@@ -1,5 +1,4 @@
 import { parseStrictJson } from "./strict-json";
-import { ingestParsedExecutionProposalV1 } from "./execution-proposal-ingestion";
 import {
   INSERT_RECEIPT_SQL,
   INSERT_SETUP_EVIDENCE_SQL,
@@ -1156,53 +1155,6 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
       422,
       "INVALID_OBSERVATION",
       "Observation envelope failed validation",
-    );
-  }
-
-  const parsedEnvelope =
-    parsedBody !== null &&
-    typeof parsedBody === "object" &&
-    !Array.isArray(parsedBody)
-      ? (parsedBody as Readonly<Record<string, unknown>>)
-      : null;
-  const parsedPayload =
-    parsedEnvelope?.payload !== null &&
-    typeof parsedEnvelope?.payload === "object" &&
-    !Array.isArray(parsedEnvelope.payload)
-      ? (parsedEnvelope.payload as Readonly<Record<string, unknown>>)
-      : null;
-  if (parsedPayload?.schema_version === "rd-entry-execution-proposal-v1") {
-    if (
-      parsedEnvelope === null ||
-      Object.keys(parsedEnvelope).sort().join("\u0000") !==
-        ["credential", "payload"].sort().join("\u0000") ||
-      typeof parsedEnvelope.credential !== "string" ||
-      parsedEnvelope.credential.length < 1 ||
-      parsedEnvelope.credential.length > 1_024
-    ) {
-      return errorResponse(
-        422,
-        "INVALID_OBSERVATION",
-        "Observation envelope failed validation",
-      );
-    }
-    const proposalCredentialDigest = await sha256Hex(parsedEnvelope.credential);
-    const expectedCredentialDigest =
-      env.TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256;
-    if (
-      expectedCredentialDigest === undefined ||
-      !constantTimeHexEqual(expectedCredentialDigest, proposalCredentialDigest)
-    ) {
-      return errorResponse(
-        401,
-        "INVALID_CREDENTIAL",
-        "Observation credential was rejected",
-      );
-    }
-    return ingestParsedExecutionProposalV1(
-      env,
-      parsedEnvelope.payload,
-      Math.floor(Date.now() / 1_000),
     );
   }
 

@@ -28,7 +28,7 @@ async function body(response: Response): Promise<ExecutionProposalIngestionRespo
 }
 
 describe("execution proposal v1 ingestion", () => {
-  it("accepts proposal v1 on the existing authenticated observation route", async () => {
+  it("rejects proposal v1 on the public observation route", async () => {
     const database = new ProposalTestD1();
     const credential = "proposal-route-secret";
     const credentialDigest = Array.from(
@@ -49,17 +49,13 @@ describe("execution proposal v1 ingestion", () => {
       }),
     );
 
-    expect(response.status).toBe(202);
-    expect(await body(response)).toMatchObject({
-      schema_version: "rd-entry-execution-proposal-ingestion-v1",
-      status: "RECORDED",
-      execution_mode: "PAPER_ONLY",
-      candidate_emission: "DISABLED",
-      candidate_dispatch: "DISABLED",
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({
+      error: { code: "INVALID_OBSERVATION" },
     });
-    expect(count(database, "observation_execution_proposal_v1_events")).toBe(1);
-    expect(count(database, "observation_execution_proposal_v1_paper_results")).toBe(1);
-    expect(count(database, "observation_execution_producer_checkpoints")).toBe(1);
+    expect(count(database, "observation_execution_proposal_v1_events")).toBe(0);
+    expect(count(database, "observation_execution_proposal_v1_paper_results")).toBe(0);
+    expect(count(database, "observation_execution_producer_checkpoints")).toBe(0);
   });
 
   it("replays an identical producer sequence idempotently", async () => {
@@ -77,7 +73,7 @@ describe("execution proposal v1 ingestion", () => {
     expect(count(database, "observation_execution_producer_incidents")).toBe(0);
   });
 
-  it("digests canonical proposal semantics across direct and routed transport variants", async () => {
+  it("keeps proposal transport variants off the public observation route", async () => {
     const database = new ProposalTestD1();
     const credential = "canonical-replay-secret";
     const credentialDigest = Array.from(
@@ -91,8 +87,6 @@ describe("execution proposal v1 ingestion", () => {
       TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256: credentialDigest,
     });
     const value = proposal(1);
-    const first = await ingestExecutionProposalV1(env, bytes(value), 1_800_000_302);
-    const firstText = await first.text();
     const reversed = Object.fromEntries(Object.entries(value).reverse());
     const transportVariant = JSON.stringify(reversed, null, 2).replace(
       "pine-proposal-v1-fixture",
@@ -107,9 +101,11 @@ describe("execution proposal v1 ingestion", () => {
       env,
     );
 
-    expect(routed.status).toBe(202);
-    expect(await routed.text()).toBe(firstText);
-    expect(count(database, "observation_execution_proposal_v1_events")).toBe(1);
+    expect(routed.status).toBe(422);
+    expect(await routed.json()).toMatchObject({
+      error: { code: "INVALID_OBSERVATION" },
+    });
+    expect(count(database, "observation_execution_proposal_v1_events")).toBe(0);
   });
 
   it("quarantines sequence gaps, out-of-order events, and body conflicts", async () => {

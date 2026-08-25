@@ -63,14 +63,14 @@ def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None
     assert "observation_entry_v3_event_dispositions_no_delete" in migration
 
 
-def test_rd_rollout_tracks_every_edge_migration_through_0030() -> None:
+def test_rd_rollout_tracks_every_edge_migration_through_schema_reconciliation() -> None:
     migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
     assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 31)]
 
     runbook = Path("docs/runbooks/rd-three-entry-paper-rollout.md").read_text(encoding="utf-8")
     assert "D1 is migrated through 0030;" in runbook
     assert "0029_observation_entry_v3_one_candle_reason.sql" in runbook
-    assert "0030_observation_execution_proposal_v1.sql" in runbook
+    assert "0030_observation_remote_schema_compatibility.sql" in runbook
     assert (
         "Do not delete migration 0024, migration 0025, migration 0026, "
         "migration 0027, migration 0028, migration 0029, migration 0030, "
@@ -79,9 +79,9 @@ def test_rd_rollout_tracks_every_edge_migration_through_0030() -> None:
     assert "D1 is migrated through 0029;" not in runbook
 
 
-def test_execution_proposal_migration_is_strict_append_only_and_paper_only() -> None:
+def test_legacy_execution_proposal_fixture_is_strict_append_only_and_paper_only() -> None:
     migration = Path(
-        "apps/observation-edge/migrations/0030_observation_execution_proposal_v1.sql"
+        "apps/observation-edge/test/fixtures/execution-proposal-v1-legacy.sql"
     ).read_text(encoding="utf-8")
     for table in (
         "observation_execution_proposal_v1_events",
@@ -107,3 +107,13 @@ def test_execution_proposal_migration_is_strict_append_only_and_paper_only() -> 
     ):
         assert f"{table}_no_update" in migration
         assert f"{table}_no_delete" in migration
+
+
+def test_schema_reconciliation_migration_is_a_documented_no_op() -> None:
+    migration = Path(
+        "apps/observation-edge/migrations/0030_observation_remote_schema_compatibility.sql"
+    ).read_text(encoding="utf-8")
+    assert "REMOTE_SCHEMA_RECONCILIATION" in migration
+    assert "CREATE TABLE" not in migration
+    assert "CREATE INDEX" not in migration
+    assert "CREATE TRIGGER" not in migration
