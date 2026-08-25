@@ -54,8 +54,8 @@ function unknownSummary(nowEpoch: number): HealthSummaryResponseV1 {
 
 function statusAt(nowEpoch: number, lastAcceptedEpoch: number): HealthSummaryResponseV1["status"] {
   const age = nowEpoch - lastAcceptedEpoch;
-  if (age <= 20) return "ONLINE";
-  if (age <= 60) return "STALE";
+  if (age <= 35) return "ONLINE";
+  if (age <= 90) return "STALE";
   return "OFFLINE";
 }
 

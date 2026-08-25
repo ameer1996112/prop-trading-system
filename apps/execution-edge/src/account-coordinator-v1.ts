@@ -6,6 +6,21 @@ export interface AccountCoordinatorStorageV1 {
   put(entries: Record<string, unknown>): Promise<void>;
 }
 
+type AccountCoordinatorSyncStateV1 = Readonly<{
+  installation_id?: string | undefined;
+  account_profile_sha256?: string | undefined;
+  account_fingerprint_sha256?: string | undefined;
+  safety_epoch?: number | undefined;
+  last_accepted_request_sequence?: number | undefined;
+  last_accepted_request_digest?: string | undefined;
+  last_canonical_response_bytes?: string | undefined;
+  last_canonical_response_digest?: string | undefined;
+  last_acknowledged_event_sequence?: number | undefined;
+  heartbeat_summary?: Readonly<Record<string, unknown>> | undefined;
+}>;
+
+const SYNC_STATE_KEY = "sync_state_v1";
+
 export type AccountCoordinatorResultV1 = Readonly<{
   code: "OK";
   replayed: boolean;
@@ -42,12 +57,11 @@ function storedResponse(bytes: string, digest: string): AgentSyncResponseV1 | nu
   }
 }
 
-export async function coordinateAgentSyncV1(
-  storage: AccountCoordinatorStorageV1,
-  request: AgentSyncRequestV1,
-  nowEpoch: number,
-): Promise<AccountCoordinatorResultV1> {
-  const [lastSequence, installationId, profileDigest, fingerprintDigest, safetyEpoch, requestDigest, storedResponseBytes, responseDigest, acknowledgedSequence] = await Promise.all([
+async function loadCoordinatorSyncStateV1(storage: AccountCoordinatorStorageV1): Promise<AccountCoordinatorSyncStateV1> {
+  const atomicState = await storage.get<AccountCoordinatorSyncStateV1>(SYNC_STATE_KEY);
+  if (atomicState !== undefined) return atomicState;
+
+  const [lastSequence, installationId, profileDigest, fingerprintDigest, safetyEpoch, requestDigest, storedResponseBytes, responseDigest, acknowledgedSequence, summary] = await Promise.all([
     storage.get<number>("last_accepted_request_sequence"),
     storage.get<string>("installation_id"),
     storage.get<string>("account_profile_sha256"),
@@ -57,7 +71,39 @@ export async function coordinateAgentSyncV1(
     storage.get<string>("last_canonical_response_bytes"),
     storage.get<string>("last_canonical_response_digest"),
     storage.get<number>("last_acknowledged_event_sequence"),
+    storage.get<Readonly<Record<string, unknown>>>("heartbeat_summary"),
   ]);
+  return {
+    installation_id: installationId,
+    account_profile_sha256: profileDigest,
+    account_fingerprint_sha256: fingerprintDigest,
+    safety_epoch: safetyEpoch,
+    last_accepted_request_sequence: lastSequence,
+    last_accepted_request_digest: requestDigest,
+    last_canonical_response_bytes: storedResponseBytes,
+    last_canonical_response_digest: responseDigest,
+    last_acknowledged_event_sequence: acknowledgedSequence,
+    heartbeat_summary: summary,
+  };
+}
+
+export async function coordinateAgentSyncV1(
+  storage: AccountCoordinatorStorageV1,
+  request: AgentSyncRequestV1,
+  nowEpoch: number,
+): Promise<AccountCoordinatorResultV1> {
+  const state = await loadCoordinatorSyncStateV1(storage);
+  const {
+    last_accepted_request_sequence: lastSequence,
+    installation_id: installationId,
+    account_profile_sha256: profileDigest,
+    account_fingerprint_sha256: fingerprintDigest,
+    safety_epoch: safetyEpoch,
+    last_accepted_request_digest: requestDigest,
+    last_canonical_response_bytes: storedResponseBytes,
+    last_canonical_response_digest: responseDigest,
+    last_acknowledged_event_sequence: acknowledgedSequence,
+  } = state;
 
   if (lastSequence !== undefined) {
     if (
@@ -88,16 +134,18 @@ export async function coordinateAgentSyncV1(
   );
   const responseBytes = canonicalStringify(response);
   await storage.put({
-    installation_id: request.installation_id,
-    account_profile_sha256: request.account_profile_sha256,
-    account_fingerprint_sha256: request.account_snapshot.account_fingerprint_sha256,
-    safety_epoch: request.safety_epoch,
-    last_accepted_request_sequence: request.request_sequence,
-    last_accepted_request_digest: request.body_sha256,
-    last_canonical_response_bytes: responseBytes,
-    last_canonical_response_digest: response.response_body_sha256,
-    last_acknowledged_event_sequence: nextAcknowledgedSequence,
-    heartbeat_summary: heartbeatSummary(request),
+    [SYNC_STATE_KEY]: {
+      installation_id: request.installation_id,
+      account_profile_sha256: request.account_profile_sha256,
+      account_fingerprint_sha256: request.account_snapshot.account_fingerprint_sha256,
+      safety_epoch: request.safety_epoch,
+      last_accepted_request_sequence: request.request_sequence,
+      last_accepted_request_digest: request.body_sha256,
+      last_canonical_response_bytes: responseBytes,
+      last_canonical_response_digest: response.response_body_sha256,
+      last_acknowledged_event_sequence: nextAcknowledgedSequence,
+      heartbeat_summary: heartbeatSummary(request),
+    },
   });
   return { code: "OK", replayed: false, response, responseBytes };
 }
@@ -105,8 +153,8 @@ export async function coordinateAgentSyncV1(
 export async function getAccountCoordinatorStatusV1(
   storage: AccountCoordinatorStorageV1,
 ): Promise<Readonly<{ mode: "DRY_RUN"; last_request_sequence: number }>> {
-  const lastRequestSequence = await storage.get<number>("last_accepted_request_sequence");
-  return { mode: "DRY_RUN", last_request_sequence: lastRequestSequence ?? 0 };
+  const state = await loadCoordinatorSyncStateV1(storage);
+  return { mode: "DRY_RUN", last_request_sequence: state.last_accepted_request_sequence ?? 0 };
 }
 
 function coordinatorJson(body: unknown, status = 200): Response {

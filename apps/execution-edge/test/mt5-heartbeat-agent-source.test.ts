@@ -40,11 +40,11 @@ describe("MT5 dry-run heartbeat agent source", () => {
   it("has a timer-only, reentrancy-guarded dry-run lifecycle", () => {
     const ea = source("TradeOpsAgent.mq5");
     expect(ea).toContain('input string InpProfile = "DRY_RUN";');
-    expect(ea).toContain("EventSetTimer(5)");
+    expect(ea).toContain("EventSetTimer(15)");
     expect(ea).toContain("EventKillTimer()");
     expect(ea).toContain("if(g_timer_busy)");
     expect(ea).toContain("TradeOpsLoadSyncState");
-    expect(ea.indexOf("TradeOpsLoadSyncState")).toBeLessThan(ea.indexOf("EventSetTimer(5)"));
+    expect(ea.indexOf("TradeOpsLoadSyncState")).toBeLessThan(ea.indexOf("EventSetTimer(15)"));
     expect(ea).toContain("TradeOpsPostHeartbeat");
     expect(ea.match(/TradeOpsPostHeartbeat/g)).toHaveLength(1);
     expect(ea).not.toContain("OnTradeTransaction");
@@ -87,6 +87,8 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(canonical).toContain('mode\\\":\\\"DRY_RUN');
     expect(canonical).toContain('command\\\":null');
     expect(readme).toContain("Do not attach");
+    expect(readme).toContain("fifteen seconds");
+    expect(readme).not.toContain("every five seconds");
     expect(readme).toContain("Algo Trading disabled");
     expect(readme).toContain("DLL imports disabled");
     expect(readme).toContain("JOURNAL_REJECTED");

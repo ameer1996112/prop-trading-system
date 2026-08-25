@@ -42,7 +42,7 @@ export function projectAcceptedHeartbeatV1(
 export function deriveHealthStateV1(lastAcceptedEpoch: number | null, nowEpoch: number): HealthStateV1 {
   if (lastAcceptedEpoch === null) return "UNKNOWN";
   const age = nowEpoch - lastAcceptedEpoch;
-  if (age <= 20) return "ONLINE";
-  if (age <= 60) return "STALE";
+  if (age <= 35) return "ONLINE";
+  if (age <= 90) return "STALE";
   return "OFFLINE";
 }

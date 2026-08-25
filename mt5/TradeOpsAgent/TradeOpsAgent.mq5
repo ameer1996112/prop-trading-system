@@ -37,7 +37,7 @@ int OnInit()
       TradeOpsRenderStatus();
       return INIT_PARAMETERS_INCORRECT;
    }
-   if(!EventSetTimer(5))
+   if(!EventSetTimer(15))
    {
       g_status="TIMER_REJECTED";
       TradeOpsRenderStatus();

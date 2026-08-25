@@ -47,7 +47,7 @@ safety_epoch=1
 ```
 
 The EA reads this file at runtime; it is not an include file and is never compiled.
-It sends a bounded zero-event heartbeat every five seconds only after a future,
+It sends a bounded zero-event heartbeat every fifteen seconds only after a future,
 separate attachment approval. A failed or rejected response merely changes the
 redacted chart status and waits for the next timer interval.
 

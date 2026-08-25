@@ -7,12 +7,14 @@ const D = (digit: string): string => digit.repeat(64);
 
 class MemoryStorage {
   readonly values = new Map<string, unknown>();
+  readonly putCalls: Record<string, unknown>[] = [];
 
   async get<T>(key: string): Promise<T | undefined> {
     return this.values.get(key) as T | undefined;
   }
 
   async put(entries: Record<string, unknown>): Promise<void> {
+    this.putCalls.push(entries);
     for (const [key, value] of Object.entries(entries)) this.values.set(key, value);
   }
 }
@@ -70,12 +72,13 @@ describe("account coordinator v1", () => {
   it("rejects a stale new sequence without advancing coordinator state", async () => {
     const storage = new MemoryStorage();
     await coordinateAgentSyncV1(storage, { ...request(), freshness: "FRESH" }, 1_787_472_010);
+    const stateBeforeRejection = storage.values.get("sync_state_v1");
 
     await expect(coordinateAgentSyncV1(storage, {
       ...request(), request_sequence: 2, body_sha256: D("d"), freshness: "STALE",
     }, 1_787_472_099)).resolves.toEqual({ code: "STALE_TIMESTAMP" });
     expect(await getAccountCoordinatorStatusV1(storage)).toEqual({ mode: "DRY_RUN", last_request_sequence: 1 });
-    expect(storage.values.get("last_accepted_request_digest")).toBe(D("b"));
+    expect(storage.values.get("sync_state_v1")).toEqual(stateBeforeRejection);
   });
 
   it("rejects a same-sequence request whose canonical digest changes", async () => {
@@ -115,29 +118,40 @@ describe("account coordinator v1", () => {
     }
   });
 
-  it("keeps only replay metadata and a redacted heartbeat summary", async () => {
+  it("keeps replay metadata and a redacted heartbeat summary in one atomic state record", async () => {
     const storage = new MemoryStorage();
     await coordinateAgentSyncV1(storage, request(), 1_787_472_010);
 
-    expect([...storage.values.keys()].sort()).toEqual([
-      "account_fingerprint_sha256",
-      "account_profile_sha256",
-      "heartbeat_summary",
-      "installation_id",
-      "last_accepted_request_digest",
-      "last_accepted_request_sequence",
-      "last_acknowledged_event_sequence",
-      "last_canonical_response_bytes",
-      "last_canonical_response_digest",
-      "safety_epoch",
-    ]);
+    expect([...storage.values.keys()]).toEqual(["sync_state_v1"]);
     expect(await getAccountCoordinatorStatusV1(storage)).toEqual({ mode: "DRY_RUN", last_request_sequence: 1 });
-    expect(storage.values.get("heartbeat_summary")).toEqual({
+    expect(storage.values.get("sync_state_v1")).toMatchObject({
+      last_accepted_request_sequence: 1,
+      heartbeat_summary: {
       observed_at_epoch: 1_787_472_010,
       terminal_connection_state: "CONNECTED",
       account_trade_permission: "DENIED",
       terminal_trade_permission: "DENIED",
       algo_trading_permission: "DENIED",
+      },
+    });
+  });
+
+  it("migrates legacy coordinator state into one atomic sync-state write", async () => {
+    const storage = new MemoryStorage();
+    await coordinateAgentSyncV1(storage, request(), 1_787_472_010);
+    storage.putCalls.length = 0;
+
+    const result = await coordinateAgentSyncV1(storage, {
+      ...request(), request_sequence: 2, body_sha256: D("d"),
+    }, 1_787_472_011);
+
+    expect(result).toMatchObject({ code: "OK", replayed: false });
+    expect(storage.putCalls).toHaveLength(1);
+    expect(Object.keys(storage.putCalls[0]!)).toEqual(["sync_state_v1"]);
+    expect(storage.values.get("sync_state_v1")).toMatchObject({
+      last_accepted_request_sequence: 2,
+      last_accepted_request_digest: D("d"),
+      heartbeat_summary: expect.objectContaining({ terminal_connection_state: "CONNECTED" }),
     });
   });
 

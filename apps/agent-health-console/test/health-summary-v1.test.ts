@@ -63,9 +63,9 @@ function database(currentRow: typeof current | null, recentRows: readonly object
 
 describe("health summary v1", () => {
   it.each([
-    [120, "ONLINE"],
-    [121, "STALE"],
-    [161, "OFFLINE"],
+    [135, "ONLINE"],
+    [136, "STALE"],
+    [191, "OFFLINE"],
   ] as const)("derives %s from the accepted heartbeat age", async (nowEpoch, status) => {
     const { env } = database(current);
 
