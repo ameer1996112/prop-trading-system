@@ -61,7 +61,8 @@ def test_both_execution_authority_flags_are_independent_and_default_false() -> N
     ) in pine
     assert (
         'executionProposalV1Credential = input.string("", '
-        '"Execution proposal v1 credential", group = "Automation")'
+        '"Execution proposal v1 credential", group = "Automation", '
+        "display = display.none)"
     ) in pine
     assert (
         'executionProposalV1ProvenanceSha256 = input.string("", '
@@ -79,6 +80,23 @@ def test_both_execution_authority_flags_are_independent_and_default_false() -> N
     assert wrangler["vars"]["RD_EXECUTION_CANDIDATE_EMISSION_ENABLED"] == "false"
     assert wrangler["vars"]["RD_EXECUTION_CANDIDATE_DISPATCH_ENABLED"] == "false"
     assert wrangler["vars"]["RD_EXECUTION_RECEIVER_MANIFEST_SHA256"] == ("INERT_NOT_CONFIGURED")
+
+
+def test_pine_credentials_never_render_in_the_status_line_or_data_window() -> None:
+    for path in (PINE, RELEASE_PINE):
+        pine = path.read_text(encoding="utf-8")
+        for credential_input in (
+            "setupExportCredential",
+            "entryV3Credential",
+            "executionProposalV1Credential",
+        ):
+            declaration = re.search(
+                rf"^{credential_input} = input\.string\((.+)$",
+                pine,
+                re.MULTILINE,
+            )
+            assert declaration is not None, f"missing {credential_input} in {path}"
+            assert "display = display.none" in declaration.group(0)
 
 
 def test_pine_proposal_is_closed_realtime_exact_dir_close_only() -> None:
