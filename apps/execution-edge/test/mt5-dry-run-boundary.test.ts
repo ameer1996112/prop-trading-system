@@ -62,19 +62,22 @@ function assertDashboardIntegrityWorkflow(workflow: string) {
   expect(workflowBlock("on")).toBe("  pull_request:\n  push:\n    branches: [main]\n");
   expect(workflowBlock("permissions")).toBe("  contents: read\n");
 
-  const integritySteps = [...normalizedWorkflow.matchAll(
-    /^      - name: Verify dashboard integrity boundary\n        run: \|\n((?:          [^\n]*\n?)*)/gm,
-  )];
-  expect(integritySteps).toHaveLength(1);
-  const [integrityStep] = integritySteps;
-  if (!integrityStep) throw new Error("dashboard integrity step is required");
-  const run = integrityStep[1];
-  if (typeof run !== "string") throw new Error("dashboard integrity step requires a run block");
-  expect(run.trimEnd().split("\n")).toEqual([
+  const stepStarts = [...normalizedWorkflow.matchAll(/^      - /gm)];
+  const integrityStepStarts = stepStarts.filter(({ index }) =>
+    normalizedWorkflow.slice(index).startsWith("      - name: Verify dashboard integrity boundary\n"),
+  );
+  expect(integrityStepStarts).toHaveLength(1);
+  const integrityStepStart = integrityStepStarts[0]?.index;
+  if (integrityStepStart === undefined) throw new Error("dashboard integrity step is required");
+  const nextStepStart = stepStarts.find(({ index }) => index > integrityStepStart)?.index;
+  const integrityStep = normalizedWorkflow.slice(integrityStepStart, nextStepStart).trimEnd();
+  expect(integrityStep).toBe([
+    "      - name: Verify dashboard integrity boundary",
+    "        run: |",
     "          npm ci --prefix apps/execution-edge --ignore-scripts --no-audit --no-fund",
     "          npm test --prefix apps/execution-edge -- mt5-dry-run-boundary.test.ts",
     "          node scripts/verify-mt5-dry-run-boundary.mjs",
-  ]);
+  ].join("\n"));
   expect(normalizedWorkflow).not.toContain("scripts/write-dashboard-integrity-manifest.mjs");
 }
 
@@ -93,6 +96,33 @@ describe("MT5 dry-run boundary", () => {
     );
 
     expect(() => assertDashboardIntegrityWorkflow(writerInjectedWorkflow)).toThrow();
+  });
+
+  it("rejects a CI workflow with a duplicate named dashboard integrity step", () => {
+    const workflow = readFileSync(phase0Workflow, "utf8");
+    const duplicateNamedStepWorkflow = `${workflow}\n      - name: Verify dashboard integrity boundary\n        uses: actions/checkout@v4\n`;
+
+    expect(() => assertDashboardIntegrityWorkflow(duplicateNamedStepWorkflow)).toThrow();
+  });
+
+  it("rejects a CI workflow that disables the dashboard integrity step", () => {
+    const workflow = readFileSync(phase0Workflow, "utf8");
+    const disabledStepWorkflow = workflow.replace(
+      "          node scripts/verify-mt5-dry-run-boundary.mjs\n",
+      "          node scripts/verify-mt5-dry-run-boundary.mjs\n        if: false\n",
+    );
+
+    expect(() => assertDashboardIntegrityWorkflow(disabledStepWorkflow)).toThrow();
+  });
+
+  it("rejects a CI workflow that allows dashboard integrity failure", () => {
+    const workflow = readFileSync(phase0Workflow, "utf8");
+    const errorTolerantStepWorkflow = workflow.replace(
+      "          node scripts/verify-mt5-dry-run-boundary.mjs\n",
+      "          node scripts/verify-mt5-dry-run-boundary.mjs\n        continue-on-error: true\n",
+    );
+
+    expect(() => assertDashboardIntegrityWorkflow(errorTolerantStepWorkflow)).toThrow();
   });
 
   it("accepts an exact reviewed dashboard integrity manifest", async () => {
