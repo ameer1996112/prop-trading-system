@@ -65,3 +65,10 @@ def test_container_smoke_secret_is_readable_by_rootless_backend() -> None:
     assert smoke.index(make_container_readable) < smoke.index(
         'export POSTGRES_PASSWORD_FILE="$secret_file"'
     )
+
+
+def test_container_smoke_uses_a_docker_visible_macos_cache_for_file_secrets() -> None:
+    smoke = Path("scripts/container_smoke.sh").read_text()
+
+    assert '"$(uname -s)" = "Darwin"' in smoke
+    assert "Library/Caches/prop-trading-container-smoke" in smoke

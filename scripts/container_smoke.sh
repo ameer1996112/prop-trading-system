@@ -2,7 +2,14 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-temporary_root_parent=${CONTAINER_SMOKE_TMPDIR:-${TMPDIR:-/tmp}}
+if [ -n "${CONTAINER_SMOKE_TMPDIR:-}" ]; then
+  temporary_root_parent=$CONTAINER_SMOKE_TMPDIR
+elif [ "$(uname -s)" = "Darwin" ]; then
+  temporary_root_parent="${HOME}/Library/Caches/prop-trading-container-smoke"
+else
+  temporary_root_parent=${TMPDIR:-/tmp}
+fi
+mkdir -p "$temporary_root_parent"
 temporary_root=$(mktemp -d "$temporary_root_parent/phase0-container-smoke.XXXXXX")
 secret_file="$temporary_root/postgres_password.txt"
 project_name="phase0_verify_$$"

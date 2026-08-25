@@ -74,9 +74,7 @@ def test_v3_contract_identity_is_aligned_across_contract_pine_and_docs() -> None
     contract = json.loads(
         Path("config/phase0/rd-strategy-rule-contract-v3.json").read_text(encoding="utf-8")
     )
-    pine = Path("scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine").read_text(
-        encoding="utf-8"
-    )
+    pine = Path("scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine").read_text(encoding="utf-8")
     docs = Path("docs/rd-strategy-rule-contract-v3.md").read_text(encoding="utf-8")
 
     assert contract["contract_version"] == "3.1.0"

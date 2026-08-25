@@ -37,15 +37,10 @@ def test_pine_v3_materializes_standard_and_accuracy_variants_from_one_confirmati
     pine = source()
     raw_zone = section(pine, "type RawZone", "type EntryCore")
     assert "appendConfirmedZoneVariants(" in pine
-    formation_id = section(
-        pine, "candidateFormationId(", "candidateHasAccuracyGeometry("
-    )
+    formation_id = section(pine, "candidateFormationId(", "candidateHasAccuracyGeometry(")
     builder = section(pine, "buildConfirmedZone(", "appendConfirmedZoneVariants(")
-    materializer = section(
-        pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice("
-    )
-    diagnostics = section(pine, "diagnosticPayload(", "validationBatch("
-    )
+    materializer = section(pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice(")
+    diagnostics = section(pine, "diagnosticPayload(", "validationBatch(")
     confirmations = section(
         pine,
         "int direction = candleDirection(0)",
@@ -62,22 +57,25 @@ def test_pine_v3_materializes_standard_and_accuracy_variants_from_one_confirmati
     assert "originBar" not in formation_id
     assert (
         "buildConfirmedZone(Candidate candidate, bool demand, int zoneId, "
-        "string formation, string formationId, bool accuracy)"
-        in pine
+        "string formation, string formationId, bool accuracy)" in pine
     )
     assert "zone.formationId := formationId" in builder
     assert confirmations.count("appendConfirmedZoneVariants(") == 2
     assert confirmations.count("eventZone := standardZone") == 2
     assert confirmations.count("nextZoneId += createdCount") == 2
-    assert materializer.count(
-        "buildConfirmedZone(candidate, demand, nextZoneId, formation, "
-        "formationId, false)"
-    ) == 1
+    assert (
+        materializer.count(
+            "buildConfirmedZone(candidate, demand, nextZoneId, formation, formationId, false)"
+        )
+        == 1
+    )
     assert materializer.count("candidateHasAccuracyGeometry(candidate, demand)") == 1
-    assert materializer.count(
-        "buildConfirmedZone(candidate, demand, nextZoneId + 1, formation, "
-        "formationId, true)"
-    ) == 1
+    assert (
+        materializer.count(
+            "buildConfirmedZone(candidate, demand, nextZoneId + 1, formation, formationId, true)"
+        )
+        == 1
+    )
     assert "array.unshift(zoneItems, standardZone)" in materializer
     assert "array.unshift(zoneItems, accuracyZone)" in materializer
     assert "int createdCount = 1" in materializer
@@ -112,7 +110,8 @@ def test_pine_v3_distal_wick_breach_invalidates_before_normal_zone_engagement() 
     lifecycle = section(
         pine,
         "int zoneCount = array.size(zones)",
-        "for index = 0 to zoneCount - 1\n            RawZone zone = array.get(zones, index)\n            int blockerId",
+        "for index = 0 to zoneCount - 1\n            RawZone zone = "
+        "array.get(zones, index)\n            int blockerId",
     )
 
     # Crossing the far boundary is terminal; merely entering the zone is not.
@@ -129,12 +128,8 @@ def test_pine_v3_distal_wick_breach_invalidates_before_normal_zone_engagement() 
 
 def test_pine_v3_standard_sibling_claims_the_final_attempt_slot_at_119_of_120() -> None:
     pine = source()
-    materializer = section(
-        pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice("
-    )
-    attempt_scan = section(
-        pine, "materializeEngagedEntryAttempts(", "commonRuleResultsPayload("
-    )
+    materializer = section(pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice(")
+    attempt_scan = section(pine, "materializeEngagedEntryAttempts(", "commonRuleResultsPayload(")
     cap_match = re.search(r"const int ENTRY_MAX_ATTEMPTS = (\d+)", pine)
 
     assert cap_match is not None
@@ -159,12 +154,8 @@ def test_pine_v3_standard_sibling_claims_the_final_attempt_slot_at_119_of_120() 
 
 def test_pine_v3_standard_sibling_survives_one_zone_retention() -> None:
     pine = source()
-    materializer = section(
-        pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice("
-    )
-    eviction = section(
-        pine, "evictOldestUnprotectedZone(", "if barstate.isfirst"
-    )
+    materializer = section(pine, "appendConfirmedZoneVariants(", "zoneDistanceFromPrice(")
+    eviction = section(pine, "evictOldestUnprotectedZone(", "if barstate.isfirst")
 
     assert "int scanIndex = array.size(zoneItems) - 1" in eviction
     assert "array.remove(zoneItems, scanIndex)" in eviction
@@ -179,24 +170,17 @@ def test_pine_v3_standard_sibling_survives_one_zone_retention() -> None:
 
 def test_pine_v3_clean_view_keeps_tapped_standard_zone_at_its_touch_endpoint() -> None:
     pine = source()
-    curated_view = section(
-        pine, "zoneIncludedInCuratedView(", "setupZoneRanksAhead("
-    )
+    curated_view = section(pine, "zoneIncludedInCuratedView(", "setupZoneRanksAhead(")
     zone_visible = section(pine, "zoneVisible(", "zoneBaseColor(")
 
-    assert (
-        'showTapped = input.bool(true, "Show tapped zones", group = "Display")'
-        in pine
-    )
+    assert 'showTapped = input.bool(true, "Show tapped zones", group = "Display")' in pine
     assert (
         "bool lifecycleIncluded = zone.state == STATE_FRESH ? showFresh : "
-        "zone.state == STATE_TAPPED ? showTapped : showInvalidated"
-        in curated_view
+        "zone.state == STATE_TAPPED ? showTapped : showInvalidated" in curated_view
     )
     assert (
         "lifecycleIncluded and (displayMode != DISPLAY_QUALIFIED_ONLY or "
-        "zone.liquidityQualified)"
-        in curated_view
+        "zone.liquidityQualified)" in curated_view
     )
     assert "showFresh and zoneIncludedInCuratedView(zone)" not in zone_visible
 
@@ -214,9 +198,7 @@ def test_pine_v3_declares_the_closed_three_model_contract() -> None:
 
 def test_pine_v3_liquidity_lines_stop_at_the_first_touch_or_sweep_bar() -> None:
     pine = source()
-    endpoint = section(
-        pine, "liquidityFirstVisualSweepBar(", "liquidityDistanceToZone("
-    )
+    endpoint = section(pine, "liquidityFirstVisualSweepBar(", "liquidityDistanceToZone(")
     zone_drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
     raw_audit_drawing = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
 
@@ -231,11 +213,7 @@ def test_pine_v3_liquidity_lines_stop_at_the_first_touch_or_sweep_bar() -> None:
     ) in endpoint
     assert "zone.liquidityVisualSweepScannedBar" in endpoint
     assert "math.max(rangeStart, bar_index - 4999)" in endpoint
-    assert (
-        "not na(firstVisualSweepBar) "
-        "? firstVisualSweepBar "
-        ": zoneRightBar(zone)"
-    ) in endpoint
+    assert ("not na(firstVisualSweepBar) ? firstVisualSweepBar : zoneRightBar(zone)") in endpoint
     assert (
         "int displayRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
         "zone, selectedPrice, selectedBar))"
@@ -310,20 +288,16 @@ def test_pine_v3_realtime_z_order_refreshes_only_once_per_bar() -> None:
 
 def test_pine_v3_clips_historical_liquidity_coordinates_to_the_bar_index_window() -> None:
     pine = source()
-    helper = section(
-        pine, "liquiditySafeDrawingBar(", "liquidityFirstVisualSweepBar("
-    )
+    helper = section(pine, "liquiditySafeDrawingBar(", "liquidityFirstVisualSweepBar(")
     zone_drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
     audit_drawing = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
 
     assert "math.max(sourceBar, bar_index - 9999)" in helper
     assert (
-        "int displayLeftBar = liquiditySafeDrawingBar("
-        "math.max(zone.originBar, selectedBar))"
+        "int displayLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, selectedBar))"
     ) in zone_drawing
     assert (
-        "int proofLeftBar = liquiditySafeDrawingBar("
-        "math.max(zone.originBar, selectedProofBar))"
+        "int proofLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, selectedProofBar))"
     ) in zone_drawing
     assert (
         "int displayRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
@@ -334,8 +308,7 @@ def test_pine_v3_clips_historical_liquidity_coordinates_to_the_bar_index_window(
         "math.max(ownerZone.originBar, level.nearExtremeBar))"
     ) in audit_drawing
     assert (
-        "int proofLeftBar = liquiditySafeDrawingBar("
-        "math.max(ownerZone.originBar, level.anchorBar))"
+        "int proofLeftBar = liquiditySafeDrawingBar(math.max(ownerZone.originBar, level.anchorBar))"
     ) in audit_drawing
 
 
@@ -344,14 +317,8 @@ def test_pine_v3_clips_zone_box_coordinates_to_the_bar_index_window() -> None:
     zone_drawing = section(pine, "updateZoneDrawing(", "bool displayLiquidityVisible =")
 
     assert "int leftBar = liquiditySafeDrawingBar(zone.originBar)" in zone_drawing
-    assert (
-        "int rightBar = liquiditySafeDrawingBar(zoneRightBar(zone))"
-        in zone_drawing
-    )
-    assert (
-        "zone.zoneBox := box.new(leftBar, zone.top, rightBar, zone.bottom"
-        in zone_drawing
-    )
+    assert "int rightBar = liquiditySafeDrawingBar(zoneRightBar(zone))" in zone_drawing
+    assert "zone.zoneBox := box.new(leftBar, zone.top, rightBar, zone.bottom" in zone_drawing
     assert "box.set_left(zone.zoneBox, leftBar)" in zone_drawing
     assert "box.set_right(zone.zoneBox, rightBar)" in zone_drawing
     assert "zone.debugLabel := label.new(leftBar," in zone_drawing
@@ -364,22 +331,14 @@ def test_pine_v3_proof_lines_share_the_primary_line_lifecycle_endpoint() -> None
 
     assert (
         "zone.ownExtremeLine := line.new(proofLeftBar, selectedProofPrice, "
-        "displayRightBar, selectedProofPrice"
-        in zone_drawing
+        "displayRightBar, selectedProofPrice" in zone_drawing
     )
-    assert (
-        "line.set_xy2(zone.ownExtremeLine, displayRightBar, selectedProofPrice)"
-        in zone_drawing
-    )
+    assert "line.set_xy2(zone.ownExtremeLine, displayRightBar, selectedProofPrice)" in zone_drawing
     assert (
         "level.ownExtremeLine := line.new(proofLeftBar, level.anchor, "
-        "rightBar, level.anchor"
-        in audit_drawing
+        "rightBar, level.anchor" in audit_drawing
     )
-    assert (
-        "line.set_xy2(level.ownExtremeLine, rightBar, level.anchor)"
-        in audit_drawing
-    )
+    assert "line.set_xy2(level.ownExtremeLine, rightBar, level.anchor)" in audit_drawing
 
 
 def test_pine_v3_renders_the_retracement_swing_as_the_canonical_liquidity_line() -> None:
@@ -388,13 +347,11 @@ def test_pine_v3_renders_the_retracement_swing_as_the_canonical_liquidity_line()
     audit_drawing = section(pine, "updateLiquidityDrawings(", "diagnosticPayload(")
 
     assert (
-        "int displayLeftBar = liquiditySafeDrawingBar("
-        "math.max(zone.originBar, selectedBar))"
+        "int displayLeftBar = liquiditySafeDrawingBar(math.max(zone.originBar, selectedBar))"
     ) in zone_drawing
     assert (
         "zone.liquidityLine := line.new(displayLeftBar, selectedPrice, "
-        "displayRightBar, selectedPrice"
-        in zone_drawing
+        "displayRightBar, selectedPrice" in zone_drawing
     )
     assert "liquidityPriceLabelText(selectedPrice)" in zone_drawing
     assert (
@@ -403,8 +360,7 @@ def test_pine_v3_renders_the_retracement_swing_as_the_canonical_liquidity_line()
     ) in audit_drawing
     assert (
         "level.liquidityLine := line.new(liquidityLeftBar, level.nearExtreme, "
-        "rightBar, level.nearExtreme"
-        in audit_drawing
+        "rightBar, level.nearExtreme" in audit_drawing
     )
     assert "liquidityPriceLabelText(level.nearExtreme)" in audit_drawing
 
@@ -415,15 +371,11 @@ def test_pine_v3_display_selects_the_closest_valid_linked_or_structure_candidate
 
     assert (
         "liquidityDisplaySelection(RawZone zone, array<LiquidityLevel> levels, "
-        "bool selectionEnabled)"
-        in selector
+        "bool selectionEnabled)" in selector
     )
     assert "int linkedCount = array.size(zone.liquidityIndexes)" in selector
     assert "int levelCount = array.size(levels)" in selector
-    assert (
-        "int candidateIndex = array.get(zone.liquidityIndexes, linkedOffset)"
-        in selector
-    )
+    assert "int candidateIndex = array.get(zone.liquidityIndexes, linkedOffset)" in selector
     assert "candidateIndex >= 0 and candidateIndex < levelCount" in selector
     assert "LiquidityLevel candidate = array.get(levels, candidateIndex)" in selector
     assert "candidate.nearExtremeBar > zone.originBar" in selector
@@ -435,13 +387,11 @@ def test_pine_v3_display_selects_the_closest_valid_linked_or_structure_candidate
     assert "bool structureAvailable = selectionEnabled and showStructureLiquidityLines" in selector
     assert (
         "float structureDistance = structureAvailable ? "
-        "liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na"
-        in selector
+        "liquidityPriceDistanceToZone(zone, zone.structureLiquidityPrice) : na" in selector
     )
     assert (
         "candidateIndex == zone.liquidityPrimaryIndex and "
-        "not na(zone.liquiditySweptBar)"
-        in selector
+        "not na(zone.liquiditySweptBar)" in selector
     )
     assert "float selectedPrice = strictSelected ?" in selector
     assert "int selectedBar = strictSelected ?" in selector
@@ -465,8 +415,7 @@ def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_a
 
     assert (
         "updateZoneDrawing(RawZone zone, bool visible, array<RawZone> allZones, "
-        "array<LiquidityLevel> levels, array<bool> visibleZones)"
-        in zone_drawing
+        "array<LiquidityLevel> levels, array<bool> visibleZones)" in zone_drawing
     )
     assert "liquidityDisplaySelection(zone, levels, selectionNeeded)" in zone_drawing
     assert "bool displayLiquidityVisible =" in zone_drawing
@@ -483,9 +432,7 @@ def test_pine_v3_display_renderer_uses_one_selected_candidate_without_mutating_a
 
 def test_pine_v3_gives_each_overlapping_curated_level_one_liquidity_owner() -> None:
     pine = source()
-    owner = section(
-        pine, "zoneOwnsCuratedLiquidityDisplay(", "zoneBaseColor("
-    )
+    owner = section(pine, "zoneOwnsCuratedLiquidityDisplay(", "zoneBaseColor(")
     drawing = section(pine, "updateZoneDrawing(", "addUniqueLiquidityIndex(")
 
     assert "displayMode == DISPLAY_RAW_AUDIT" in owner
@@ -497,61 +444,44 @@ def test_pine_v3_gives_each_overlapping_curated_level_one_liquidity_owner() -> N
     assert "setupZoneRanksAhead(candidate, target" in owner
     assert "ownsDisplay := false" in owner
     assert "break" in owner
-    assert (
-        "zoneOwnsCuratedLiquidityDisplay(zone, allZones, visibleZones)" in drawing
-    )
+    assert "zoneOwnsCuratedLiquidityDisplay(zone, allZones, visibleZones)" in drawing
     assert "ownsLiquidityDisplay and showLiquidityLines" in drawing
 
 
 def test_pine_v3_precomputes_curated_visibility_once_per_render_pass() -> None:
     pine = source()
-    drawing_refresh = section(
-        pine, "bool refreshVisualsThisUpdate", "var table statusTable"
-    )
+    drawing_refresh = section(pine, "bool refreshVisualsThisUpdate", "var table statusTable")
 
     assert "array<bool> visibleZones = array.new<bool>()" in drawing_refresh
     assert "array.push(visibleZones, zoneVisible(zone, zones))" in drawing_refresh
-    assert (
-        "bool zoneVisibleNow = array.get(visibleZones, index)" in drawing_refresh
-    )
+    assert "bool zoneVisibleNow = array.get(visibleZones, index)" in drawing_refresh
     assert (
         "updateZoneDrawing(zone, zoneVisibleNow, zones, liquidityLevels, "
-        "visibleZones)"
-        in drawing_refresh
+        "visibleZones)" in drawing_refresh
     )
 
 
 def test_pine_v3_reference_distance_uses_thirty_percent_of_the_full_distal_zone_impulse() -> None:
     pine = source()
-    guidance = section(
-        pine, "liquidityStructureMove(", "liquidityDistanceFidelity("
-    )
+    guidance = section(pine, "liquidityStructureMove(", "liquidityDistanceFidelity(")
     support = section(pine, "liquiditySupportsZone(", "liquidityRanksCloser(")
 
     assert (
-        'liquidityStructureMaxDistancePercent = input.float(30.0, '
+        "liquidityStructureMaxDistancePercent = input.float(30.0, "
         '"Bigger structure max distance (% of move)", '
-        'minval = 1.0, maxval = 100.0, step = 1.0, group = "Liquidity")'
-        in pine
+        'minval = 1.0, maxval = 100.0, step = 1.0, group = "Liquidity")' in pine
     )
     assert "liquidityStructureMove(RawZone zone, float bosLevel)" in guidance
-    assert (
-        "zone.demand ? bosLevel - zone.bottom : zone.top - bosLevel"
-        in guidance
-    )
+    assert "zone.demand ? bosLevel - zone.bottom : zone.top - bosLevel" in guidance
     assert "zone.demand ? bosLevel - zone.top : zone.bottom - bosLevel" not in guidance
     assert "firstDepartureHigh" not in guidance
     assert "firstDepartureLow" not in guidance
     assert (
         "liquidityStructureMove(zone, bosLevel) * "
-        "liquidityStructureMaxDistancePercent * 0.01"
-        in guidance
+        "liquidityStructureMaxDistancePercent * 0.01" in guidance
     )
     assert "float guidanceMax = liquidityGuidanceMaxPrice(zone, level.anchor)" in support
-    assert (
-        "distance <= guidanceMax + syminfo.mintick * 0.5"
-        in support
-    )
+    assert "distance <= guidanceMax + syminfo.mintick * 0.5" in support
 
 
 def test_pine_v3_strict_liquidity_prefers_the_latest_valid_pivot() -> None:
@@ -600,7 +530,9 @@ def test_pine_v3_builds_structure_liquidity_from_video_retracement_evidence() ->
     ) in detector
 
 
-def test_pine_v3_micro_retracement_candidate_requires_one_opposite_candle_and_immediate_bos() -> None:
+def test_pine_v3_micro_retracement_candidate_requires_one_opposite_candle_and_immediate_bos() -> (
+    None
+):
     pine = source()
     producer = section(
         pine,
@@ -624,9 +556,8 @@ def test_pine_v3_micro_retracement_candidate_requires_one_opposite_candle_and_im
     )
 
     assert (
-        'enableMicroRetracementLiquidity = input.bool(false, '
-        '"Enable micro-retracement liquidity (display only)", group = "Liquidity")'
-        in pine
+        "enableMicroRetracementLiquidity = input.bool(false, "
+        '"Enable micro-retracement liquidity (display only)", group = "Liquidity")' in pine
     )
     assert "bool microRetracement" in pine
     assert "bool sourceAvailable = bar_index >= 2" in producer
@@ -636,8 +567,7 @@ def test_pine_v3_micro_retracement_candidate_requires_one_opposite_candle_and_im
     assert "bool breaksPauseExtreme = demand ? high > high[1] : low < low[1]" in producer
     assert (
         "enableMicroRetracementLiquidity and sourceAvailable and pauseIsOpposite "
-        "and not priorIsOpposite and continuationCandle and breaksPauseExtreme"
-        in producer
+        "and not priorIsOpposite and continuationCandle and breaksPauseExtreme" in producer
     )
     assert "level.price := demand ? low[1] : high[1]" in producer
     assert "level.priceBar := bar_index - 1" in producer
@@ -651,13 +581,11 @@ def test_pine_v3_micro_retracement_candidate_requires_one_opposite_candle_and_im
     assert "level.microRetracement := false" in symmetric_append
     assert "if confirmedStructureLiquidityPivot(true, strength)" in update
     assert (
-        "appendConfirmedStructureLiquidityPivot(true, strength, levels, createdIndexes)"
-        in update
+        "appendConfirmedStructureLiquidityPivot(true, strength, levels, createdIndexes)" in update
     )
     assert "if confirmedStructureLiquidityPivot(false, strength)" in update
     assert (
-        "appendConfirmedStructureLiquidityPivot(false, strength, levels, createdIndexes)"
-        in update
+        "appendConfirmedStructureLiquidityPivot(false, strength, levels, createdIndexes)" in update
     )
     assert "if confirmedMicroStructureLiquidity(true)" in producer
     assert "if confirmedMicroStructureLiquidity(false)" in producer
@@ -678,8 +606,7 @@ def test_pine_v3_micro_retracements_reuse_structural_gates_without_execution_aut
 
     assert (
         "bool candleCountQualified = candidate.microRetracement or "
-        "candidate.oppositeCandleCount >= minimumLiquidityOppositeCandles()"
-        in refresh
+        "candidate.oppositeCandleCount >= minimumLiquidityOppositeCandles()" in refresh
     )
     retracement_evidence = re.search(
         r"^\s*bool hasRetracementEvidence\s*=\s*(.+)$", refresh, re.MULTILINE
@@ -739,16 +666,14 @@ def test_pine_v3_micro_retracement_includes_the_immediate_pre_swing_move_bar() -
     assert "preSwingOffset >= 0 and preSwingOffset < 5000" in move_reference
     assert (
         "float preSwingExtreme = zone.demand ? high[preSwingOffset] "
-        ": low[preSwingOffset]"
-        in move_reference
+        ": low[preSwingOffset]" in move_reference
     )
     assert "zone.demand ? preSwingExtreme > candidateMoveLevel" in move_reference
     assert ": preSwingExtreme < candidateMoveLevel" in move_reference
     assert "[candidateMoveLevel, candidateMoveLevelBar]" in move_reference
     assert (
         "[candidateMoveLevel, candidateMoveLevelBar] = "
-        "structureLiquidityCandidateMoveReference(zone, candidate)"
-        in refresh
+        "structureLiquidityCandidateMoveReference(zone, candidate)" in refresh
     )
     for forbidden in (
         "liquidityPrimaryIndex",
@@ -772,8 +697,7 @@ def test_pine_v3_anchors_structure_liquidity_to_the_confirmed_pivot() -> None:
 
     assert (
         "[oppositeCandleCount, ownExtreme, ownExtremeBar, _, _] = "
-        "liquidityLegProof(demand, strength)"
-        in structure
+        "liquidityLegProof(demand, strength)" in structure
     )
     assert "level.price := demand ? low[strength] : high[strength]" in structure
     assert "level.priceBar := bar_index - strength" in structure
@@ -785,21 +709,13 @@ def test_pine_v3_stops_the_reversal_bridge_at_the_first_opposite_candle() -> Non
     pine = source()
     leg_proof = section(pine, "liquidityLegProof(", "confirmedLiquidityPivot(")
 
-    assert (
-        "bool insideReversalBridge = na(firstLegOffset) and bridgeAvailable"
-        in leg_proof
-    )
+    assert "bool insideReversalBridge = na(firstLegOffset) and bridgeAvailable" in leg_proof
     assert "if insideReversalBridge" in leg_proof
     assert (
         "if liquidityCandleIsOpposite(demand, bridgeSourceOffset)\n"
-        "                firstLegOffset := bridgeSourceOffset"
-        in leg_proof
+        "                firstLegOffset := bridgeSourceOffset" in leg_proof
     )
-    assert (
-        "if bridgeAvailable\n"
-        "            float candidateNearExtreme"
-        not in leg_proof
-    )
+    assert "if bridgeAvailable\n            float candidateNearExtreme" not in leg_proof
 
 
 def test_pine_v3_caches_the_full_zone_linked_impulse_incrementally() -> None:
@@ -822,13 +738,9 @@ def test_pine_v3_caches_the_full_zone_linked_impulse_incrementally() -> None:
     assert "int sourceBar = bar_index - sourceOffset" in reference
     assert "sourceBar >= zone.confirmationBar" in reference
     assert (
-        "float candidateExtreme = zone.demand "
-        "? high[sourceOffset] : low[sourceOffset]"
+        "float candidateExtreme = zone.demand ? high[sourceOffset] : low[sourceOffset]"
     ) in reference
-    assert (
-        "zone.demand ? candidateExtreme > extreme "
-        ": candidateExtreme < extreme"
-    ) in reference
+    assert ("zone.demand ? candidateExtreme > extreme : candidateExtreme < extreme") in reference
     assert "zone.structureMoveExtreme := candidateExtreme" in reference
     assert "zone.structureMoveExtremeBar := sourceBar" in reference
     assert "for sourceBar" not in reference
@@ -852,22 +764,26 @@ def test_pine_v3_requires_zone_linked_continuation_bos_for_structure_liquidity()
     )
 
     assert (
-        'liquidityStructureStrictBos = input.bool(false, '
-        '"Strict structural BOS (close beyond level)", group = "Liquidity")'
-        in pine
+        "liquidityStructureStrictBos = input.bool(false, "
+        '"Strict structural BOS (close beyond level)", group = "Liquidity")' in pine
     )
     assert "float bosLevel = candidate.bosLevel" in bos
     assert "firstDepartureHigh" not in bos
     assert "firstDepartureLow" not in bos
     assert "candidate.priceBar + 1" in bos
-    assert "liquidityStructureStrictBos ? close[sourceOffset] > bosLevel : high[sourceOffset] > bosLevel" in bos
-    assert "liquidityStructureStrictBos ? close[sourceOffset] < bosLevel : low[sourceOffset] < bosLevel" in bos
+    assert (
+        "liquidityStructureStrictBos ? close[sourceOffset] > bosLevel : "
+        "high[sourceOffset] > bosLevel" in bos
+    )
+    assert (
+        "liquidityStructureStrictBos ? close[sourceOffset] < bosLevel : "
+        "low[sourceOffset] < bosLevel" in bos
+    )
     assert "for sourceBar" not in bos
     assert "candidate.priceBar > zone.confirmationBar" in refresh
     assert (
         "[candidateMoveLevel, candidateMoveLevelBar] = "
-        "structureLiquidityCandidateMoveReference(zone, candidate)"
-        in refresh
+        "structureLiquidityCandidateMoveReference(zone, candidate)" in refresh
     )
     assert "float completedMoveLevel = zone.structureMoveExtreme" in refresh
     assert "float guidanceMax = liquidityGuidanceMaxPrice(zone, completedMoveLevel)" in refresh
@@ -891,25 +807,21 @@ def test_pine_v3_micro_structure_bos_is_immediate_and_cannot_retro_confirm() -> 
 
     assert (
         "bool immediateMicroBos = candidate.microRetracement and "
-        "bar_index == candidate.priceBar + 1 and brokeStructure"
-        in bos
+        "bar_index == candidate.priceBar + 1 and brokeStructure" in bos
     )
     assert (
         "bool standardBos = not candidate.microRetracement and "
-        "formedBeforeBos and brokeStructure"
-        in bos
+        "formedBeforeBos and brokeStructure" in bos
     )
     assert "bool confirmed = immediateMicroBos or standardBos" in bos
     assert "bar_index >= candidate.priceBar + 1" in bos
     assert (
         "liquidityStructureStrictBos ? close[sourceOffset] > bosLevel "
-        ": high[sourceOffset] > bosLevel"
-        in bos
+        ": high[sourceOffset] > bosLevel" in bos
     )
     assert (
         "liquidityStructureStrictBos ? close[sourceOffset] < bosLevel "
-        ": low[sourceOffset] < bosLevel"
-        in bos
+        ": low[sourceOffset] < bosLevel" in bos
     )
     assert "bool confirmed = formedBeforeBos and brokeStructure" not in bos
 
@@ -935,17 +847,15 @@ def test_pine_v3_qualifies_structure_distance_only_after_bos_completes_the_move(
     # A structurally valid retracement must survive discovery even when its
     # distance cannot be qualified until the continuation/BOS candle closes.
     assert "withinBiggerStructure" not in discovery
-    assert (
-        "if formedAfterConfirmation and correctSide and "
-        "hasRetracementEvidence"
-        in discovery
-    )
+    assert "if formedAfterConfirmation and correctSide and hasRetracementEvidence" in discovery
 
     # The BOS candle completes the impulse used by the 30% rule. Qualification
     # belongs here, immediately before selecting the one canonical line.
     assert "float completedMoveLevel = zone.structureMoveExtreme" in qualification
     assert "float bosMoveExtreme = zone.demand ? high : low" in qualification
-    assert "float guidanceMax = liquidityGuidanceMaxPrice(zone, completedMoveLevel)" in qualification
+    assert (
+        "float guidanceMax = liquidityGuidanceMaxPrice(zone, completedMoveLevel)" in qualification
+    )
     assert "bool withinBiggerStructure = not na(guidanceMax)" in qualification
     assert "if bosAfterSwing and withinBiggerStructure and closer" in qualification
 
@@ -963,8 +873,7 @@ def test_pine_v3_allows_an_older_closer_swing_to_replace_a_provisional_selection
     assert "selectionOpen" not in refresh
     assert (
         "bool closer = na(zone.structureLiquidityPrice) or distance < "
-        "currentDistance - syminfo.mintick * 0.5 or earlierAtSamePrice"
-        in refresh
+        "currentDistance - syminfo.mintick * 0.5 or earlierAtSamePrice" in refresh
     )
 
 
@@ -978,23 +887,19 @@ def test_pine_v3_prefers_the_earlier_swing_when_structure_prices_are_equal() -> 
 
     assert (
         "float currentDistance = liquidityPriceDistanceToZone("
-        "zone, zone.structureLiquidityPrice)"
-        in refresh
+        "zone, zone.structureLiquidityPrice)" in refresh
     )
     assert (
         "bool sameDistance = math.abs(distance - currentDistance) <= "
-        "syminfo.mintick * 0.5"
-        in refresh
+        "syminfo.mintick * 0.5" in refresh
     )
     assert (
         "bool earlierAtSamePrice = sameDistance and "
-        "candidate.priceBar < zone.structureLiquidityBar"
-        in refresh
+        "candidate.priceBar < zone.structureLiquidityBar" in refresh
     )
     assert (
         "bool closer = na(zone.structureLiquidityPrice) or distance < "
-        "currentDistance - syminfo.mintick * 0.5 or earlierAtSamePrice"
-        in refresh
+        "currentDistance - syminfo.mintick * 0.5 or earlierAtSamePrice" in refresh
     )
 
 
@@ -1016,32 +921,23 @@ def test_pine_v3_bigger_structure_liquidity_cannot_qualify_entries() -> None:
 
 def test_pine_v3_uses_shared_visual_settings_for_bigger_structure_liquidity() -> None:
     pine = source()
-    zone_drawing = section(
-        pine, "bool displayLiquidityVisible =", "addUniqueLiquidityIndex("
-    )
+    zone_drawing = section(pine, "bool displayLiquidityVisible =", "addUniqueLiquidityIndex(")
 
     assert (
-        'showStructureLiquidityLines = input.bool(true, '
-        '"Show bigger-structure liquidity (display only)", group = "Display")'
-        in pine
+        "showStructureLiquidityLines = input.bool(true, "
+        '"Show bigger-structure liquidity (display only)", group = "Display")' in pine
     )
     assert "showStructureLiquidityLines" in pine
     assert "zone.structureLiquidityLine := line.new(" not in zone_drawing
     assert "selectedPrice" in zone_drawing
     assert (
         "int displayRightBar = liquiditySafeDrawingBar(liquidityDrawingRightBar("
-        "zone, selectedPrice, selectedBar))"
-        in zone_drawing
+        "zone, selectedPrice, selectedBar))" in zone_drawing
     )
     assert "color = primaryColor" in zone_drawing
-    assert (
-        "line.set_color(zone.liquidityLine, primaryColor)" in zone_drawing
-    )
+    assert "line.set_color(zone.liquidityLine, primaryColor)" in zone_drawing
     assert "width = liquidityPrimaryLineWidth" in zone_drawing
-    assert (
-        "line.set_width(zone.liquidityLine, liquidityPrimaryLineWidth)"
-        in zone_drawing
-    )
+    assert "line.set_width(zone.liquidityLine, liquidityPrimaryLineWidth)" in zone_drawing
     assert "if showLiquidityPriceLabels" in zone_drawing
     assert "liquidityPriceLabelText(selectedPrice)" in zone_drawing
 
@@ -1053,8 +949,7 @@ def test_pine_v3_uses_one_canonical_display_liquidity_line_per_zone() -> None:
     assert (
         "[strictSelected, structureSelected, selectedPrice, selectedBar, "
         "selectedTaken, selectedProofPrice, selectedProofBar] = "
-        "liquidityDisplaySelection(zone, levels, selectionNeeded)"
-        in zone_drawing
+        "liquidityDisplaySelection(zone, levels, selectionNeeded)" in zone_drawing
     )
     assert "bool displayLiquidityVisible =" in zone_drawing
     assert "zone.structureLiquidityLine := line.new(" not in zone_drawing
@@ -1064,13 +959,10 @@ def test_pine_v3_uses_one_canonical_display_liquidity_line_per_zone() -> None:
 def test_pine_v3_one_candle_liquidity_defaults_off() -> None:
     pine = source()
     assert (
-        'enableOneCandleLiquidity = input.bool(false, '
+        "enableOneCandleLiquidity = input.bool(false, "
         '"Enable one-candle liquidity", group = "Liquidity")'
     ) in pine
-    assert (
-        "minimumLiquidityOppositeCandles() =>\n"
-        "    enableOneCandleLiquidity ? 1 : 2"
-    ) in pine
+    assert ("minimumLiquidityOppositeCandles() =>\n    enableOneCandleLiquidity ? 1 : 2") in pine
     pivot = section(pine, "confirmedLiquidityPivot(", "appendConfirmedLiquidityPivot(")
     assert "oppositeCandleCount >= minimumLiquidityOppositeCandles()" in pivot
 
@@ -1091,9 +983,9 @@ def test_pine_v3_freezes_and_serializes_liquidity_cohort() -> None:
         "level.cohort := oppositeCandleCount == 1 "
         "? LIQUIDITY_COHORT_ONE : LIQUIDITY_COHORT_TWO_PLUS"
     ) in pine
-    assert 'attempt.core.liquidityCohort := zone.liquidityCohort' in pine
-    assert '"\\\"liquidity_cohort\\\":" + jsonString(attempt.core.liquidityCohort)' in pine
-    assert '"\\\"one_candle_enabled\\\":" + str.tostring(enableOneCandleLiquidity)' in pine
+    assert "attempt.core.liquidityCohort := zone.liquidityCohort" in pine
+    assert '"\\"liquidity_cohort\\":" + jsonString(attempt.core.liquidityCohort)' in pine
+    assert '"\\"one_candle_enabled\\":" + str.tostring(enableOneCandleLiquidity)' in pine
     assert (
         "attempt.core.ruleLiqOneCandleException := "
         "attempt.core.ruleLiqNormalTwoOppositeCandles or "
@@ -1423,10 +1315,7 @@ def test_pine_v3_exit_followups_use_current_market_event_facts() -> None:
     assert "int marketSequence = exitFollowup ? tickSequence : selectedSequence" in pine
     assert "int marketTicks = exitFollowup ? priceTicks(close) : selectedTicks" in pine
     assert "int eventTicks = priceTicks(close)" in pine
-    assert (
-        "emitEntryPayload(attempt, zone, barstate.isrealtime, exitEvent, true)"
-        in pine
-    )
+    assert "emitEntryPayload(attempt, zone, barstate.isrealtime, exitEvent, true)" in pine
 
 
 def test_pine_v3_freezes_one_trade_plan_for_payloads_and_exit_monitoring() -> None:
@@ -1452,18 +1341,26 @@ def test_pine_v3_separates_shadow_telemetry_from_actionable_human_alerts() -> No
 
     # Shadow exits still reach the webhook observation plane.
     assert "monitorAttemptExit(attempt, zone)" in entry_loop
-    assert "attempt.core.paperDecisionEmitted" not in entry_loop.split(
-        "if bundleReady", 1
-    )[1].split("monitorAttemptExit(attempt, zone)", 1)[0]
+    assert (
+        "attempt.core.paperDecisionEmitted"
+        not in entry_loop.split("if bundleReady", 1)[1].split(
+            "monitorAttemptExit(attempt, zone)", 1
+        )[0]
+    )
     assert "emitEntryPayload(attempt, zone, barstate.isrealtime, exitEvent, true)" in exit_monitor
 
     # Human notifications and chart markers require an actual paper selection.
     assert "actionableExit := attempt.core.paperDecisionEmitted" in exit_monitor
     assert "actionablePaperEntryThisUpdate := true" in entry_loop
-    assert "actionablePaperExitThisUpdate := actionablePaperExitThisUpdate or actionableExit" in entry_loop
+    assert (
+        "actionablePaperExitThisUpdate := actionablePaperExitThisUpdate or actionableExit"
+        in entry_loop
+    )
     assert "drawActionableEntry(attempt)" in entry_loop
     assert "drawActionableExit(attempt, exitReason, exitTicks)" in entry_loop
-    assert 'alertcondition(actionablePaperEntryThisUpdate, "SND RD | Actionable paper entry"' in pine
+    assert (
+        'alertcondition(actionablePaperEntryThisUpdate, "SND RD | Actionable paper entry"' in pine
+    )
     assert 'alertcondition(actionablePaperExitThisUpdate, "SND RD | Actionable paper exit"' in pine
 
 
@@ -1481,16 +1378,13 @@ def test_pine_v3_actionable_paper_path_requires_two_plus_liquidity() -> None:
     )
 
     assert (
-        "bool twoPlusCandleLiquidity = "
-        "attempt.core.liquidityCohort == LIQUIDITY_COHORT_TWO_PLUS"
+        "bool twoPlusCandleLiquidity = attempt.core.liquidityCohort == LIQUIDITY_COHORT_TWO_PLUS"
     ) in eligibility
     assert (
-        "twoPlusCandleLiquidity and not na(selectedEpoch) and "
-        "(bocExact or closeExact or flipExact)"
+        "twoPlusCandleLiquidity and not na(selectedEpoch) and (bocExact or closeExact or flipExact)"
     ) in eligibility
     assert (
-        "if not attempt.core.paperDecisionEmitted and "
-        "entryHasPaperEligibleSelection(attempt)"
+        "if not attempt.core.paperDecisionEmitted and entryHasPaperEligibleSelection(attempt)"
     ) in entry_loop
     assert entry_loop.count("attempt.core.paperDecisionEmitted := true") == 1
     actionable_branch = section(
@@ -1681,26 +1575,17 @@ def test_pine_v3_one_candle_selection_has_canonical_terminal_precedence() -> Non
     selection = section(pine, "entrySelectionPayload(", "entrySelectedFacts(")
 
     assert (
-        "bool oneCandleExperiment = "
-        "attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE"
+        "bool oneCandleExperiment = attempt.core.liquidityCohort == LIQUIDITY_COHORT_ONE"
     ) in selection
     one_candle_override = section(selection, "if oneCandleExperiment", "string coModels")
-    assert (
-        'reason := "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"'
-        in one_candle_override
-    )
+    assert 'reason := "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"' in one_candle_override
     assert 'action := "SHADOW_ONLY"' in one_candle_override
     for field in ("candidateId", "evidenceId", "model", "fidelity"):
         assert f'{field} := "null"' in one_candle_override
     assert "PAPER_ELIGIBLE" not in one_candle_override
     co_trigger_override = section(selection, "string coModels", '"{" +')
-    assert (
-        "if oneCandleExperiment\n"
-        '        coModels := "[]"'
-    ) in co_trigger_override
-    assert (
-        '"\\"candidate_ids_considered\\":" + entryCandidateIds(attempt)'
-    ) in selection
+    assert ('if oneCandleExperiment\n        coModels := "[]"') in co_trigger_override
+    assert ('"\\"candidate_ids_considered\\":" + entryCandidateIds(attempt)') in selection
     assert (
         'string commonFidelity = not reviewedHashesValid ? "UNRESOLVED" : '
         'oneCandleLiquidity ? (commonRulesPass ? "DISCRETIONARY" : '
@@ -1715,15 +1600,11 @@ def test_pine_v3_unreviewed_one_candle_payloads_are_fail_closed() -> None:
     # The Worker permits paired UNREVIEWED hashes only for fully shadow-only
     # evidence. One-candle DISCRETIONARY fidelity is available after the
     # reviewed identity is configured, never while the producer is unreviewed.
-    fidelity_match = re.search(
-        r"^\s*string commonFidelity\s*=\s*(.+)$", bundle, re.MULTILINE
-    )
+    fidelity_match = re.search(r"^\s*string commonFidelity\s*=\s*(.+)$", bundle, re.MULTILINE)
     assert fidelity_match is not None
     fidelity = fidelity_match.group(1).strip()
     assert fidelity.startswith('not reviewedHashesValid ? "UNRESOLVED"')
-    assert fidelity.index("not reviewedHashesValid") < fidelity.index(
-        "oneCandleLiquidity"
-    )
+    assert fidelity.index("not reviewedHashesValid") < fidelity.index("oneCandleLiquidity")
 
 
 def test_pine_v3_serializer_has_task3_nullable_evidence_keys() -> None:
@@ -1806,28 +1687,23 @@ def test_pine_v3_keeps_liquidity_visuals_clean_and_lightweight() -> None:
 
     assert (
         'liquidityPrimaryLineWidth = input.int(2, "Primary liquidity line width", '
-        'minval = 1, maxval = 3, group = "Display")'
-        in pine
+        'minval = 1, maxval = 3, group = "Display")' in pine
     )
     assert (
         'showLiquidityPriceLabels = input.bool(false, "Show liquidity price labels", '
-        'group = "Display")'
-        in pine
+        'group = "Display")' in pine
     )
     assert (
-        'liquidityPendingColor = input.color(color.new(color.orange, 18), '
-        '"Liquidity pending", group = "Colors")'
-        in pine
+        "liquidityPendingColor = input.color(color.new(color.orange, 18), "
+        '"Liquidity pending", group = "Colors")' in pine
     )
     assert (
-        'liquiditySweptColor = input.color(color.new(color.teal, 18), '
-        '"Liquidity swept", group = "Colors")'
-        in pine
+        "liquiditySweptColor = input.color(color.new(color.teal, 18), "
+        '"Liquidity swept", group = "Colors")' in pine
     )
     assert (
-        'liquiditySecondaryColor = input.color(color.new(color.gray, 55), '
-        '"Liquidity own extreme", group = "Colors")'
-        in pine
+        "liquiditySecondaryColor = input.color(color.new(color.gray, 55), "
+        '"Liquidity own extreme", group = "Colors")' in pine
     )
     assert (
         "color primaryColor = selectedTaken ? liquiditySweptColor : liquidityPendingColor"
@@ -1855,29 +1731,20 @@ def test_pine_v3_keeps_optional_own_extreme_proof_lines_hidden_by_default() -> N
 
     assert (
         'showLiquidityProofLines = input.bool(false, "Show liquidity proof lines", '
-        'group = "Display")'
-        in pine
+        'group = "Display")' in pine
     )
     assert "bool proofVisible = strictSelected and showLiquidityProofLines" in zone_drawings
-    assert (
-        "zone.ownExtremeLine := line.new(proofLeftBar, selectedProofPrice"
-        in zone_drawings
-    )
+    assert "zone.ownExtremeLine := line.new(proofLeftBar, selectedProofPrice" in zone_drawings
     assert "color ownExtremeColor = premiumVisuals ? color.new(color.gray" in zone_drawings
     assert "width = 1" in zone_drawings
     assert "if showLiquidityProofLines" in audit_drawings
-    assert (
-        "level.ownExtremeLine := line.new(proofLeftBar, level.anchor"
-        in audit_drawings
-    )
+    assert "level.ownExtremeLine := line.new(proofLeftBar, level.anchor" in audit_drawings
     assert "else if not na(level.ownExtremeLine)" in audit_drawings
 
 
 def test_pine_v3_raises_zone_liquidity_above_boxes_created_later() -> None:
     pine = source()
-    final_drawing_pass = section(
-        pine, "int drawCount = array.size(zones)", "var table statusTable"
-    )
+    final_drawing_pass = section(pine, "int drawCount = array.size(zones)", "var table statusTable")
 
     assert "if barstate.islast and barstate.isnew and drawCount > 0" in final_drawing_pass
     assert "line.copy(zone.ownExtremeLine)" in final_drawing_pass
@@ -1885,23 +1752,18 @@ def test_pine_v3_raises_zone_liquidity_above_boxes_created_later() -> None:
     assert "label.copy(zone.liquidityLabel)" in final_drawing_pass
     assert final_drawing_pass.index(
         "updateZoneDrawing(zone, zoneVisibleNow, zones, liquidityLevels, visibleZones)"
-    ) < (
-        final_drawing_pass.index("line.copy(zone.liquidityLine)")
-    )
+    ) < (final_drawing_pass.index("line.copy(zone.liquidityLine)"))
 
 
 def test_pine_v3_only_refreshes_drawing_objects_on_the_last_chart_update() -> None:
     pine = source()
-    drawing_refresh = section(
-        pine, "bool refreshVisualsThisUpdate", "var table statusTable"
-    )
+    drawing_refresh = section(pine, "bool refreshVisualsThisUpdate", "var table statusTable")
 
     assert "bool refreshVisualsThisUpdate = barstate.islast" in drawing_refresh
     assert "if refreshVisualsThisUpdate" in drawing_refresh
     assert (
         "updateZoneDrawing(zone, zoneVisibleNow, zones, liquidityLevels, "
-        "visibleZones)"
-        in drawing_refresh
+        "visibleZones)" in drawing_refresh
     )
     assert "updateLiquidityDrawings(liquidityLevels, drawnLiquidityIndexes, zones)" in (
         drawing_refresh
@@ -1912,10 +1774,7 @@ def test_pine_v3_only_refreshes_drawing_objects_on_the_last_chart_update() -> No
         "if refreshVisualsThisUpdate",
     ]
     assert all(
-        not line.strip()
-        or line.startswith("    ")
-        or line.startswith("// @lab-only-")
-        for line in refresh_lines[2:]
+        not line.strip() or line.startswith(("    ", "// @lab-only-")) for line in refresh_lines[2:]
     )
 
 
@@ -1928,17 +1787,13 @@ def test_pine_v3_skips_validation_heartbeat_json_when_telemetry_is_disabled() ->
     )
 
     assert (
-        "bool validationTelemetryEnabled = emitDiagnostics or validationCapture"
-        in confirmed_update
+        "bool validationTelemetryEnabled = emitDiagnostics or validationCapture" in confirmed_update
     )
     assert (
         'string validationEvents = validationTelemetryEnabled ? validationHeartbeat() : ""'
         in confirmed_update
     )
-    assert (
-        "int validationEventCount = validationTelemetryEnabled ? 1 : 0"
-        in confirmed_update
-    )
+    assert "int validationEventCount = validationTelemetryEnabled ? 1 : 0" in confirmed_update
 
 
 def test_pine_v3_scans_across_the_reversal_bridge_to_the_opposite_leg() -> None:
@@ -1946,30 +1801,17 @@ def test_pine_v3_scans_across_the_reversal_bridge_to_the_opposite_leg() -> None:
     leg_proof = section(pine, "liquidityLegProof(", "confirmedLiquidityPivot(")
 
     assert "int pivotOffset = strength" in leg_proof
-    assert (
-        "int firstLegOffset = na" in leg_proof
-    )
-    assert (
-        "for bridgeOffset = 0 to strength" in leg_proof
-    )
-    assert (
-        "int bridgeSourceOffset = pivotOffset + bridgeOffset" in leg_proof
-    )
-    assert (
-        "bool insideReversalBridge = na(firstLegOffset) and bridgeAvailable"
-        in leg_proof
-    )
+    assert "int firstLegOffset = na" in leg_proof
+    assert "for bridgeOffset = 0 to strength" in leg_proof
+    assert "int bridgeSourceOffset = pivotOffset + bridgeOffset" in leg_proof
+    assert "bool insideReversalBridge = na(firstLegOffset) and bridgeAvailable" in leg_proof
     assert "if insideReversalBridge" in leg_proof
     assert "if liquidityCandleIsOpposite(demand, bridgeSourceOffset)" in leg_proof
     assert (
         "int sourceOffset = na(firstLegOffset) "
-        "? bar_index + 1 : firstLegOffset + legOffset"
-        in leg_proof
+        "? bar_index + 1 : firstLegOffset + legOffset" in leg_proof
     )
-    assert (
-        "confirmed := oppositeCandleCount >= minimumLiquidityOppositeCandles()"
-        in pine
-    )
+    assert "confirmed := oppositeCandleCount >= minimumLiquidityOppositeCandles()" in pine
 
 
 def test_pine_v3_accepts_equal_extremes_as_liquidity_pivots() -> None:

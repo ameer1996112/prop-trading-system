@@ -5,15 +5,12 @@ import re
 from hashlib import sha256
 from pathlib import Path
 
-
 PINE = Path("scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine")
 RELEASE_PINE = Path("scripts/pinescript/SND_RD_5M_V3_RELEASE.pine")
 WORKER = Path("apps/observation-edge/src/index.ts")
 INGESTION = Path("apps/observation-edge/src/execution-proposal-ingestion.ts")
 DISPATCHER = Path("apps/observation-edge/src/observation-outbox-dispatcher.ts")
-MIGRATION = Path(
-    "apps/observation-edge/migrations/0030_observation_execution_proposal_v1.sql"
-)
+MIGRATION = Path("apps/observation-edge/migrations/0030_observation_execution_proposal_v1.sql")
 WRANGLER = Path("apps/observation-edge/wrangler.jsonc")
 V1_SCHEMA_BYTES = {
     Path("contracts/schema/rd-entry-execution-proposal-v1.schema.json"): (
@@ -35,9 +32,7 @@ def test_lab_and_release_pines_remain_paper_only_observation_producers() -> None
     }
     for path, expected_title in expected_titles.items():
         pine = path.read_text(encoding="utf-8")
-        assert re.findall(r'^indicator\("([^"]+)"', pine, re.MULTILINE) == [
-            expected_title
-        ]
+        assert re.findall(r'^indicator\("([^"]+)"', pine, re.MULTILINE) == [expected_title]
         assert 'const string ENTRY_EXECUTION_MODE = "PAPER_ONLY"' in pine
         assert "emitEntryPayload(" in pine
         assert "emitExecutionProposalV1ForAttempt(" in pine
@@ -57,7 +52,7 @@ def test_both_execution_authority_flags_are_independent_and_default_false() -> N
     wrangler = json.loads(WRANGLER.read_text(encoding="utf-8"))
 
     assert (
-        'emitExecutionProposalV1 = input.bool(false, '
+        "emitExecutionProposalV1 = input.bool(false, "
         '"Emit execution proposal v1", group = "Automation")'
     ) in pine
     assert (
@@ -83,9 +78,7 @@ def test_both_execution_authority_flags_are_independent_and_default_false() -> N
     ) in pine
     assert wrangler["vars"]["RD_EXECUTION_CANDIDATE_EMISSION_ENABLED"] == "false"
     assert wrangler["vars"]["RD_EXECUTION_CANDIDATE_DISPATCH_ENABLED"] == "false"
-    assert wrangler["vars"]["RD_EXECUTION_RECEIVER_MANIFEST_SHA256"] == (
-        "INERT_NOT_CONFIGURED"
-    )
+    assert wrangler["vars"]["RD_EXECUTION_RECEIVER_MANIFEST_SHA256"] == ("INERT_NOT_CONFIGURED")
 
 
 def test_pine_proposal_is_closed_realtime_exact_dir_close_only() -> None:
@@ -135,9 +128,9 @@ def test_pine_proposal_is_closed_realtime_exact_dir_close_only() -> None:
     assert pine.count("alert(") == 3
     assert "executionProposalV1CredentialSafe()" in eligibility
     assert "nextSequence = array.get(executionProposalV1SequenceState, 0) + 1" in emitter
-    assert emitter.index("str.length(envelope) < EXECUTION_PROPOSAL_V1_MAX_PAYLOAD_CHARS") < emitter.index(
-        "array.set(executionProposalV1SequenceState, 0, nextSequence)"
-    )
+    assert emitter.index(
+        "str.length(envelope) < EXECUTION_PROPOSAL_V1_MAX_PAYLOAD_CHARS"
+    ) < emitter.index("array.set(executionProposalV1SequenceState, 0, nextSequence)")
 
 
 def test_pine_proposal_serializes_frozen_geometry_and_exact_four_r() -> None:
@@ -176,10 +169,19 @@ def test_pine_proposal_serializes_frozen_geometry_and_exact_four_r() -> None:
         "attempt.directionalClose.closeCloseTicks",
     ):
         assert frozen_field in payload
-    assert "wickReferenceTicks = attempt.core.demand ? attempt.core.referenceLowTicks : attempt.core.referenceHighTicks" in payload
-    assert "stopTicks = attempt.core.demand ? wickReferenceTicks - bufferTicks : wickReferenceTicks + bufferTicks" in payload
+    assert (
+        "wickReferenceTicks = attempt.core.demand ? attempt.core.referenceLowTicks : "
+        "attempt.core.referenceHighTicks" in payload
+    )
+    assert (
+        "stopTicks = attempt.core.demand ? wickReferenceTicks - bufferTicks : "
+        "wickReferenceTicks + bufferTicks" in payload
+    )
     assert "riskDistanceTicks = math.abs(entryTicks - stopTicks)" in payload
-    assert "targetTicks = attempt.core.demand ? entryTicks + riskDistanceTicks * 4 : entryTicks - riskDistanceTicks * 4" in payload
+    assert (
+        "targetTicks = attempt.core.demand ? entryTicks + riskDistanceTicks * 4 : "
+        "entryTicks - riskDistanceTicks * 4" in payload
+    )
     assert '\\"setup_revision\\":1' in payload
 
     schema = json.loads(
@@ -187,7 +189,7 @@ def test_pine_proposal_serializes_frozen_geometry_and_exact_four_r() -> None:
             encoding="utf-8"
         )
     )
-    serialized_keys = set(re.findall(r'\\\"([a-z0-9_]+)\\\"', payload))
+    serialized_keys = set(re.findall(r"\\\"([a-z0-9_]+)\\\"", payload))
     assert serialized_keys == set(schema["required"])
 
 
@@ -232,9 +234,7 @@ def test_pine_proposal_requires_canonical_exact_dir_close_selection() -> None:
         assert forbidden not in selection
 
     def bool_assignment(name: str) -> str:
-        match = re.search(
-            rf"^\s*bool {re.escape(name)} = (.+)$", selection, re.MULTILINE
-        )
+        match = re.search(rf"^\s*bool {re.escape(name)} = (.+)$", selection, re.MULTILINE)
         assert match is not None
         return match.group(1).strip()
 
@@ -273,7 +273,11 @@ def test_pine_proposal_requires_canonical_exact_dir_close_selection() -> None:
             for clock in (candidate[:2],)
         ]
         canonical_model = min(exact_candidates)[1]
-        same_event = [candidate for candidate in (boc, close, flip) if candidate is not None and candidate[:2] == close_clock]
+        same_event = [
+            candidate
+            for candidate in (boc, close, flip)
+            if candidate is not None and candidate[:2] == close_clock
+        ]
         price_conflict = any(candidate[2] != close[2] for candidate in same_event)
         return canonical_model == "DIR_CLOSE" and len(same_event) == 1 and not price_conflict
 
@@ -317,19 +321,15 @@ def test_pine_proposal_uses_stable_bounded_setup_and_selection_ids() -> None:
         assert unstable_fact not in setup_id
     assert "EXECUTION_PROPOSAL_V1_SETUP_ID_MAX_CHARS" in setup_id
     assert (
-        "attempt.core.executionProposalV1SetupId := "
-        "executionProposalV1SetupId(zone)"
+        "attempt.core.executionProposalV1SetupId := executionProposalV1SetupId(zone)"
     ) in new_attempt
     assert "attempt.core.setupId := entrySetupId(zone)" in new_attempt
     assert "attempt.core.setupId" not in payload
     assert (
-        'string selectionId = attempt.core.executionProposalV1SetupId + '
+        "string selectionId = attempt.core.executionProposalV1SetupId + "
         '":DIR_CLOSE:" + str.tostring(attempt.directionalClose.closeEventEpoch)'
     ) in payload
-    assert (
-        '"\\"setup_id\\":" + jsonString(attempt.core.executionProposalV1SetupId)'
-        in payload
-    )
+    assert '"\\"setup_id\\":" + jsonString(attempt.core.executionProposalV1SetupId)' in payload
 
     allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:@|+-")
 
@@ -415,10 +415,9 @@ def test_pine_proposal_producer_stream_is_namespaced_and_bounded() -> None:
         assert bounded_component in producer
     assert "entryProducerInstanceId" not in producer
     assert (
-        '"\\"producer_instance_id\\":" + '
-        "jsonString(executionProposalV1ProducerInstanceId())"
+        '"\\"producer_instance_id\\":" + jsonString(executionProposalV1ProducerInstanceId())'
     ) in payload
-    assert "entryProducerInstanceId + \":proposal-v1\"" not in payload
+    assert 'entryProducerInstanceId + ":proposal-v1"' not in payload
     eligibility = section(
         pine,
         "executionProposalV1Eligible(",
@@ -502,8 +501,7 @@ def test_proposal_path_cannot_mutate_or_promote_legacy_v3() -> None:
 def test_observation_edge_remains_account_free_and_private_transport_only() -> None:
     worker = WORKER.read_text(encoding="utf-8")
     boundary = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (INGESTION, DISPATCHER, MIGRATION)
+        path.read_text(encoding="utf-8") for path in (INGESTION, DISPATCHER, MIGRATION)
     ).lower()
 
     for account_surface in (
@@ -537,9 +535,7 @@ def test_v1_contract_bytes_are_frozen_while_v2_reconstruction_is_paper_only() ->
         )
     )
     v2_candidate = json.loads(
-        Path("contracts/schema/execution-candidate-v2.schema.json").read_text(
-            encoding="utf-8"
-        )
+        Path("contracts/schema/execution-candidate-v2.schema.json").read_text(encoding="utf-8")
     )
     reconstruction = json.loads(
         Path("contracts/schema/broker-geometry-reconstruction-v1.schema.json").read_text(
@@ -547,9 +543,7 @@ def test_v1_contract_bytes_are_frozen_while_v2_reconstruction_is_paper_only() ->
         )
     )
     vector = json.loads(
-        Path("contracts/vectors/broker-geometry-reconstruction-v1.json").read_text(
-            encoding="utf-8"
-        )
+        Path("contracts/vectors/broker-geometry-reconstruction-v1.json").read_text(encoding="utf-8")
     )
 
     assert v2_proposal["properties"]["execution_mode"] == {"const": "PAPER_ONLY"}

@@ -65,9 +65,7 @@ def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None
 
 def test_rd_rollout_tracks_every_edge_migration_through_0030() -> None:
     migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
-    assert [path.name[:4] for path in migrations] == [
-        f"{ordinal:04d}" for ordinal in range(1, 31)
-    ]
+    assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 31)]
 
     runbook = Path("docs/runbooks/rd-three-entry-paper-rollout.md").read_text(encoding="utf-8")
     assert "D1 is migrated through 0030;" in runbook
