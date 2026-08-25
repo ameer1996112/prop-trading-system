@@ -523,6 +523,9 @@ def test_observation_edge_remains_account_free_and_private_transport_only() -> N
     ):
         assert forbidden_route not in worker
     assert "receiveExecutionCandidateV1" not in worker
+    assert "export class ObservationOutboxDispatcher" in worker
+    assert "OUTBOX_DISABLED" in worker
+    assert "wakeObservationOutboxDispatcher" not in worker
 
 
 def test_public_observation_route_excludes_legacy_execution_proposals() -> None:

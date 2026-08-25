@@ -102,6 +102,12 @@ successfully. Stop if any proposal-table-creating migration is reported as pendi
 Worker source first rather than mutating the remote proposal schema. Do not delete, rename, roll
 back, or manually edit the migration ledger for any of these migrations.
 
+If Cloudflare reports that an older Durable Object class is still depended on by the current
+Worker, retain that exact class name only as an inert compatibility shell: its `wake` response is
+disabled, its fetch response is `503 OUTBOX_DISABLED`, and its alarm clears itself. Do not add a
+binding, public route, cron, outbox wake-up, candidate dispatch, or delete-class migration as part
+of this receipt-only release.
+
 ## 3. Review and bind detector/settings identities
 
 Compute the detector digest from the exact saved Pine bytes in the reviewed commit:

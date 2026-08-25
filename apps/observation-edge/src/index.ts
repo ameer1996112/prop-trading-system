@@ -180,6 +180,32 @@ function errorResponse(status: number, code: string, message: string): Response 
   return jsonResponse({ error: { code, message } }, status);
 }
 
+// This name is retained because an earlier deployed version registered this
+// Durable Object. It deliberately has no binding, route, scheduler, data
+// writes, or dispatch behavior in the receipt-only observation release.
+export class ObservationOutboxDispatcher implements DurableObject {
+  constructor(
+    private readonly state: DurableObjectState,
+    _env: Env,
+  ) {}
+
+  async wake(): Promise<Readonly<{ status: "DISABLED" }>> {
+    return { status: "DISABLED" };
+  }
+
+  async alarm(): Promise<void> {
+    await this.state.storage.deleteAlarm();
+  }
+
+  async fetch(_request: Request): Promise<Response> {
+    return errorResponse(
+      503,
+      "OUTBOX_DISABLED",
+      "Observation outbox dispatch is disabled",
+    );
+  }
+}
+
 function ingressConfigured(env: Env): boolean {
   return (
     env.TRADINGVIEW_OBSERVATION_INGRESS_ENABLED === "true" &&
