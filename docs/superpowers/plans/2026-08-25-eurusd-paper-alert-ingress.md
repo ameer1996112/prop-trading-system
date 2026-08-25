@@ -4,7 +4,7 @@
 
 **Goal:** Enable and prove one authenticated EURUSD five-minute TradingView alert reaches the existing Cloudflare observation service as an immutable, non-executable receipt.
 
-**Architecture:** This rollout reuses the existing `apps/observation-edge` ingress, D1 receipt store, and `/api/v1/observation-receipts` read surface. It adds an operator runbook and uses only existing paper-only configuration: ingress enabled, a hash-only TradingView credential secret, and candidate emission/dispatch disabled. Neither the execution-edge Worker nor the MT5 agent is a consumer of this path.
+**Architecture:** This rollout reuses the existing `apps/observation-edge` ingress, D1 receipt store, and `/api/v1/observation-receipts` read surface. It adds an operator runbook and uses only existing paper-only configuration: ingress enabled, a hash-only TradingView credential protected binding, and candidate emission/dispatch disabled. Neither the execution-edge Worker nor the MT5 agent is a consumer of this path.
 
 **Tech Stack:** TradingView Pine alert, Cloudflare Workers, Cloudflare D1, TypeScript/Vitest, Wrangler.
 

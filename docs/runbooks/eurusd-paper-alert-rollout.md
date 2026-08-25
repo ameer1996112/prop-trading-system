@@ -37,7 +37,7 @@ npm run build
 npx wrangler secret list
 ```
 
-All local checks must pass. The remote secret listing must contain these names
+All local checks must pass. The remote protected-binding listing must contain these names
 and must never print their values:
 
 ```text
@@ -60,7 +60,7 @@ Expected output:
 paper-only configuration verified
 ```
 
-Stop if a required secret name is missing or any safety value differs.
+Stop if a required protected-binding name is missing or any safety value differs.
 
 ## 2. Dedicated TradingView credential
 
@@ -74,7 +74,7 @@ Compute its lower-case SHA-256 digest locally without echoing the raw value:
 read -rs -p 'TradingView credential: ' tv_credential; printf '\n'; printf %s "$tv_credential" | shasum -a 256; unset tv_credential
 ```
 
-With explicit remote-mutation approval, set the digest as the secret value
+With explicit remote-mutation approval, set the digest as the protected value
 using Wrangler's interactive prompt:
 
 ```sh

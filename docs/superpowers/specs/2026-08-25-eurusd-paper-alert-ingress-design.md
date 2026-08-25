@@ -51,7 +51,7 @@ The observation Worker must retain these constraints:
 - `TRADINGVIEW_OBSERVATION_INGRESS_ENABLED=true`;
 - the raw TradingView credential exists only in the TradingView alert/script
   input, while only its lower-case SHA-256 digest is stored as the Worker
-  secret `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256`;
+  protected binding `TRADINGVIEW_OBSERVATION_CREDENTIAL_SHA256`;
 - `RD_EXECUTION_CANDIDATE_EMISSION_ENABLED=false`;
 - `RD_EXECUTION_CANDIDATE_DISPATCH_ENABLED=false`;
 - `RD_EXECUTION_RECEIVER_MANIFEST_SHA256=INERT_NOT_CONFIGURED`.
