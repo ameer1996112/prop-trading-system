@@ -94,6 +94,21 @@ describe("MT5 dry-run heartbeat agent source", () => {
     expect(readme).toContain("JOURNAL_REJECTED");
   });
 
+  it("rebuilds only a Worker-confirmed stale heartbeat while retaining its sequence state", () => {
+    const sync = source("Include/TradeOpsSync.mqh");
+
+    expect(sync).toContain("AGENT_SYNC_TIMESTAMP_INVALID");
+    expect(sync).toContain("TradeOpsSyncState refreshed_state=state;");
+    expect(sync).toContain('refreshed_state.pending_payload="";');
+    expect(sync).toContain("TradeOpsSaveSyncState(refreshed_state)");
+    expect(sync).toContain('status="SYNC_STALE_PAYLOAD_RESET";');
+
+    const resetStart = sync.indexOf("TradeOpsSyncState refreshed_state=state;");
+    const resetEnd = sync.indexOf('status="SYNC_STALE_PAYLOAD_RESET";', resetStart);
+    expect(sync.slice(resetStart, resetEnd)).not.toContain("request_sequence++");
+    expect(sync.slice(resetStart, resetEnd)).not.toContain("last_acknowledged_server_sequence=");
+  });
+
   it("includes a pure MQL self-test source", () => {
     const selfTest = source("Scripts/TradeOpsAgentSelfTest.mq5");
     expect(selfTest).toContain("TradeOpsCanonicalObject2");

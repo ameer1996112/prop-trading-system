@@ -207,6 +207,13 @@ bool TradeOpsLoadSyncState(TradeOpsSyncState &state)
       || TradeOpsPendingPayloadMatchesState(state.pending_payload,state.request_sequence,state.last_acknowledged_server_sequence);
 }
 
+bool TradeOpsIsStaleTimestampResponse(const char &response_bytes[])
+{
+   const string expected="{\"error\":\"AGENT_SYNC_TIMESTAMP_INVALID\",\"mode\":\"DRY_RUN\",\"command\":null}";
+   string response=CharArrayToString(response_bytes,0,WHOLE_ARRAY,CP_UTF8);
+   return response==expected;
+}
+
 bool TradeOpsPostHeartbeat(const TradeOpsConfig &config,TradeOpsSyncState &state,string &status)
 {
    if(StringLen(state.pending_payload)==0)
@@ -241,6 +248,19 @@ bool TradeOpsPostHeartbeat(const TradeOpsConfig &config,TradeOpsSyncState &state
    int http_status=WebRequest("POST",config.endpoint,headers,1500,request_bytes,response_bytes,response_headers);
    if(http_status!=200)
    {
+      if(http_status==400 && TradeOpsIsStaleTimestampResponse(response_bytes))
+      {
+         TradeOpsSyncState refreshed_state=state;
+         refreshed_state.pending_payload="";
+         if(!TradeOpsSaveSyncState(refreshed_state))
+         {
+            status="JOURNAL_REJECTED";
+            return false;
+         }
+         state=refreshed_state;
+         status="SYNC_STALE_PAYLOAD_RESET";
+         return false;
+      }
       int transport_error=GetLastError();
       status=http_status<0
          ? "SYNC_WAITING_"+TradeOpsIntegerString((long)transport_error)
