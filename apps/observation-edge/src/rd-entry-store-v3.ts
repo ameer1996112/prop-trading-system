@@ -4,8 +4,8 @@ import {
   validatePaperTradeIntent,
 } from "./paper-simulator-contract";
 import {
+  LIST_CONFIGURED_PAPER_ACCOUNT_READINESS_METRICS_SQL,
   SELECT_LATEST_PAPER_KILL_SWITCH_SQL,
-  SELECT_PAPER_ACCOUNT_READINESS_METRIC_SQL,
 } from "./paper-readiness-queries";
 import { paperAccountAllowsNewOpen } from "./paper-readiness";
 import {
@@ -26,6 +26,8 @@ import {
   INSERT_ENTRY_V3_SELECTIONS_SQL,
   INSERT_ENTRY_V3_SHADOW_POSITION_SQL,
   LIST_ENTRY_V3_PAPER_INTENT_IDS_SQL,
+  LIST_ENTRY_V3_PAPER_LINKS_SQL,
+  LIST_ENTRY_V3_SHADOW_POSITIONS_SQL,
   LIST_ENTRY_V3_STORED_DECISIONS_SQL,
   SELECT_ENTRY_V3_EVENT_BY_ID_SQL,
   SELECT_ENTRY_V3_EVENT_BY_PRODUCER_SEQUENCE_SQL,
@@ -414,25 +416,26 @@ export async function paperConfigurationReadiness(
       usable: false,
     };
   }
-  const results = await env.DB.batch(
-    configuration.accountIds.map((accountId) =>
-      env.DB.prepare(SELECT_PAPER_ACCOUNT_READINESS_METRIC_SQL).bind(accountId),
-    ),
+  const result = await env.DB
+    .prepare(LIST_CONFIGURED_PAPER_ACCOUNT_READINESS_METRICS_SQL)
+    .bind(JSON.stringify(configuration.accountIds))
+    .all<PaperReadinessAccountInput>();
+  if (!result.success) throw new Error("paper readiness read failed");
+  const accounts = new Map(
+    result.results.map((account) => [account.account_id, account]),
   );
   const missingAccountIds: string[] = [];
   const nonPositiveAccountIds: string[] = [];
   const riskLimitedAccountIds: string[] = [];
-  for (let index = 0; index < results.length; index += 1) {
-    const result = results[index]!;
-    const accountId = configuration.accountIds[index];
-    const account = result.results[0] as PaperReadinessAccountInput | undefined;
+  for (const accountId of configuration.accountIds) {
+    const account = accounts.get(accountId);
     if (
       account === undefined ||
       !Number.isSafeInteger(account.balance_minor) ||
       account.balance_minor <= 0
     ) {
-      if (account === undefined) missingAccountIds.push(accountId!);
-      else nonPositiveAccountIds.push(accountId!);
+      if (account === undefined) missingAccountIds.push(accountId);
+      else nonPositiveAccountIds.push(accountId);
       continue;
     }
     const riskPerPosition =
@@ -443,7 +446,7 @@ export async function paperConfigurationReadiness(
       risk > MAX_SAFE_INTEGER ||
       !paperAccountAllowsNewOpen(account, Number(risk), candidatePositions)
     ) {
-      riskLimitedAccountIds.push(accountId!);
+      riskLimitedAccountIds.push(accountId);
     }
   }
   return {
@@ -975,31 +978,35 @@ async function appendEntryV3ObservationAttempt(
 
   const identityMatches = reviewedIdentityMatches(env, observation);
   const paperConfiguration = parsePaperConfiguration(env);
-  const links = await Promise.all(
-    observation.entryBundles.map(async (bundle) => {
-      const link = await env.DB
-        .prepare(SELECT_ENTRY_V3_PAPER_LINK_SQL)
-        .bind(bundle.setup.setup_id, ATTEMPT_KIND)
-        .first<StoredPaperLinkV3>();
-      return [bundle.setup.setup_id, link] as const;
-    }),
-  );
-  const existingLinks = new Map(links);
-  const shadows = await Promise.all(
-    observation.entryBundles.map(async (bundle) => {
-      const shadow = await env.DB
-        .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
-        .bind(bundle.setup.setup_id, ATTEMPT_KIND)
-        .first<StoredShadowPositionV3>();
-      return [bundle.setup.setup_id, shadow] as const;
-    }),
+  const setupIds = observation.entryBundles.map((bundle) => bundle.setup.setup_id);
+  // Null entries matter: absent owners must not be mistaken for existing links.
+  // These are preflight reads only; later exit/cohort and retry rereads remain.
+  const existingLinks = new Map<string, StoredPaperLinkV3 | null>(
+    setupIds.map((setupId) => [setupId, null]),
   );
   const experimentalShadowOwners = new Map(
-    shadows.map(([setupId, shadow]) => [
-      setupId,
-      isExperimentalOneCandleShadow(shadow),
-    ]),
+    setupIds.map((setupId) => [setupId, false]),
   );
+  if (setupIds.length > 0) {
+    const encodedSetupIds = JSON.stringify(setupIds);
+    const links = await env.DB
+      .prepare(LIST_ENTRY_V3_PAPER_LINKS_SQL)
+      .bind(encodedSetupIds, ATTEMPT_KIND)
+      .all<StoredPaperLinkV3>();
+    if (!links.success) throw new Error("paper ownership read failed");
+    for (const link of links.results) existingLinks.set(link.setup_id, link);
+    const shadows = await env.DB
+      .prepare(LIST_ENTRY_V3_SHADOW_POSITIONS_SQL)
+      .bind(encodedSetupIds, ATTEMPT_KIND)
+      .all<StoredShadowPositionV3>();
+    if (!shadows.success) throw new Error("shadow ownership read failed");
+    for (const shadow of shadows.results) {
+      experimentalShadowOwners.set(
+        shadow.setup_id,
+        isExperimentalOneCandleShadow(shadow),
+      );
+    }
+  }
   const preparedPaperIntents = new Map<
     string,
     {

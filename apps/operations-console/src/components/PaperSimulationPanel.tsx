@@ -1,5 +1,7 @@
 "use client";
 
+import { canPollNow, startVisiblePolling } from "../lib/visible-polling";
+
 import {
   type FormEvent,
   useCallback,
@@ -285,6 +287,7 @@ function PaperReadinessOverview({
   controlReason,
   controlError,
   mutating,
+  controlDisabled,
   onControlReasonChange,
   onControlSubmit,
 }: {
@@ -293,6 +296,7 @@ function PaperReadinessOverview({
   controlReason: string;
   controlError: string | null;
   mutating: boolean;
+  controlDisabled: boolean;
   onControlReasonChange: (value: string) => void;
   onControlSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -447,7 +451,7 @@ function PaperReadinessOverview({
             )}
             <button
               aria-pressed={readiness.killSwitch.enabled}
-              disabled={mutating}
+              disabled={mutating || controlDisabled}
               type="submit"
             >
               {mutating ? "APPLYING…" : switchAction}
@@ -504,6 +508,8 @@ export function PaperSimulationPanel() {
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [mutating, setMutating] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [stale, setStale] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [controlReason, setControlReason] = useState("");
   const [controlError, setControlError] = useState<string | null>(null);
@@ -513,7 +519,7 @@ export function PaperSimulationPanel() {
   const sessionVersion = useRef(0);
 
   const load = useCallback(async (presentedCredential: string, quiet = false) => {
-    if (loadController.current !== null) return;
+    if (!canPollNow() || loadController.current !== null || mutationController.current !== null) return;
     const controller = new AbortController();
     const version = sessionVersion.current;
     loadController.current = controller;
@@ -545,14 +551,16 @@ export function PaperSimulationPanel() {
       const [simulation, readiness] = coreResult.value;
       sessionCredential.current = presentedCredential;
       setProtectedData({ decisions, readiness, simulation });
+      setStale(false);
     } catch (cause) {
       if (controller.signal.aborted || version !== sessionVersion.current) return;
+      setStale(true);
       setError(cause instanceof Error ? cause.message : "Paper simulator is unavailable.");
     } finally {
       if (loadController.current === controller) {
         loadController.current = null;
+        if (!quiet && version === sessionVersion.current) setLoading(false);
       }
-      if (!quiet && version === sessionVersion.current) setLoading(false);
     }
   }, []);
 
@@ -572,6 +580,7 @@ export function PaperSimulationPanel() {
     sessionCredential.current = "";
     setCredential("");
     setProtectedData(null);
+    setStale(true);
     setLoading(false);
     setMutating(false);
     setError(null);
@@ -579,17 +588,23 @@ export function PaperSimulationPanel() {
     setControlError(null);
   };
 
-  const unlocked = protectedData !== null;
-
   useEffect(() => {
-    if (!unlocked) return;
-    const interval = window.setInterval(() => {
-      if (sessionCredential.current !== "") {
-        void load(sessionCredential.current, true);
-      }
-    }, 30_000);
-    return () => window.clearInterval(interval);
-  }, [load, unlocked]);
+    return startVisiblePolling(
+      () => {
+        setPaused(false);
+        if (sessionCredential.current !== "") void load(sessionCredential.current, true);
+      },
+      () => {
+        loadController.current?.abort();
+        loadController.current = null;
+        setLoading(false);
+        setPaused(true);
+        setStale(true);
+      },
+      30_000,
+      false,
+    );
+  }, [load]);
 
   useEffect(
     () => () => {
@@ -602,7 +617,7 @@ export function PaperSimulationPanel() {
 
   const submitControl = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (protectedData === null || mutating) return;
+    if (!canPollNow() || stale || protectedData === null || mutating || mutationController.current !== null) return;
     const normalizedReason = controlReason.trim();
     if (normalizedReason.length < 3 || normalizedReason.length > 240) {
       setControlError("Enter a required operator reason of 3 to 240 characters.");
@@ -614,6 +629,12 @@ export function PaperSimulationPanel() {
       return;
     }
     const enabled = !protectedData.readiness.killSwitch.enabled;
+    // Every pre-mutation snapshot belongs to the old control state. Aborting
+    // invalidates publication even if a request completes despite cancellation.
+    loadController.current?.abort();
+    loadController.current = null;
+    setLoading(false);
+    setStale(true);
     const controller = new AbortController();
     const version = sessionVersion.current;
     mutationController.current = controller;
@@ -644,7 +665,6 @@ export function PaperSimulationPanel() {
               },
         );
         setControlReason("");
-        await load(presentedCredential, true);
       } catch (cause) {
         if (controller.signal.aborted || version !== sessionVersion.current) return;
         setControlError(
@@ -655,6 +675,12 @@ export function PaperSimulationPanel() {
       } finally {
         if (mutationController.current === controller) {
           mutationController.current = null;
+          // Success or lost acknowledgement both require a fresh read, never
+          // a repeated POST. Keep controls pending through reconciliation and
+          // do not revive a session that was locked or unmounted.
+          if (!controller.signal.aborted && version === sessionVersion.current) {
+            await load(presentedCredential, true);
+          }
         }
         if (version === sessionVersion.current) setMutating(false);
       }
@@ -678,6 +704,16 @@ export function PaperSimulationPanel() {
         </p>
       </div>
 
+      {paused ? (
+        <p role="status">
+          {protectedData === null
+            ? "Operator access paused while the page is hidden or offline."
+            : "Updates paused — page hidden or offline. Displayed evidence may be stale."}
+        </p>
+      ) : protectedData !== null && stale ? (
+        <p role="status">Snapshot stale — controls remain blocked until a fresh readiness check succeeds.</p>
+      ) : null}
+
       {protectedData === null ? (
         <form className="simulation-unlock" onSubmit={submit}>
           <div>
@@ -698,7 +734,7 @@ export function PaperSimulationPanel() {
               value={credential}
             />
           </label>
-          <button disabled={loading || credential.length === 0} type="submit">
+          <button disabled={paused || loading || credential.length === 0} type="submit">
             {loading ? "VERIFYING…" : "UNLOCK"}
           </button>
           {error === null ? null : <p role="alert">{error}</p>}
@@ -709,11 +745,11 @@ export function PaperSimulationPanel() {
             <p>
               <strong>{protectedData.simulation.accounts.length}</strong> accounts ·{" "}
               <strong>{protectedData.simulation.intents.length}</strong> recent intents ·
-              live evidence refreshes every 30s
+              evidence refreshes every 30s while visible and online
             </p>
             <div>
               <button
-                disabled={loading || mutating}
+                disabled={paused || loading || mutating}
                 onClick={() => void load(sessionCredential.current)}
                 type="button"
               >
@@ -733,6 +769,7 @@ export function PaperSimulationPanel() {
 
           <PaperReadinessOverview
             controlError={controlError}
+            controlDisabled={paused || stale}
             controlReason={controlReason}
             mutating={mutating}
             onControlReasonChange={(value) => {

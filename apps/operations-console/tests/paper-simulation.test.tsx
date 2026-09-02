@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const apiMocks = vi.hoisted(() => ({
@@ -143,10 +143,263 @@ const readiness = {
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+async function unlockPanel() {
+  apiMocks.loadEntryDecisions.mockResolvedValue({
+    state: "EMPTY", items: [], message: "No decisions recorded.",
+  });
+  apiMocks.loadPaperSimulationSummary.mockResolvedValue(snapshot);
+  apiMocks.loadPaperReadiness.mockResolvedValue(readiness);
+  const rendered = render(<PaperSimulationPanel />);
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText("Paper operator credential"), {
+      target: { value: "operator-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "UNLOCK" }));
+  });
+  return rendered;
+}
+
+function stoppedReadiness() {
+  return {
+    ...readiness,
+    state: "STOPPED" as const,
+    killSwitch: { enabled: true, reason: "Readiness drill", changedAt: "2026-07-23T10:07:00Z" },
+  };
+}
+
 describe("PaperSimulationPanel", () => {
+  it("reconciles immediately when a pending mutation fails after reconnection", async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    await unlockPanel();
+    const mutation = deferred<{ status: string; killSwitch: typeof readiness.killSwitch }>();
+    apiMocks.setPaperReadinessKillSwitch.mockImplementation(() => mutation.promise);
+    // The server applied the control, but its acknowledgement was lost.
+    apiMocks.loadPaperReadiness.mockResolvedValue(stoppedReadiness());
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Required operator reason"), {
+        target: { value: "Readiness drill" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "ENGAGE" }));
+      online.mockReturnValue(false);
+      window.dispatchEvent(new Event("offline"));
+      online.mockReturnValue(true);
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(1);
+    await act(async () => { mutation.reject(new Error("Acknowledgement timed out.")); });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(2);
+    expect(apiMocks.setPaperReadinessKillSwitch).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText("Paper kill switch engaged")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "RELEASE" })).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Acknowledgement timed out.");
+  });
+
+  it("finishes a control while hidden without polling or replaying it, then reconciles on return", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    await unlockPanel();
+    const stopped = stoppedReadiness();
+    const mutation = deferred<{ status: string; killSwitch: typeof readiness.killSwitch }>();
+    apiMocks.setPaperReadinessKillSwitch.mockImplementation(() => mutation.promise);
+    apiMocks.loadPaperReadiness.mockResolvedValue(stopped);
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Required operator reason"), {
+        target: { value: "Readiness drill" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "ENGAGE" }));
+    });
+    await act(async () => {
+      visibility.mockReturnValue("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      mutation.resolve({ status: "APPLIED", killSwitch: stopped.killSwitch });
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "RELEASE" })).toBeDisabled();
+    await act(async () => {
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(2);
+    expect(apiMocks.setPaperReadinessKillSwitch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "RELEASE" })).toBeEnabled();
+  });
+
+  it("does not restore protected data or poll after locking an in-flight refresh", async () => {
+    vi.useFakeTimers();
+    await unlockPanel();
+    const delayed = deferred<typeof snapshot>();
+    apiMocks.loadPaperSimulationSummary.mockImplementationOnce(() => delayed.promise);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    const signal = apiMocks.loadPaperSimulationSummary.mock.calls[1]![1] as AbortSignal;
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "LOCK" }));
+      delayed.resolve(snapshot);
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(signal.aborted).toBe(true);
+    expect(apiMocks.loadPaperSimulationSummary).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Operator access required")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Paper kill switch released")).not.toBeInTheDocument();
+  });
+
+  it("pauses hidden reads and keeps control disabled until the recovery snapshot arrives", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    await unlockPanel();
+    const oldSummary = deferred<typeof snapshot>();
+    apiMocks.loadPaperSimulationSummary.mockImplementationOnce(() => oldSummary.promise);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    const oldSignal = apiMocks.loadPaperReadiness.mock.calls[1]![1] as AbortSignal;
+    await act(async () => {
+      visibility.mockReturnValue("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+    expect(oldSignal.aborted).toBe(true);
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Updates paused/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeDisabled();
+
+    const recovery = deferred<typeof snapshot>();
+    apiMocks.loadPaperSimulationSummary.mockImplementationOnce(() => recovery.promise);
+    await act(async () => {
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+      oldSummary.resolve(snapshot);
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeDisabled();
+    expect(screen.getByText(/Snapshot stale/)).toBeInTheDocument();
+    await act(async () => { recovery.resolve(snapshot); });
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeEnabled();
+    expect(screen.queryByText(/Snapshot stale/)).not.toBeInTheDocument();
+  });
+
+  it("rejects offline controls and refreshes on reconnection without resending a mutation", async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    await unlockPanel();
+    apiMocks.setPaperReadinessKillSwitch.mockRejectedValue(new Error("Network offline."));
+    await act(async () => {
+      online.mockReturnValue(false);
+      window.dispatchEvent(new Event("offline"));
+      fireEvent.change(screen.getByLabelText("Required operator reason"), {
+        target: { value: "Offline drill" },
+      });
+      fireEvent.submit(screen.getByRole("form", { name: "Paper kill switch control" }));
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(1);
+    expect(apiMocks.setPaperReadinessKillSwitch).not.toHaveBeenCalled();
+    await act(async () => {
+      online.mockReturnValue(true);
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(2);
+    expect(apiMocks.setPaperReadinessKillSwitch).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeEnabled();
+  });
+
+  it("keeps controls blocked after a failed refresh until a successful manual refresh", async () => {
+    await unlockPanel();
+    apiMocks.loadPaperReadiness.mockRejectedValueOnce(new Error("Readiness unavailable."));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "REFRESH" }));
+    });
+    expect(screen.getByText(/Snapshot stale/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "REFRESH" }));
+    });
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeEnabled();
+  });
+
+  it("keeps controls blocked when both a mutation and its reconciliation fail", async () => {
+    await unlockPanel();
+    apiMocks.setPaperReadinessKillSwitch.mockRejectedValueOnce(new Error("Acknowledgement lost."));
+    apiMocks.loadPaperReadiness.mockRejectedValueOnce(new Error("Readiness unavailable."));
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Required operator reason"), {
+        target: { value: "Readiness drill" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "ENGAGE" }));
+    });
+    expect(apiMocks.setPaperReadinessKillSwitch).toHaveBeenCalledTimes(1);
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/Snapshot stale/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "REFRESH" }));
+    });
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeEnabled();
+    expect(apiMocks.setPaperReadinessKillSwitch).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards an older poll that completes after a confirmed kill-switch change", async () => {
+    vi.useFakeTimers();
+    await unlockPanel();
+    const oldSummary = deferred<typeof snapshot>();
+    apiMocks.loadPaperSimulationSummary.mockImplementationOnce(() => oldSummary.promise);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    const oldSignal = apiMocks.loadPaperReadiness.mock.calls[1]![1] as AbortSignal;
+    const stopped = stoppedReadiness();
+    apiMocks.loadPaperReadiness.mockResolvedValue(stopped);
+    apiMocks.setPaperReadinessKillSwitch.mockResolvedValue({
+      status: "APPLIED", killSwitch: stopped.killSwitch,
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Required operator reason"), {
+        target: { value: "Readiness drill" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "ENGAGE" }));
+    });
+    expect(screen.getByLabelText("Paper kill switch engaged")).toBeInTheDocument();
+
+    // Deliberately ignore cancellation at the network mock: the component must
+    // still reject the old result when the other two requests finish later.
+    await act(async () => { oldSummary.resolve(snapshot); });
+    expect(screen.getByLabelText("Paper kill switch engaged")).toBeInTheDocument();
+    expect(oldSignal.aborted).toBe(true);
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not start background reads while a control mutation is pending", async () => {
+    vi.useFakeTimers();
+    const rendered = await unlockPanel();
+    const mutation = deferred<{ status: string; killSwitch: typeof readiness.killSwitch }>();
+    apiMocks.setPaperReadinessKillSwitch.mockImplementation(() => mutation.promise);
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText("Required operator reason"), {
+        target: { value: "Readiness drill" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "ENGAGE" }));
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "APPLYING…" })).toBeDisabled();
+    rendered.unmount();
+    const signal = apiMocks.setPaperReadinessKillSwitch.mock.calls[0]![3] as AbortSignal;
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      mutation.resolve({ status: "APPLIED", killSwitch: stoppedReadiness().killSwitch });
+    });
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(1);
+  });
+
   it("loads summary and readiness together, refreshes, and locks again", async () => {
     apiMocks.loadEntryDecisions.mockResolvedValue({
       state: "EMPTY",
@@ -264,6 +517,8 @@ describe("PaperSimulationPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("$100,750.00")).toBeInTheDocument();
     expect(screen.queryByText("operator-secret")).not.toBeInTheDocument();
+    expect(apiMocks.loadPaperReadiness).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "ENGAGE" })).toBeEnabled();
   });
 
   it("engages the kill switch and reloads authoritative evidence", async () => {

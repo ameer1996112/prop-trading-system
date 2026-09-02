@@ -164,6 +164,15 @@ WHERE setup_id = ? AND attempt_kind = ?
 LIMIT 1
 `;
 
+export const LIST_ENTRY_V3_PAPER_LINKS_SQL = `
+SELECT
+  setup_id, attempt_kind, selection_id, intent_id, direction, trigger_epoch,
+  trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks, target_ticks,
+  created_at
+FROM observation_entry_v3_paper_links
+WHERE setup_id IN (SELECT value FROM json_each(?)) AND attempt_kind = ?
+`;
+
 export const INSERT_ENTRY_V3_PAPER_LINK_SQL = `
 INSERT INTO observation_entry_v3_paper_links (
   setup_id, attempt_kind, selection_id, intent_id, direction, trigger_epoch,
@@ -208,6 +217,16 @@ WHERE setup_id = ? AND attempt_kind = ?
 LIMIT 1
 `;
 
+export const LIST_ENTRY_V3_SHADOW_POSITIONS_SQL = `
+SELECT
+  candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
+  trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks, target_ticks,
+  state, exit_event_id, outcome_r_millis, liquidity_cohort,
+  one_candle_enabled, created_at, terminal_at
+FROM observation_entry_v3_shadow_positions
+WHERE setup_id IN (SELECT value FROM json_each(?)) AND attempt_kind = ?
+`;
+
 export const INSERT_ENTRY_V3_SHADOW_POSITION_SQL = `
 INSERT INTO observation_entry_v3_shadow_positions (
   candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
@@ -241,19 +260,10 @@ INSERT INTO observation_entry_v3_exit_applications (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
+// Separate epoch and ingest-order probes keep both searches indexable, without
+// ranking every revision first. Equal-epoch/skewed histories can still require
+// scanning and sorting; LIMIT is not a constant-work guarantee for every shape.
 export const LIST_ENTRY_V3_DECISIONS_SQL = `
-WITH ranked_selections AS (
-  SELECT
-    stored_selection.*,
-    stored_selection.rowid AS ingest_ordinal,
-    ROW_NUMBER() OVER (
-      PARTITION BY stored_selection.setup_id, stored_selection.attempt_kind
-      ORDER BY
-        stored_selection.evaluated_at_epoch DESC,
-        stored_selection.rowid DESC
-    ) AS attempt_revision_rank
-  FROM observation_entry_v3_selections AS stored_selection
-)
 SELECT
   selection.selection_id,
   selection.logical_selection_id,
@@ -277,11 +287,25 @@ SELECT
   selection.selection_json,
   event.symbol,
   event.tick_size
-FROM ranked_selections AS selection
+FROM observation_entry_v3_selections AS selection
 JOIN observation_entry_v3_events AS event
   ON event.event_id = selection.event_id
-WHERE selection.attempt_revision_rank = 1
-ORDER BY selection.evaluated_at_epoch DESC, selection.ingest_ordinal DESC
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM observation_entry_v3_selections AS newer
+  WHERE newer.setup_id = selection.setup_id
+    AND newer.attempt_kind = selection.attempt_kind
+    AND newer.evaluated_at_epoch > selection.evaluated_at_epoch
+)
+AND NOT EXISTS (
+  SELECT 1
+  FROM observation_entry_v3_selections AS newer
+  WHERE newer.setup_id = selection.setup_id
+    AND newer.attempt_kind = selection.attempt_kind
+    AND newer.evaluated_at_epoch = selection.evaluated_at_epoch
+    AND newer.rowid > selection.rowid
+)
+ORDER BY selection.evaluated_at_epoch DESC, selection.rowid DESC
 LIMIT ?
 `;
 

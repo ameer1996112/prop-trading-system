@@ -3365,10 +3365,10 @@ describe("observation edge Worker", () => {
     expect(migration).toContain("attempt_kind");
     expect(migration).toContain("evaluated_at_epoch DESC");
     expect(LIST_ENTRY_V3_DECISIONS_SQL).toContain(
-      "stored_selection.rowid AS ingest_ordinal",
+      "newer.rowid > selection.rowid",
     );
     expect(LIST_ENTRY_V3_DECISIONS_SQL).toContain(
-      "stored_selection.rowid DESC",
+      "selection.evaluated_at_epoch DESC, selection.rowid DESC",
     );
     expect(
       database

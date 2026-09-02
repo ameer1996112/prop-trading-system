@@ -13,6 +13,7 @@ import {
   ObservationReceiptsPanel,
 } from "./ObservationReceipts";
 import { PaperSimulationPanel } from "./PaperSimulationPanel";
+import { startVisiblePolling } from "../lib/visible-polling";
 
 const POLL_INTERVAL_MS = 30_000;
 
@@ -38,12 +39,15 @@ export function FoundationDashboard() {
     LOADING_OBSERVATION_RECEIPTS,
   );
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [stale, setStale] = useState(true);
 
   useEffect(() => {
     let active = true;
     let inFlight: AbortController | null = null;
 
     const poll = async () => {
+      setPaused(false);
       inFlight?.abort();
       const controller = new AbortController();
       inFlight = controller;
@@ -55,18 +59,27 @@ export function FoundationDashboard() {
       setHealth(nextHealth);
       setReceipts(nextReceipts);
       setLastCheckedAt(new Date());
+      setStale(false);
     };
 
-    void poll();
-    const timer = window.setInterval(() => void poll(), POLL_INTERVAL_MS);
+    const stopPolling = startVisiblePolling(
+      () => void poll(),
+      () => {
+        inFlight?.abort();
+        setPaused(true);
+        setStale(true);
+      },
+      POLL_INTERVAL_MS,
+    );
     return () => {
       active = false;
-      window.clearInterval(timer);
+      stopPolling();
       inFlight?.abort();
     };
   }, []);
 
-  const ingress = ingressLabel(receipts);
+  const displayedHealth = stale ? OFFLINE_HEALTH : health;
+  const ingress = stale ? "BLOCKED" : ingressLabel(receipts);
 
   return (
     <main className="ledger-shell">
@@ -99,9 +112,9 @@ export function FoundationDashboard() {
         <dl className="system-readings">
           <div>
             <dt>Observation API</dt>
-            <dd className={`reading reading-${health.state.toLowerCase()}`}>
+            <dd className={`reading reading-${displayedHealth.state.toLowerCase()}`}>
               <span aria-hidden="true" />
-              {health.state}
+              {displayedHealth.state}
             </dd>
           </div>
           <div>
@@ -114,17 +127,17 @@ export function FoundationDashboard() {
           <div>
             <dt>Paper simulator</dt>
             <dd
-              className={`reading reading-${health.paperSimulator.toLowerCase()}`}
+              className={`reading reading-${displayedHealth.paperSimulator.toLowerCase()}`}
             >
               <span aria-hidden="true" />
-              {health.paperSimulator}
+              {displayedHealth.paperSimulator}
             </dd>
           </div>
           <div>
             <dt>Broker execution</dt>
-            <dd className={`reading reading-${health.execution.toLowerCase()}`}>
+            <dd className={`reading reading-${displayedHealth.execution.toLowerCase()}`}>
               <span aria-hidden="true" />
-              {health.execution}
+              {displayedHealth.execution}
             </dd>
           </div>
           <div>
@@ -135,7 +148,9 @@ export function FoundationDashboard() {
           </div>
         </dl>
         <p className="system-message" role="status" aria-live="polite">
-          {health.message}
+          {paused
+            ? "Updates paused — page hidden or offline. Displayed evidence may be stale."
+            : stale ? "Snapshot stale — awaiting a fresh status check." : health.message}
         </p>
       </section>
 
@@ -148,7 +163,7 @@ export function FoundationDashboard() {
           Simulation outcomes are bookkeeping facts only. Nothing on this page can reach a
           broker or prop-firm account.
         </p>
-        <span>Auto-check every 30 seconds</span>
+        <span>Auto-check every 30 seconds while visible and online</span>
       </footer>
     </main>
   );
