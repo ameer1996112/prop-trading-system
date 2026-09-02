@@ -277,6 +277,7 @@ type RawZone
     int setupBar
     int setupTime
     string setupReason
+    bool directCloseCandidateEmitted
     float setupLiquidityAnchor
     int setupLiquidityAnchorTime
     float setupLiquidityExtreme
@@ -647,6 +648,7 @@ buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formatio
     zone.setupBar := na
     zone.setupTime := na
     zone.setupReason := WAIT_SETUP_ELIGIBILITY
+    zone.directCloseCandidateEmitted := false
     zone.setupLiquidityAnchor := na
     zone.setupLiquidityAnchorTime := na
     zone.setupLiquidityExtreme := na
@@ -1685,6 +1687,13 @@ zoneCloseInvalidBeforeEntry(RawZone zone) =>
 
 zoneWickInvalidThroughDistal(RawZone zone) =>
     zone.demand ? low < zone.bottom : high > zone.top
+
+zoneHasVisualDirectCloseCandidate(RawZone zone) =>
+    zone.state == STATE_TAPPED and
+     zone.stateBar == bar_index and
+     zone.setupReason == REJECT_TARGET_TAP_WITHOUT_ELIGIBILITY and
+     directionalCloseConfirmedForZone(zone) and
+     not zoneWickInvalidThroughDistal(zone)
 
 setupHasAmbiguousLifecycleOrder(RawZone zone) =>
     bool ownBreakAndSweepAmbiguous = not na(zone.liquidityTakenBar) and not na(zone.liquiditySweptBar) and zone.liquidityTakenBar >= zone.liquiditySweptBar
@@ -3007,6 +3016,23 @@ drawTechnicalCandidate(EntryAttempt attempt) =>
         label targetLabel = label.new(ladderRightBar, targetPrice, "CAND TP  " + str.tostring(targetPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(candidateColor, 28), textcolor = stoneText, size = size.tiny)
         recordActionableVisual(attempt.core.setupId, entryLine, stopLine, targetLine, directionLabel, entryLabel, stopLabel, targetLabel)
 
+drawDirectCloseCandidate(RawZone zone) =>
+    if showActionableTradeMarkers and showTechnicalCandidates
+        float entryPrice = close
+        float stopPrice = zone.demand ? entryPrice - entryStopTicks * syminfo.mintick : entryPrice + entryStopTicks * syminfo.mintick
+        float targetPrice = zone.demand ? entryPrice + entryTargetTicks * syminfo.mintick : entryPrice - entryTargetTicks * syminfo.mintick
+        int ladderRightBar = bar_index + actionableTradeProjectionBars
+        color candidateColor =  color.rgb(190, 133, 48)
+        color stoneText =  color.rgb(244, 240, 232)
+        line entryLine = line.new(bar_index, entryPrice, ladderRightBar, entryPrice, xloc = xloc.bar_index, extend = extend.none, color = candidateColor, style = line.style_dotted, width = 2)
+        line stopLine = line.new(bar_index, stopPrice, ladderRightBar, stopPrice, xloc = xloc.bar_index, extend = extend.none, color = candidateColor, style = line.style_dotted, width = 1)
+        line targetLine = line.new(bar_index, targetPrice, ladderRightBar, targetPrice, xloc = xloc.bar_index, extend = extend.none, color = candidateColor, style = line.style_dotted, width = 1)
+        label directionLabel = label.new(bar_index, zone.demand ? low : high, (zone.demand ? "LONG" : "SHORT") + " · PAPER CANDIDATE · DIR_CLOSE", xloc = xloc.bar_index, yloc = zone.demand ? yloc.belowbar : yloc.abovebar, style = zone.demand ? label.style_label_up : label.style_label_down, color = color.new(candidateColor, 8), textcolor = stoneText, size = size.tiny)
+        label entryLabel = label.new(ladderRightBar, entryPrice, "CAND ENTRY  " + str.tostring(entryPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(candidateColor, 10), textcolor = stoneText, size = size.tiny)
+        label stopLabel = label.new(ladderRightBar, stopPrice, "CAND SL  " + str.tostring(stopPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(candidateColor, 28), textcolor = stoneText, size = size.tiny)
+        label targetLabel = label.new(ladderRightBar, targetPrice, "CAND TP  " + str.tostring(targetPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(candidateColor, 28), textcolor = stoneText, size = size.tiny)
+        recordActionableVisual(entrySetupId(zone) + ":DIR_CLOSE", entryLine, stopLine, targetLine, directionLabel, entryLabel, stopLabel, targetLabel)
+
 drawActionableExit(EntryAttempt attempt, string exitReason, int exitTicks) =>
     if showActionableTradeMarkers
         [entryTicks, stopTicks, targetTicks] = entryPlanFacts(attempt)
@@ -3682,6 +3708,9 @@ if barstate.isconfirmed and isFiveMinute and validationReady
                     validationEventCount += 1
             if exportSetupEvents
                 syncSetupExportLifecycle(zone)
+            if not zone.directCloseCandidateEmitted and zoneHasVisualDirectCloseCandidate(zone)
+                zone.directCloseCandidateEmitted := true
+                drawDirectCloseCandidate(zone)
             array.set(zones, index, zone)
 
     // Materialize attempts immediately after engagement/setup transitions so a
