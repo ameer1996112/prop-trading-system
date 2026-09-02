@@ -37,9 +37,57 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
 describe("FoundationDashboard", () => {
+  it("does not poll while hidden and refreshes immediately when visible", async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const rendered = render(<FoundationDashboard />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+    expect(apiMocks.loadApiHealth).not.toHaveBeenCalled();
+    expect(apiMocks.loadObservationReceipts).not.toHaveBeenCalled();
+    expect(screen.getByText(/Updates paused/)).toBeInTheDocument();
+
+    await act(async () => {
+      visibility.mockReturnValue("visible");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(apiMocks.loadApiHealth).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("ONLINE")).toBeInTheDocument();
+    rendered.unmount();
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("online"));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(apiMocks.loadApiHealth).toHaveBeenCalledTimes(1);
+  });
+
+  it("pauses offline, marks snapshots stale, and does not duplicate recovery polls", async () => {
+    vi.useFakeTimers();
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(true);
+    render(<FoundationDashboard />);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => {
+      online.mockReturnValue(false);
+      window.dispatchEvent(new Event("offline"));
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+    expect(apiMocks.loadApiHealth).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Updates paused/)).toBeInTheDocument();
+    expect(screen.getByText("BLOCKED")).toBeInTheDocument();
+
+    await act(async () => {
+      online.mockReturnValue(true);
+      window.dispatchEvent(new Event("online"));
+      window.dispatchEvent(new Event("online"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(apiMocks.loadApiHealth).toHaveBeenCalledTimes(2);
+    expect(apiMocks.loadObservationReceipts).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/Updates paused/)).not.toBeInTheDocument();
+  });
+
   it("starts fail-closed, then renders verified API and ingress state", async () => {
     render(<FoundationDashboard />);
 

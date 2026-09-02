@@ -196,7 +196,9 @@ function isRealUtcTimestamp(value: unknown): value is string {
   );
 }
 
-export async function parseStrictResponse(response: Response): Promise<unknown> {
+type BufferedResponse = Pick<Response, "status" | "text">;
+
+export async function parseStrictResponse(response: BufferedResponse): Promise<unknown> {
   try {
     return parseCanonicalJson(await response.text());
   } catch (error) {
@@ -215,7 +217,7 @@ export async function fetchBounded(
   path: string,
   externalSignal?: AbortSignal,
   additionalHeaders: Record<string, string> = {},
-): Promise<Response> {
+): Promise<BufferedResponse> {
   const { fetchAttempts, fetchTimeoutMs } = getConsoleConfig();
   let lastError: unknown;
 
@@ -230,11 +232,16 @@ export async function fetchBounded(
     externalSignal?.addEventListener("abort", abort, { once: true });
     const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
     try {
-      return await fetch(endpoint(path), {
+      const response = await fetch(endpoint(path), {
         cache: "no-store",
         headers: { Accept: "application/json", ...additionalHeaders },
         signal: controller.signal,
       });
+      // fetch resolves at headers. Keep the deadline and caller cancellation
+      // alive through body consumption, including unsuccessful HTTP responses.
+      const body = await response.text();
+      controller.signal.throwIfAborted();
+      return { status: response.status, text: async () => body };
     } catch (error) {
       lastError = error;
       if (externallyAborted || externalSignal?.aborted || attempt === fetchAttempts) {
@@ -254,14 +261,15 @@ async function mutateBounded(
   body: string,
   externalSignal?: AbortSignal,
   additionalHeaders: Record<string, string> = {},
-): Promise<Response> {
+): Promise<BufferedResponse> {
+  externalSignal?.throwIfAborted();
   const { fetchTimeoutMs } = getConsoleConfig();
   const controller = new AbortController();
   const abort = () => controller.abort();
   externalSignal?.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(abort, fetchTimeoutMs);
   try {
-    return await fetch(endpoint(path), {
+    const response = await fetch(endpoint(path), {
       body,
       cache: "no-store",
       headers: {
@@ -272,6 +280,10 @@ async function mutateBounded(
       method: "POST",
       signal: controller.signal,
     });
+    // Never retry a mutation: a timeout does not prove it was not applied.
+    const responseBody = await response.text();
+    controller.signal.throwIfAborted();
+    return { status: response.status, text: async () => responseBody };
   } finally {
     clearTimeout(timeout);
     externalSignal?.removeEventListener("abort", abort);
