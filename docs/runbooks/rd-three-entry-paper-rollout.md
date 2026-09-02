@@ -16,10 +16,15 @@ Record the reviewed commit and local build artifacts before approval:
 - edge dry-run artifact: `apps/observation-edge/dist`;
 - console source: `apps/operations-console`;
 - console static artifact: `apps/operations-console/out`;
-- TradingView producer: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`;
+- TradingView producer: `scripts/pinescript/SND_RD_5M_V3_RELEASE.pine` (schema 3.1);
+- historical rollback artifact: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine` (schema
+  3.0; do not use for a new alert);
 - D1 migrations: `0024_observation_entries_v3.sql`,
   `0025_observation_entry_v3_decision_order.sql`, and
-  `0026_observation_entry_v3_attempt_order.sql`.
+  `0026_observation_entry_v3_attempt_order.sql`,
+  `0027_observation_entry_v3_paper_fallback_shadow.sql`,
+  `0028_observation_entry_v3_liquidity_cohorts.sql`, and
+  `0029_observation_entry_v3_one_candle_reason.sql`.
 
 The required runtime binding names are listed below without values. The five names marked
 **secret binding** are also listed under `secrets.required` in `wrangler.jsonc`, but that field is
@@ -66,10 +71,12 @@ Build the two production artifacts again and retain their output paths:
 
 Do not continue if the working tree differs from the reviewed commit.
 
-## 2. Apply D1 migrations through 0027
+## 2. Apply D1 migrations through 0029
 
 After explicit deployment approval, apply every pending migration through
-`0027_observation_entry_v3_paper_fallback_shadow.sql`:
+`0027_observation_entry_v3_paper_fallback_shadow.sql`,
+`0028_observation_entry_v3_liquidity_cohorts.sql`, and
+`0029_observation_entry_v3_one_candle_reason.sql`:
 
 ```sh
 (cd apps/observation-edge && npm run db:migrate:remote)
@@ -85,7 +92,7 @@ Do not delete, rename, or roll back any of these migrations.
 Compute the detector digest from the exact saved Pine bytes in the reviewed commit:
 
 ```sh
-shasum -a 256 scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine
+shasum -a 256 scripts/pinescript/SND_RD_5M_V3_RELEASE.pine
 ```
 
 Separately capture every TradingView input, feed, symbol, timeframe, timezone, and session setting
@@ -168,9 +175,11 @@ origin:
 ```text
 GET /health/live
 GET /api/v1/rd-entry-decisions?limit=20
+GET /api/v1/rd-entry-readiness
 ```
 
-The decision route is protected by the paper-admin bearer credential. No `/webhook`, broker,
+Both RD routes are protected by the paper-admin bearer credential. The readiness route returns
+only bounded configuration/readiness/last-decision status. No `/webhook`, broker,
 provider, order, fill, or live-account route may exist.
 
 ## 5. Create or verify the PAPER_ONLY account
@@ -184,7 +193,8 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
 ## 6. Install the TradingView producer
 
 1. Open a supported Forex chart at the five-minute timeframe.
-2. Add `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` to Pine Editor.
+2. Add `SND_RD_5M_V3_RELEASE.pine` to Pine Editor. Do not create a new alert from the historical
+   `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` rollback artifact.
 3. Save, compile, and add it to the chart.
 4. Enter the dedicated contract-v3 ingress credential only in
    **Contract-v3 ingress credential**. Use the approved printable token format
@@ -217,8 +227,10 @@ After the account/risk review, disengage the paper kill switch for this signed s
 keep Pine emission disabled. Run this sequence and capture only status codes, bounded response
 fields, and resulting row IDs:
 
-1. Send one exact `DIR_CLOSE` entry-decision payload whose producer detector/settings hashes are
-   the two reviewed digests. Expect `202`.
+1. Send one exact `DIR_CLOSE` entry-decision payload with `schema_version=3.1`,
+   `strategy_version=3.1.0-contract3`, `rule_contract_version=3.1.0`,
+   `liquidity_cohort=TWO_PLUS_CANDLES`, and `one_candle_enabled=false`, whose producer
+   detector/settings hashes are the two reviewed digests. Expect `202`.
 2. Query the authenticated `GET /api/v1/rd-entry-decisions?limit=20` and
    `GET /api/v1/paper-simulations/summary?limit=50` routes. Require one selected
    `PAPER_ELIGIBLE` `DIR_CLOSE` decision and exactly one paper intent for that setup. This is the
@@ -242,12 +254,20 @@ Stop immediately on a different result. Disable v3 Pine emission and keep the pa
 engaged until the mismatch is reviewed; do not “fix” smoke data in D1. Enable Pine emission only
 after the DIR_CLOSE/replay effective-value gate and the remaining smoke sequence pass.
 
+Only after a fresh exact-ticker schema-3.1 DIR_CLOSE receipt exists, query
+`GET /api/v1/rd-entry-readiness?ticker_id=<exact-ticker-id>` with paper-admin authorization.
+Immediately before enabling real Pine emission, require `state=READY`,
+`can_create_paper_intent=true`, and an empty `blockers` array. The canonical receipt must report
+the exact `3.1` / `3.1.0-contract3` / `3.1.0` tuple and matched reviewed detector/settings
+identities. Re-engage the paper kill switch immediately on any mismatch; do not alter D1 data,
+bindings, alerts, or secrets as a workaround.
+
 ## 8. Acceptance
 
 The rollout is accepted only when all of the following are recorded:
 
 - local `make verify-observation` passed at the deployed commit;
-- D1 is migrated through 0027;
+- D1 is migrated through 0029;
 - detector and settings digests match across source, edge, and Pine;
 - the paper account and risk configuration are reviewed;
 - Pine compiled, was added to the five-minute chart, and produced an actual realtime event;
@@ -260,7 +280,8 @@ The rollout is accepted only when all of the following are recorded:
 1. Disable the TradingView v3 alert.
 2. Leave version 3 rows immutable.
 3. Redeploy the previous edge/console release if necessary.
-4. Do not delete migration 0024, migration 0025, migration 0026, migration 0027, or historical paper intents.
+4. Do not delete migration 0024, migration 0025, migration 0026, migration 0027, migration 0028,
+   migration 0029, or historical paper intents.
 
 Keep the reviewed hashes and failed smoke evidence for diagnosis. Rollback does not authorize
 editing or deleting audit facts.

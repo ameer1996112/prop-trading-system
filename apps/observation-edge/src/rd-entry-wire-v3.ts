@@ -6,6 +6,7 @@ import {
   validateEntryCandidateV3,
   validateEntryEvaluationV3,
   validateEntryEvidenceV3,
+  validateLiquidityCohortV3,
   validateOrderedCandleV3,
   validateSelectionShapeV3,
   type CandidateFidelityV3,
@@ -75,7 +76,7 @@ const SETUP_BUNDLE_KEYS = [
   "selection_proposal",
   "trade_plan",
 ] as const;
-const SETUP_KEYS = [
+const SETUP_KEYS_V30 = [
   "setup_id",
   "direction",
   "zone_top_ticks",
@@ -84,6 +85,11 @@ const SETUP_KEYS = [
   "invalidated_before_entry",
   "common_fidelity",
   "common_rule_results",
+] as const;
+const SETUP_KEYS_V31 = [
+  ...SETUP_KEYS_V30,
+  "liquidity_cohort",
+  "one_candle_enabled",
 ] as const;
 const CANDIDATE_KEYS = [
   "candidate_id",
@@ -180,6 +186,12 @@ const EDGE_DERIVED_REFERENCE =
 const IDENTIFIER = /^[\x21-\x5b\x5d-\x7e]+$/u;
 const POSITIVE_DECIMAL =
   /^(?:0\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\.[0-9]+)?)$/u;
+const ONE_CANDLE_EXPECTED_FAILED_RULES = new Set([
+  "LIQ_INTERNAL_REBREAK",
+  "LIQ_NORMAL_TWO_OPPOSITE_CANDLES",
+]);
+
+type EntryV3SchemaVersion = "3.0" | "3.1";
 
 export class EntryV3ValidationError extends Error {
   constructor(message = "ENTRY_V3_INVALID") {
@@ -599,6 +611,7 @@ const SELECTION_REASONS_V3 = new Set([
   "CO_TRIGGER_SAME_EVENT",
   "CO_TRIGGER_PRICE_CONFLICT",
   "NO_EXACT_CANDIDATE",
+  "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
   "SETUP_INVALIDATED",
   "NO_CANDIDATE",
 ]);
@@ -769,7 +782,6 @@ async function verifyCanonicalDigests(
 
 function parseCommonRules(
   value: unknown,
-  allowFailed: boolean,
 ): readonly EntryV3CommonRuleResult[] {
   const result = values(
     value,
@@ -785,23 +797,57 @@ function parseCommonRules(
   });
   if (
     result.map((item) => item.rule_id).join() !==
-      REQUIRED_COMMON_RULE_IDS_V3.join() ||
-    (!allowFailed && result.some((item) => !item.passed))
+      REQUIRED_COMMON_RULE_IDS_V3.join()
   ) {
     fail();
   }
   return result as readonly EntryV3CommonRuleResult[];
 }
 
+function validateCommonRules(
+  schemaVersion: EntryV3SchemaVersion,
+  setup: SetupEntryFactsV3,
+  rules: readonly EntryV3CommonRuleResult[],
+  unreviewedProducer: boolean,
+): void {
+  const byId = new Map(rules.map((item) => [item.rule_id, item.passed]));
+  if (
+    schemaVersion === "3.0" &&
+    byId.get("LIQ_NORMAL_TWO_OPPOSITE_CANDLES") !== true
+  ) {
+    fail("ENTRY_V3_LEGACY_LIQUIDITY_CLASSIFICATION");
+  }
+  if (setup.liquidity_cohort === "TWO_PLUS_CANDLES") {
+    if (!unreviewedProducer && rules.some((item) => !item.passed)) fail();
+    return;
+  }
+  if (byId.get("LIQ_ONE_CANDLE_EXCEPTION") !== true) fail();
+  const allowedFailedRules = new Set(ONE_CANDLE_EXPECTED_FAILED_RULES);
+  if (setup.common_fidelity === "UNRESOLVED") {
+    allowedFailedRules.add("LIQ_DISTANCE_INFLUENCES_ZONE");
+  }
+  if (
+    rules.some(
+      (item) => !item.passed && !allowedFailedRules.has(item.rule_id),
+    )
+  ) {
+    fail();
+  }
+}
+
 function parseSetup(
   value: unknown,
   unreviewedProducer: boolean,
+  schemaVersion: EntryV3SchemaVersion,
 ): {
   readonly facts: SetupEntryFactsV3;
   readonly commonRules: readonly EntryV3CommonRuleResult[];
 } {
   const result = object(value);
-  exactKeys(result, SETUP_KEYS);
+  exactKeys(
+    result,
+    schemaVersion === "3.0" ? SETUP_KEYS_V30 : SETUP_KEYS_V31,
+  );
   const facts = {
     setup_id: identifier(result.setup_id),
     direction: result.direction,
@@ -813,6 +859,14 @@ function parseSetup(
         : integer(result.zone_engaged_epoch),
     invalidated_before_entry: boolean(result.invalidated_before_entry),
     common_fidelity: result.common_fidelity,
+    liquidity_cohort:
+      schemaVersion === "3.0"
+        ? "TWO_PLUS_CANDLES"
+        : result.liquidity_cohort,
+    one_candle_enabled:
+      schemaVersion === "3.0"
+        ? false
+        : boolean(result.one_candle_enabled),
   } as SetupEntryFactsV3;
   if (
     (facts.direction !== "LONG" && facts.direction !== "SHORT") ||
@@ -823,12 +877,21 @@ function parseSetup(
   ) {
     fail();
   }
+  try {
+    validateLiquidityCohortV3(facts);
+  } catch {
+    fail();
+  }
+  const commonRules = parseCommonRules(result.common_rule_results);
+  validateCommonRules(
+    schemaVersion,
+    facts,
+    commonRules,
+    unreviewedProducer,
+  );
   return {
     facts,
-    commonRules: parseCommonRules(
-      result.common_rule_results,
-      unreviewedProducer,
-    ),
+    commonRules,
   };
 }
 
@@ -870,6 +933,10 @@ function validateUnreviewedBundle(
   const producerSelection = object(producerSelectionValue);
   const producerAction = producerSelection.action;
   const producerReason = producerSelection.reason;
+  const expectedShadowReason =
+    setup.liquidity_cohort === "ONE_CANDLE"
+      ? "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"
+      : "NO_EXACT_CANDIDATE";
   if (
     setup.common_fidelity !== "UNRESOLVED" ||
     candidates.some((candidate) => candidate.state === "MATCHED") ||
@@ -882,7 +949,7 @@ function validateUnreviewedBundle(
     ) ||
     (producerAction !== "SHADOW_ONLY" && producerAction !== "NONE") ||
     (producerAction === "SHADOW_ONLY"
-      ? producerReason !== "NO_EXACT_CANDIDATE"
+      ? producerReason !== expectedShadowReason
       : producerReason !== "SETUP_INVALIDATED" &&
         producerReason !== "NO_CANDIDATE") ||
     producerSelection.canonical_candidate_id !== null ||
@@ -903,10 +970,11 @@ function validateUnreviewedBundle(
 async function parseBundle(
   value: unknown,
   unreviewedProducer: boolean,
+  schemaVersion: EntryV3SchemaVersion,
 ): Promise<ValidatedEntryV3Bundle> {
   const result = object(value);
   exactKeys(result, SETUP_BUNDLE_KEYS);
-  const setup = parseSetup(result.setup, unreviewedProducer);
+  const setup = parseSetup(result.setup, unreviewedProducer, schemaVersion);
   const usesEdgeDerivedIdentity = bundleUsesEdgeDerivedIdentity(result);
   const candidateValues = values(result.candidates, 0, 3);
   const candidates = usesEdgeDerivedIdentity
@@ -953,7 +1021,24 @@ async function parseBundle(
     setup.facts.invalidated_before_entry,
     selectionSeed.revision,
     selectionSeed.evaluated_at_epoch,
+    null,
+    setup.facts.liquidity_cohort,
   );
+  const producerSelection = object(result.selection_proposal);
+  const truthfulOneCandleTerminal =
+    producerSelection.action === "SHADOW_ONLY" &&
+    producerSelection.reason === "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED" &&
+    producerSelection.canonical_candidate_id === null &&
+    producerSelection.canonical_evidence_id === null &&
+    producerSelection.canonical_model === null &&
+    producerSelection.fidelity === null &&
+    values(producerSelection.co_triggered_models, 0, 3).length === 0;
+  if (
+    setup.facts.liquidity_cohort === "ONE_CANDLE" &&
+    !truthfulOneCandleTerminal
+  ) {
+    fail("ENTRY_V3_ONE_CANDLE_TERMINAL_MISMATCH");
+  }
   if (
     !usesEdgeDerivedIdentity &&
     canonicalJson(canonicalSelection) !== canonicalJson(selectionSeed)
@@ -1345,16 +1430,24 @@ export async function validateEntryV3Payload(
   }
   const payload = object(decoded);
   exactKeys(payload, TOP_LEVEL_KEYS);
+  const schemaVersion = payload.schema_version;
+  const isLegacyV30 =
+    schemaVersion === "3.0" &&
+    payload.strategy_version === "3.0.0-contract3" &&
+    payload.rule_contract_version === "3.0.0";
+  const isCohortAwareV31 =
+    schemaVersion === "3.1" &&
+    payload.strategy_version === "3.1.0-contract3" &&
+    payload.rule_contract_version === "3.1.0";
   if (
-    payload.schema_version !== "3.0" ||
+    (!isLegacyV30 && !isCohortAwareV31) ||
     payload.strategy_id !== "rd_liquidity_sd_5m_v1" ||
-    payload.strategy_version !== "3.0.0-contract3" ||
-    payload.rule_contract_version !== "3.0.0" ||
     payload.execution_mode !== "PAPER_ONLY" ||
     payload.timeframe !== "5"
   ) {
     fail();
   }
+  const validatedSchemaVersion = schemaVersion as EntryV3SchemaVersion;
   const producerInstanceId = identifier(payload.producer_instance_id);
   const producerSequence = integer(payload.producer_sequence);
   const eventId = identifier(payload.event_id);
@@ -1385,7 +1478,13 @@ export async function validateEntryV3Payload(
   const setupValues = values(payload.setups, 1, 32);
   const entryBundles: ValidatedEntryV3Bundle[] = [];
   for (const value of setupValues) {
-    entryBundles.push(await parseBundle(value, unreviewedProducer));
+    entryBundles.push(
+      await parseBundle(
+        value,
+        unreviewedProducer,
+        validatedSchemaVersion,
+      ),
+    );
   }
   if (
     new Set(entryBundles.map((item) => item.setup.setup_id)).size !==
@@ -1441,9 +1540,11 @@ export async function validateEntryV3Payload(
     canonicalPayload,
     metadata: {
       idempotencyKey: eventId,
-      schemaVersion: "3.0",
+      schemaVersion: validatedSchemaVersion,
       strategyId: "rd_liquidity_sd_5m_v1",
-      strategyVersion: "3.0.0-contract3",
+      strategyVersion: isLegacyV30
+        ? "3.0.0-contract3"
+        : "3.1.0-contract3",
       producerInstanceId,
       sequence: producerSequence,
       symbol,

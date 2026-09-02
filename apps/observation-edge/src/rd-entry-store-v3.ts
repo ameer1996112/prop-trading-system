@@ -64,7 +64,7 @@ import type {
 const SHA256 = /^[a-f0-9]{64}$/u;
 const NONZERO_SHA256 = /^(?!0{64}$)[a-f0-9]{64}$/u;
 const RISK_BPS = /^(?:[1-9][0-9]{0,2})$/u;
-const REVIEWED_TICKER_ID =
+export const REVIEWED_TICKER_ID =
   /^[A-Z0-9][A-Z0-9._-]{0,31}:[A-Z0-9][A-Z0-9._-]{0,63}$/u;
 const MAX_REVIEWED_TICKERS = 64;
 const MAX_REVIEWED_SETTINGS_JSON_BYTES = 16_384;
@@ -77,6 +77,7 @@ type EntryV3Observation = Extract<
 >;
 
 type EffectiveActionReason =
+  | "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED"
   | "PROMOTION_IDENTITY_MISMATCH"
   | "PAPER_CONFIGURATION_UNAVAILABLE"
   | "NOT_SELECTED_ALREADY_OPEN"
@@ -120,6 +121,8 @@ interface StoredShadowPositionV3 {
   readonly state: "OPEN" | "STOPPED" | "TARGET_HIT" | "AMBIGUOUS";
   readonly exit_event_id: string | null;
   readonly outcome_r_millis: number | null;
+  readonly liquidity_cohort: "ONE_CANDLE" | "TWO_PLUS_CANDLES";
+  readonly one_candle_enabled: number;
 }
 
 interface StoredExitApplicationV3 {
@@ -149,9 +152,90 @@ interface StoredEventDispositionV3 {
   readonly recorded_at: string;
 }
 
-interface PaperConfiguration {
+export interface PaperConfiguration {
   readonly accountIds: readonly string[];
   readonly riskBps: number;
+}
+
+export type ReviewedSettingsMode =
+  | "TICKER_MAP"
+  | "LEGACY_SINGLE"
+  | "MISSING"
+  | "INVALID";
+
+export interface ReviewedSettingsConfiguration {
+  readonly mode: ReviewedSettingsMode;
+  readonly byTicker: Readonly<Record<string, string>> | null;
+  readonly legacyHash: string | null;
+}
+
+export interface PaperConfigurationReadiness {
+  readonly killSwitchEnabled: boolean | null;
+  readonly missingAccountIds: readonly string[];
+  readonly nonPositiveAccountIds: readonly string[];
+  readonly riskLimitedAccountIds: readonly string[];
+  readonly usable: boolean;
+}
+
+function entryV3VersionTuple(
+  observation: EntryV3Observation,
+): readonly [
+  "3.0.0-contract3" | "3.1.0-contract3",
+  "3.0.0" | "3.1.0",
+] {
+  const schemaVersion = observation.metadata.schemaVersion;
+  const strategyVersion = observation.metadata.strategyVersion;
+  if (schemaVersion === "3.0" && strategyVersion === "3.0.0-contract3") {
+    return [strategyVersion, "3.0.0"];
+  }
+  if (schemaVersion === "3.1" && strategyVersion === "3.1.0-contract3") {
+    return [strategyVersion, "3.1.0"];
+  }
+  throw new TypeError("invalid v3 storage version tuple");
+}
+
+function validateStoredLiquidityCohort(
+  liquidityCohort: unknown,
+  oneCandleEnabled: unknown,
+): void {
+  if (
+    (liquidityCohort !== "ONE_CANDLE" &&
+      liquidityCohort !== "TWO_PLUS_CANDLES") ||
+    (oneCandleEnabled !== 0 && oneCandleEnabled !== 1) ||
+    (liquidityCohort === "ONE_CANDLE" && oneCandleEnabled !== 1)
+  ) {
+    throw new TypeError("stored v3 decision cohort malformed");
+  }
+}
+
+function validateStoredShadowCohort(
+  shadow: StoredShadowPositionV3,
+  bundle: ValidatedEntryV3Bundle,
+): void {
+  validateStoredLiquidityCohort(
+    shadow.liquidity_cohort,
+    shadow.one_candle_enabled,
+  );
+  if (
+    shadow.liquidity_cohort !== bundle.setup.liquidity_cohort ||
+    (shadow.one_candle_enabled === 1) !== bundle.setup.one_candle_enabled
+  ) {
+    throw new TypeError("stored v3 shadow cohort mismatch");
+  }
+}
+
+function isExperimentalOneCandleShadow(
+  shadow: StoredShadowPositionV3 | null,
+): boolean {
+  if (shadow === null) return false;
+  validateStoredLiquidityCohort(
+    shadow.liquidity_cohort,
+    shadow.one_candle_enabled,
+  );
+  return (
+    shadow.liquidity_cohort === "ONE_CANDLE" &&
+    shadow.one_candle_enabled === 1
+  );
 }
 
 export interface EntryV3StoredEvaluation {
@@ -183,7 +267,7 @@ export class EntryV3StoreConflict extends Error {
   }
 }
 
-function parsePaperConfiguration(env: Env): PaperConfiguration | null {
+export function parsePaperConfiguration(env: Env): PaperConfiguration | null {
   const rawAccounts = env.RD_ENTRY_PAPER_ACCOUNT_IDS;
   const rawRisk = env.RD_ENTRY_PAPER_RISK_BPS;
   if (
@@ -210,6 +294,13 @@ function parsePaperConfiguration(env: Env): PaperConfiguration | null {
   }
 }
 
+export function reviewedDetectorIdentityConfigured(env: Env): boolean {
+  return (
+    typeof env.RD_ENTRY_V3_DETECTOR_CODE_HASH === "string" &&
+    NONZERO_SHA256.test(env.RD_ENTRY_V3_DETECTOR_CODE_HASH)
+  );
+}
+
 function reviewedIdentityMatches(
   env: Env,
   observation: EntryV3Observation,
@@ -219,37 +310,38 @@ function reviewedIdentityMatches(
     observation.metadata.tickerId,
   );
   return (
-    typeof env.RD_ENTRY_V3_DETECTOR_CODE_HASH === "string" &&
-    NONZERO_SHA256.test(env.RD_ENTRY_V3_DETECTOR_CODE_HASH) &&
+    reviewedDetectorIdentityConfigured(env) &&
     settingsHash !== null &&
     observation.detectorCodeHash === env.RD_ENTRY_V3_DETECTOR_CODE_HASH &&
     observation.settingsHash === settingsHash
   );
 }
 
-function reviewedSettingsHashForTicker(
+export function parseReviewedSettingsConfiguration(
   env: Env,
-  tickerId: string,
-): string | null {
+): ReviewedSettingsConfiguration {
   const rawByTicker = env.RD_ENTRY_V3_SETTINGS_HASHES_JSON;
   if (rawByTicker === undefined) {
     const legacyHash = env.RD_ENTRY_V3_SETTINGS_HASH;
-    return typeof legacyHash === "string" && NONZERO_SHA256.test(legacyHash)
-      ? legacyHash
-      : null;
+    if (legacyHash === undefined || legacyHash.length === 0) {
+      return { mode: "MISSING", byTicker: null, legacyHash: null };
+    }
+    return NONZERO_SHA256.test(legacyHash)
+      ? { mode: "LEGACY_SINGLE", byTicker: null, legacyHash }
+      : { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   if (
     rawByTicker.length === 0 ||
     new TextEncoder().encode(rawByTicker).byteLength >
       MAX_REVIEWED_SETTINGS_JSON_BYTES
   ) {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
-  let value;
+  let value: unknown;
   try {
     value = parseStrictJson(new TextEncoder().encode(rawByTicker));
   } catch {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   if (
     typeof value !== "object" ||
@@ -257,11 +349,11 @@ function reviewedSettingsHashForTicker(
     Array.isArray(value) ||
     isStrictJsonNumber(value)
   ) {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   const entries = Object.entries(value);
   if (entries.length === 0 || entries.length > MAX_REVIEWED_TICKERS) {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   for (const [configuredTickerId, configuredHash] of entries) {
     if (
@@ -269,11 +361,101 @@ function reviewedSettingsHashForTicker(
       typeof configuredHash !== "string" ||
       !NONZERO_SHA256.test(configuredHash)
     ) {
-      return null;
+      return { mode: "INVALID", byTicker: null, legacyHash: null };
     }
   }
-  const reviewedHash = value[tickerId];
-  return typeof reviewedHash === "string" ? reviewedHash : null;
+  return {
+    mode: "TICKER_MAP",
+    byTicker: Object.fromEntries(entries) as Readonly<Record<string, string>>,
+    legacyHash: null,
+  };
+}
+
+export function reviewedSettingsHashForTicker(
+  env: Env,
+  tickerId: string,
+): string | null {
+  const configuration = parseReviewedSettingsConfiguration(env);
+  if (configuration.mode === "TICKER_MAP") {
+    return configuration.byTicker?.[tickerId] ?? null;
+  }
+  return configuration.mode === "LEGACY_SINGLE"
+    ? configuration.legacyHash
+    : null;
+}
+
+export function paperIntentCreationEnabled(env: Env): boolean {
+  return env.PAPER_LEDGER_ENABLED === "true";
+}
+
+export async function paperConfigurationReadiness(
+  env: Env,
+  configuration: PaperConfiguration,
+  candidatePositions: number,
+): Promise<PaperConfigurationReadiness> {
+  if (!Number.isSafeInteger(candidatePositions) || candidatePositions < 1) {
+    return {
+      killSwitchEnabled: null,
+      missingAccountIds: [],
+      nonPositiveAccountIds: [],
+      riskLimitedAccountIds: [],
+      usable: false,
+    };
+  }
+  const killSwitch = await env.DB
+    .prepare(SELECT_LATEST_PAPER_KILL_SWITCH_SQL)
+    .first<StoredPaperKillSwitchEvent>();
+  if (killSwitch === null || killSwitch.enabled !== 0) {
+    return {
+      killSwitchEnabled: killSwitch === null ? null : killSwitch.enabled === 1,
+      missingAccountIds: [],
+      nonPositiveAccountIds: [],
+      riskLimitedAccountIds: [],
+      usable: false,
+    };
+  }
+  const results = await env.DB.batch(
+    configuration.accountIds.map((accountId) =>
+      env.DB.prepare(SELECT_PAPER_ACCOUNT_READINESS_METRIC_SQL).bind(accountId),
+    ),
+  );
+  const missingAccountIds: string[] = [];
+  const nonPositiveAccountIds: string[] = [];
+  const riskLimitedAccountIds: string[] = [];
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index]!;
+    const accountId = configuration.accountIds[index];
+    const account = result.results[0] as PaperReadinessAccountInput | undefined;
+    if (
+      account === undefined ||
+      !Number.isSafeInteger(account.balance_minor) ||
+      account.balance_minor <= 0
+    ) {
+      if (account === undefined) missingAccountIds.push(accountId!);
+      else nonPositiveAccountIds.push(accountId!);
+      continue;
+    }
+    const riskPerPosition =
+      (BigInt(account.balance_minor) * BigInt(configuration.riskBps)) / 10_000n;
+    const risk = riskPerPosition * BigInt(candidatePositions);
+    if (
+      risk <= 0n ||
+      risk > MAX_SAFE_INTEGER ||
+      !paperAccountAllowsNewOpen(account, Number(risk), candidatePositions)
+    ) {
+      riskLimitedAccountIds.push(accountId!);
+    }
+  }
+  return {
+    killSwitchEnabled: false,
+    missingAccountIds,
+    nonPositiveAccountIds,
+    riskLimitedAccountIds,
+    usable:
+      missingAccountIds.length === 0 &&
+      nonPositiveAccountIds.length === 0 &&
+      riskLimitedAccountIds.length === 0,
+  };
 }
 
 async function paperConfigurationIsUsable(
@@ -281,36 +463,8 @@ async function paperConfigurationIsUsable(
   configuration: PaperConfiguration,
   candidatePositions: number,
 ): Promise<boolean> {
-  if (!Number.isSafeInteger(candidatePositions) || candidatePositions < 1) {
-    return false;
-  }
-  const killSwitch = await env.DB
-    .prepare(SELECT_LATEST_PAPER_KILL_SWITCH_SQL)
-    .first<StoredPaperKillSwitchEvent>();
-  if (killSwitch === null || killSwitch.enabled !== 0) return false;
-  const results = await env.DB.batch(
-    configuration.accountIds.map((accountId) =>
-      env.DB.prepare(SELECT_PAPER_ACCOUNT_READINESS_METRIC_SQL).bind(accountId),
-    ),
-  );
-  return results.every((result) => {
-    const account = result.results[0] as PaperReadinessAccountInput | undefined;
-    if (
-      account === undefined ||
-      !Number.isSafeInteger(account.balance_minor) ||
-      account.balance_minor <= 0
-    ) {
-      return false;
-    }
-    const riskPerPosition =
-      (BigInt(account.balance_minor) * BigInt(configuration.riskBps)) / 10_000n;
-    const risk = riskPerPosition * BigInt(candidatePositions);
-    return (
-      risk > 0n &&
-      risk <= MAX_SAFE_INTEGER &&
-      paperAccountAllowsNewOpen(account, Number(risk), candidatePositions)
-    );
-  });
+  return (await paperConfigurationReadiness(env, configuration, candidatePositions))
+    .usable;
 }
 
 function ticksToDecimal(ticks: number, tickSize: string): string {
@@ -376,6 +530,46 @@ function selectedEvidence(
     ? null
     : (bundle.evaluation.evidence.find((item) => item.evidence_id === id) ??
         null);
+}
+
+function experimentalOneCandlePair(
+  bundle: ValidatedEntryV3Bundle,
+): {
+  readonly candidateIndex: number;
+  readonly evidence: EntryCandidateEvidenceV3;
+} | null {
+  if (
+    bundle.setup.liquidity_cohort !== "ONE_CANDLE" ||
+    !bundle.setup.one_candle_enabled ||
+    bundle.evaluation.selection.action !== "SHADOW_ONLY"
+  ) {
+    return null;
+  }
+  const pairs = bundle.evaluation.candidates.flatMap(
+    (candidate, candidateIndex) => {
+      if (candidate.state !== "MATCHED") return [];
+      const evidence = bundle.evaluation.evidence.find(
+        (item) => item.candidate_id === candidate.candidate_id,
+      );
+      return evidence === undefined ||
+        evidence.observed_trigger_epoch === null ||
+        evidence.observed_trigger_ticks === null
+        ? []
+        : [{ candidateIndex, evidence }];
+    },
+  );
+  pairs.sort(
+    (left, right) =>
+      left.evidence.observed_trigger_epoch! -
+        right.evidence.observed_trigger_epoch! ||
+      left.evidence.trigger_sequence - right.evidence.trigger_sequence ||
+      bundle.evaluation.candidates[
+        left.candidateIndex
+      ]!.candidate_id.localeCompare(
+        bundle.evaluation.candidates[right.candidateIndex]!.candidate_id,
+      ),
+  );
+  return pairs[0] ?? null;
 }
 
 function discretionaryBocPair(bundle: ValidatedEntryV3Bundle): {
@@ -606,6 +800,8 @@ async function storedEvaluationsForEvent(
       setup_id: string;
       action: SelectionActionV3;
       effective_action_reason: EffectiveActionReason;
+      liquidity_cohort: "ONE_CANDLE" | "TWO_PLUS_CANDLES";
+      one_candle_enabled: number;
       parity_status: "MATCH" | "MISMATCH" | "NOT_PROVIDED";
       mismatch_reason: ParityMismatchReason;
     }>();
@@ -613,6 +809,18 @@ async function storedEvaluationsForEvent(
   return bundles.map((bundle) => {
     const stored = bySetup.get(bundle.setup.setup_id);
     if (stored === undefined) throw new TypeError("stored v3 decision unavailable");
+    validateStoredLiquidityCohort(
+      stored.liquidity_cohort,
+      stored.one_candle_enabled,
+    );
+    if (
+      stored.liquidity_cohort !== bundle.setup.liquidity_cohort ||
+      (stored.one_candle_enabled === 1) !== bundle.setup.one_candle_enabled ||
+      (stored.liquidity_cohort === "ONE_CANDLE" &&
+        stored.action === "PAPER_ELIGIBLE")
+    ) {
+      throw new TypeError("stored v3 decision cohort mismatch");
+    }
     return {
       evaluation: bundle.evaluation,
       effectiveAction: stored.action,
@@ -777,6 +985,21 @@ async function appendEntryV3ObservationAttempt(
     }),
   );
   const existingLinks = new Map(links);
+  const shadows = await Promise.all(
+    observation.entryBundles.map(async (bundle) => {
+      const shadow = await env.DB
+        .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
+        .bind(bundle.setup.setup_id, ATTEMPT_KIND)
+        .first<StoredShadowPositionV3>();
+      return [bundle.setup.setup_id, shadow] as const;
+    }),
+  );
+  const experimentalShadowOwners = new Map(
+    shadows.map(([setupId, shadow]) => [
+      setupId,
+      isExperimentalOneCandleShadow(shadow),
+    ]),
+  );
   const preparedPaperIntents = new Map<
     string,
     {
@@ -793,8 +1016,10 @@ async function appendEntryV3ObservationAttempt(
     for (const bundle of observation.entryBundles) {
       const evidence = selectedEvidence(bundle);
       if (
+        bundle.setup.liquidity_cohort === "ONE_CANDLE" ||
         bundle.evaluation.selection.action !== "PAPER_ELIGIBLE" ||
         existingLinks.get(bundle.setup.setup_id) !== null ||
+        experimentalShadowOwners.get(bundle.setup.setup_id) === true ||
         evidence === null ||
         evidence.observed_trigger_epoch === null ||
         evidence.observed_trigger_ticks === null
@@ -815,6 +1040,7 @@ async function appendEntryV3ObservationAttempt(
   const potentialPaperPositions = preparedPaperIntents.size;
   const configurationUsable =
     !forceConfigurationUnavailable &&
+    paperIntentCreationEnabled(env) &&
     paperConfiguration !== null &&
     potentialPaperPositions > 0 &&
     (await paperConfigurationIsUsable(
@@ -907,13 +1133,17 @@ async function appendEntryV3ObservationAttempt(
     let effectiveAction = selection.action;
     let effectiveActionReason: EffectiveActionReason = null;
     const evidence = selectedEvidence(bundle);
-    if (selection.action === "PAPER_ELIGIBLE") {
+    if (bundle.setup.liquidity_cohort === "ONE_CANDLE") {
+      effectiveAction = "SHADOW_ONLY";
+      effectiveActionReason = "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED";
+    } else if (selection.action === "PAPER_ELIGIBLE") {
       if (!identityMatches) {
         effectiveAction = "SHADOW_ONLY";
         effectiveActionReason = "PROMOTION_IDENTITY_MISMATCH";
       } else if (
         observation.eventRole !== "ENTRY_DECISION" ||
-        existingLink !== null
+        existingLink !== null ||
+        experimentalShadowOwners.get(bundle.setup.setup_id) === true
       ) {
         effectiveAction = "SHADOW_ONLY";
         effectiveActionReason = "NOT_SELECTED_ALREADY_OPEN";
@@ -951,6 +1181,8 @@ async function appendEntryV3ObservationAttempt(
       policy_action: selection.action,
       action: effectiveAction,
       effective_action_reason: effectiveActionReason,
+      liquidity_cohort: bundle.setup.liquidity_cohort,
+      one_candle_enabled: bundle.setup.one_candle_enabled ? 1 : 0,
       co_triggered_models_json: JSON.stringify(selection.co_triggered_models),
       evaluated_at_epoch: selection.evaluated_at_epoch,
       selected_trigger_epoch: selectedTriggerEpoch,
@@ -982,6 +1214,9 @@ async function appendEntryV3ObservationAttempt(
       preparedPaper !== undefined &&
       preparedPaper.evidence.observed_trigger_epoch !== null
     ) {
+      if (bundle.setup.liquidity_cohort === "ONE_CANDLE") {
+        throw new TypeError("one-candle v3 paper intent forbidden");
+      }
       const { intent, evidence: intentEvidence } = preparedPaper;
       const intentPayloadSha256 = await canonicalSha256({
         ...intent,
@@ -1033,18 +1268,29 @@ async function appendEntryV3ObservationAttempt(
     }
 
     const shadowPair =
-      discretionaryBocPair(bundle) ??
-      (identityMatches &&
-      effectiveActionReason === "PAPER_CONFIGURATION_UNAVAILABLE"
-        ? selectedShadowPair(bundle)
-        : null);
+      bundle.setup.liquidity_cohort === "ONE_CANDLE" &&
+      existingLink !== null
+        ? null
+        : (experimentalOneCandlePair(bundle) ??
+          discretionaryBocPair(bundle) ??
+          (identityMatches &&
+          effectiveActionReason === "PAPER_CONFIGURATION_UNAVAILABLE"
+            ? selectedShadowPair(bundle)
+            : null));
+    const existingShadow =
+      observation.eventRole === "ENTRY_DECISION" && shadowPair !== null
+        ? await env.DB
+            .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
+            .bind(bundle.setup.setup_id, ATTEMPT_KIND)
+            .first<StoredShadowPositionV3>()
+        : null;
+    if (existingShadow !== null) {
+      validateStoredShadowCohort(existingShadow, bundle);
+    }
     if (
       observation.eventRole === "ENTRY_DECISION" &&
       shadowPair !== null &&
-      (await env.DB
-        .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
-        .bind(bundle.setup.setup_id, ATTEMPT_KIND)
-        .first<StoredShadowPositionV3>()) === null
+      existingShadow === null
     ) {
       const candidate = bundle.evaluation.candidates[shadowPair.candidateIndex]!;
       entryAuthorizationStatements.push(
@@ -1059,6 +1305,8 @@ async function appendEntryV3ObservationAttempt(
           shadowPair.evidence.observed_trigger_ticks,
           bundle.tradePlan.stop_ticks,
           bundle.tradePlan.target_ticks,
+          bundle.setup.liquidity_cohort,
+          bundle.setup.one_candle_enabled ? 1 : 0,
           recordedAt,
         ),
       );
@@ -1068,11 +1316,17 @@ async function appendEntryV3ObservationAttempt(
       const exits = observation.exitEvents.filter(
         (item) => item.setup_id === bundle.setup.setup_id,
       );
-      const link = existingLink;
+      const link =
+        bundle.setup.liquidity_cohort === "ONE_CANDLE"
+          ? null
+          : existingLink;
       const shadow = await env.DB
         .prepare(SELECT_ENTRY_V3_SHADOW_POSITION_SQL)
         .bind(bundle.setup.setup_id, ATTEMPT_KIND)
         .first<StoredShadowPositionV3>();
+      if (shadow !== null) {
+        validateStoredShadowCohort(shadow, bundle);
+      }
       for (const exit of exits) {
         if (link !== null) {
           const settled = await env.DB
@@ -1220,6 +1474,8 @@ async function appendEntryV3ObservationAttempt(
     }
   }
 
+  const [strategyVersion, ruleContractVersion] =
+    entryV3VersionTuple(observation);
   const statements = [
     receiptInsert(env, receiptId, recordedAt, observation, payloadSha256),
     env.DB.prepare(INSERT_ENTRY_V3_EVENT_SQL).bind(
@@ -1227,6 +1483,8 @@ async function appendEntryV3ObservationAttempt(
       receiptId,
       observation.metadata.producerInstanceId,
       observation.producerSequence,
+      strategyVersion,
+      ruleContractVersion,
       observation.eventRole,
       observation.isRealtime ? 1 : 0,
       observation.metadata.symbol,

@@ -25,7 +25,7 @@ INSERT INTO observation_entry_v3_events (
   strategy_version, rule_contract_version, event_role, is_realtime, symbol,
   tick_size, detector_code_hash, settings_hash, validated_payload_json,
   payload_sha256, observed_at_epoch, recorded_at
-) VALUES (?, ?, ?, ?, '3.0.0-contract3', '3.0.0', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `;
 
 export const SELECT_ENTRY_V3_EVENT_DISPOSITION_SQL = `
@@ -95,9 +95,10 @@ INSERT INTO observation_entry_v3_selections (
   selection_id, logical_selection_id, event_id, setup_id, attempt_kind,
   policy_version, revision, canonical_candidate_id, canonical_evidence_id,
   canonical_model, reason, fidelity, policy_action, action,
-  effective_action_reason, co_triggered_models_json, evaluated_at_epoch,
-  selected_trigger_epoch, selected_trigger_sequence, entry_ticks, stop_ticks,
-  target_ticks, selection_json
+  effective_action_reason, liquidity_cohort, one_candle_enabled,
+  co_triggered_models_json, evaluated_at_epoch, selected_trigger_epoch,
+  selected_trigger_sequence, entry_ticks, stop_ticks, target_ticks,
+  selection_json
 )
 SELECT
   json_extract(value, '$.selection_id'),
@@ -115,6 +116,8 @@ SELECT
   json_extract(value, '$.policy_action'),
   json_extract(value, '$.action'),
   json_extract(value, '$.effective_action_reason'),
+  json_extract(value, '$.liquidity_cohort'),
+  json_extract(value, '$.one_candle_enabled'),
   json_extract(value, '$.co_triggered_models_json'),
   json_extract(value, '$.evaluated_at_epoch'),
   json_extract(value, '$.selected_trigger_epoch'),
@@ -183,6 +186,8 @@ SELECT
   selection.setup_id,
   selection.action,
   selection.effective_action_reason,
+  selection.liquidity_cohort,
+  selection.one_candle_enabled,
   parity.parity_status,
   parity.mismatch_reason
 FROM observation_entry_v3_selections AS selection
@@ -196,7 +201,8 @@ export const SELECT_ENTRY_V3_SHADOW_POSITION_SQL = `
 SELECT
   candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
   trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks, target_ticks,
-  state, exit_event_id, outcome_r_millis, created_at, terminal_at
+  state, exit_event_id, outcome_r_millis, liquidity_cohort,
+  one_candle_enabled, created_at, terminal_at
 FROM observation_entry_v3_shadow_positions
 WHERE setup_id = ? AND attempt_kind = ?
 LIMIT 1
@@ -206,8 +212,9 @@ export const INSERT_ENTRY_V3_SHADOW_POSITION_SQL = `
 INSERT INTO observation_entry_v3_shadow_positions (
   candidate_id, setup_id, attempt_kind, direction, trigger_epoch,
   trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks, target_ticks,
-  state, exit_event_id, outcome_r_millis, created_at, terminal_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', NULL, NULL, ?, NULL)
+  state, exit_event_id, outcome_r_millis, liquidity_cohort,
+  one_candle_enabled, created_at, terminal_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', NULL, NULL, ?, ?, ?, NULL)
 `;
 
 export const TERMINATE_ENTRY_V3_SHADOW_POSITION_SQL = `
@@ -256,6 +263,8 @@ SELECT
   selection.policy_action,
   selection.action,
   selection.effective_action_reason,
+  selection.liquidity_cohort,
+  selection.one_candle_enabled,
   selection.canonical_candidate_id,
   selection.canonical_evidence_id,
   selection.co_triggered_models_json,
@@ -274,6 +283,57 @@ JOIN observation_entry_v3_events AS event
 WHERE selection.attempt_revision_rank = 1
 ORDER BY selection.evaluated_at_epoch DESC, selection.ingest_ordinal DESC
 LIMIT ?
+`;
+
+// This readiness query is intentionally independent of the schema-1.1 paper
+// automation receipt stream. Historical 3.0 ingress remains supported, but
+// canonical RELEASE rollout readiness requires the exact 3.1 producer tuple.
+export const SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL = `
+SELECT
+  receipt.received_at,
+  event.event_id,
+  receipt.ticker_id,
+  receipt.schema_version,
+  event.strategy_version,
+  event.rule_contract_version,
+  event.detector_code_hash,
+  event.settings_hash
+FROM observation_receipts AS receipt
+JOIN observation_entry_v3_events AS event
+  ON event.receipt_id = receipt.receipt_id
+WHERE receipt.schema_version = '3.1'
+  AND event.strategy_version = '3.1.0-contract3'
+  AND event.rule_contract_version = '3.1.0'
+  AND (? IS NULL OR receipt.ticker_id = ?)
+ORDER BY receipt.received_at DESC, event.rowid DESC
+LIMIT 1
+`;
+
+export const SELECT_LATEST_RD_ENTRY_V3_DECISION_SQL = `
+SELECT
+  selection.policy_action,
+  selection.action AS effective_action,
+  selection.effective_action_reason,
+  link.intent_id AS paper_intent_id
+FROM observation_entry_v3_selections AS selection
+JOIN observation_entry_v3_events AS event
+  ON event.event_id = selection.event_id
+JOIN observation_receipts AS receipt
+  ON receipt.receipt_id = event.receipt_id
+LEFT JOIN observation_entry_v3_paper_links AS link
+  ON link.selection_id = selection.selection_id
+WHERE (? IS NULL OR receipt.ticker_id = ?)
+ORDER BY selection.evaluated_at_epoch DESC, selection.rowid DESC
+LIMIT 1
+`;
+
+// Migrations 0028 and 0029 recreate this table. The resulting table SQL is a
+// compact, deterministic schema witness without exposing D1 internals.
+export const SELECT_RD_ENTRY_V3_SELECTIONS_SCHEMA_SQL = `
+SELECT sql
+FROM sqlite_master
+WHERE type = 'table' AND name = 'observation_entry_v3_selections'
+LIMIT 1
 `;
 
 export const LIST_ENTRY_V3_DECISION_CANDIDATES_SQL = `
@@ -371,7 +431,9 @@ SELECT
   member.selection_id,
   shadow.candidate_id,
   shadow.state,
-  shadow.outcome_r_millis
+  shadow.outcome_r_millis,
+  shadow.liquidity_cohort,
+  shadow.one_candle_enabled
 FROM observation_entry_v3_selection_members AS member
 JOIN observation_entry_v3_shadow_positions AS shadow
   ON shadow.candidate_id = member.object_id

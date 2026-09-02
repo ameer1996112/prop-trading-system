@@ -325,7 +325,7 @@
       "type": "string"
     },
     "contract_version": {
-      "const": "3.0.0",
+      "const": "3.1.0",
       "title": "Contract Version",
       "type": "string"
     },
@@ -342,7 +342,7 @@
       "type": "array"
     },
     "producer_strategy_version": {
-      "const": "3.0.0-contract3",
+      "const": "3.1.0-contract3",
       "title": "Producer Strategy Version",
       "type": "string"
     },

@@ -406,6 +406,83 @@ function useEdgeDerivedReferences(value: Record<string, unknown>): void {
       : `EDGE_DERIVED:${canonicalEvidenceModel}`;
 }
 
+function setupOf(value: Record<string, unknown>): Record<string, unknown> {
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  return bundle.setup as Record<string, unknown>;
+}
+
+function selectionOf(value: Record<string, unknown>): Record<string, unknown> {
+  const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+  return bundle.selection_proposal as Record<string, unknown>;
+}
+
+function rule(
+  value: Record<string, unknown>,
+  ruleId: (typeof requiredRuleIds)[number],
+): Record<string, unknown> {
+  return (
+    setupOf(value).common_rule_results as Array<Record<string, unknown>>
+  ).find((item) => item.rule_id === ruleId)!;
+}
+
+function tagOneCandlePayload(value: Record<string, unknown>): void {
+  value.schema_version = "3.1";
+  value.strategy_version = "3.1.0-contract3";
+  value.rule_contract_version = "3.1.0";
+  const setup = setupOf(value);
+  setup.liquidity_cohort = "ONE_CANDLE";
+  setup.one_candle_enabled = true;
+  setup.common_fidelity = "DISCRETIONARY";
+  rule(value, "LIQ_NORMAL_TWO_OPPOSITE_CANDLES").passed = false;
+  rule(value, "LIQ_ONE_CANDLE_EXCEPTION").passed = true;
+  rule(value, "LIQ_INTERNAL_REBREAK").passed = false;
+}
+
+function oneCandlePayload(): Record<string, unknown> {
+  const value = payload();
+  useEdgeDerivedReferences(value);
+  tagOneCandlePayload(value);
+  const selection = selectionOf(value);
+  selection.canonical_candidate_id = null;
+  selection.canonical_evidence_id = null;
+  selection.canonical_model = null;
+  selection.reason = "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED";
+  selection.fidelity = null;
+  selection.action = "SHADOW_ONLY";
+  selection.co_triggered_models = [];
+  return value;
+}
+
+async function concreteOneCandleNonePayload(
+  reason: "SETUP_INVALIDATED" | "NO_CANDIDATE",
+): Promise<Record<string, unknown>> {
+  const value = payload();
+  tagOneCandlePayload(value);
+  const bundle = (
+    value.setups as Array<Record<string, unknown>>
+  )[0]!;
+  const setup = bundle.setup as Record<string, unknown>;
+  const selection = bundle.selection_proposal as Record<string, unknown>;
+  if (reason === "SETUP_INVALIDATED") {
+    setup.invalidated_before_entry = true;
+  } else {
+    bundle.candidates = [];
+    bundle.evidence = [];
+    selection.candidate_ids_considered = [];
+  }
+  selection.canonical_candidate_id = null;
+  selection.canonical_evidence_id = null;
+  selection.canonical_model = null;
+  selection.reason = reason;
+  selection.fidelity = null;
+  selection.action = "NONE";
+  selection.co_triggered_models = [];
+  selection.selection_id = await selectionIdV3(
+    selection as unknown as EntrySelectionV3,
+  );
+  return value;
+}
+
 async function rehashEvidenceAndSelection(
   value: Record<string, unknown>,
   evidenceIndex: number,
@@ -494,6 +571,163 @@ async function addLaterExactBocEvidence(
 }
 
 describe("RD entry v3 wire", () => {
+  it("accepts tagged one-candle V3.1 payloads as shadow-only", async () => {
+    const result = await validateEntryV3Payload(
+      strict(oneCandlePayload()),
+      reviewedHashes,
+    );
+
+    expect(result.entryBundles[0]!.setup).toMatchObject({
+      liquidity_cohort: "ONE_CANDLE",
+      one_candle_enabled: true,
+      common_fidelity: "DISCRETIONARY",
+    });
+    expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
+      action: "SHADOW_ONLY",
+      reason: "NO_EXACT_CANDIDATE",
+      canonical_candidate_id: null,
+      canonical_evidence_id: null,
+    });
+  });
+
+  it.each([
+    ["invalidated", "SETUP_INVALIDATED"],
+    ["zero-candidate", "NO_CANDIDATE"],
+  ] as const)(
+    "accepts a Pine-shaped %s one-candle override and derives NONE",
+    async (_name, expectedReason) => {
+      const value = oneCandlePayload();
+      const bundle = (value.setups as Array<Record<string, unknown>>)[0]!;
+      if (expectedReason === "SETUP_INVALIDATED") {
+        (bundle.setup as Record<string, unknown>).invalidated_before_entry = true;
+      } else {
+        bundle.candidates = [];
+        bundle.evidence = [];
+        (bundle.selection_proposal as Record<string, unknown>)
+          .candidate_ids_considered = [];
+      }
+
+      const result = await validateEntryV3Payload(
+        strict(value),
+        reviewedHashes,
+      );
+
+      expect(result.entryBundles[0]!.evaluation.selection).toMatchObject({
+        action: "NONE",
+        reason: expectedReason,
+        canonical_candidate_id: null,
+        canonical_evidence_id: null,
+      });
+    },
+  );
+
+  it.each([
+    ["invalidated", "SETUP_INVALIDATED"],
+    ["zero-candidate", "NO_CANDIDATE"],
+  ] as const)(
+    "rejects a concrete-identity %s one-candle alternate terminal",
+    async (_name, reason) => {
+      const value = await concreteOneCandleNonePayload(reason);
+      expect(JSON.stringify(value)).not.toContain("EDGE_DERIVED");
+
+      await expect(
+        validateEntryV3Payload(strict(value), reviewedHashes),
+      ).rejects.toBeInstanceOf(EntryV3ValidationError);
+    },
+  );
+
+  it.each([
+    ["disabled flag", (setup: Record<string, unknown>) => {
+      setup.one_candle_enabled = false;
+    }],
+    ["exact fidelity", (setup: Record<string, unknown>) => {
+      setup.common_fidelity = "EXACT";
+    }],
+    [
+      "paper action",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.action = "PAPER_ELIGIBLE";
+      },
+    ],
+    [
+      "none action",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.action = "NONE";
+      },
+    ],
+    [
+      "alternate reason",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.reason = "NO_EXACT_CANDIDATE";
+      },
+    ],
+    [
+      "canonical pointers",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.canonical_candidate_id = "EDGE_DERIVED:BOC";
+        selection.canonical_evidence_id = "EDGE_DERIVED:BOC";
+        selection.canonical_model = "BOC";
+      },
+    ],
+    [
+      "fidelity",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.fidelity = "EXACT";
+      },
+    ],
+    [
+      "co-trigger",
+      (
+        _setup: Record<string, unknown>,
+        selection: Record<string, unknown>,
+      ) => {
+        selection.co_triggered_models = ["BOC"];
+      },
+    ],
+  ])("rejects unsafe one-candle payload: %s", async (_name, mutate) => {
+    const value = oneCandlePayload();
+    mutate(setupOf(value), selectionOf(value));
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toThrow();
+  });
+
+  it("normalizes a valid legacy V3.0 setup to the two-plus-candle cohort", async () => {
+    const result = await validateEntryV3Payload(
+      strict(payload()),
+      reviewedHashes,
+    );
+
+    expect(result.entryBundles[0]!.setup).toMatchObject({
+      liquidity_cohort: "TWO_PLUS_CANDLES",
+      one_candle_enabled: false,
+    });
+  });
+
+  it("rejects a legacy V3.0 setup without normal two-candle proof", async () => {
+    const value = payload();
+    rule(value, "LIQ_NORMAL_TWO_OPPOSITE_CANDLES").passed = false;
+
+    await expect(
+      validateEntryV3Payload(strict(value), reviewedHashes),
+    ).rejects.toThrow();
+  });
+
   it("accepts an exact strict BOC bundle", async () => {
     const result = await validateEntryV3Payload(
       strict(payload()),

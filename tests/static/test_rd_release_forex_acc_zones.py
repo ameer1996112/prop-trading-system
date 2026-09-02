@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 PINE = Path("scripts/pinescript/SND_RD_5M_V3_RELEASE.pine")
 
 
@@ -27,10 +26,12 @@ def test_accuracy_zones_are_created_for_forex_only_with_explicit_symbol_exclusio
     eligibility = pine_function_body("isForexAccZoneEligible")
     variants = pine_function_body("appendConfirmedZoneVariants")
 
-    assert "syminfo.type == \"forex\"" in eligibility
+    assert 'syminfo.type == "forex"' in eligibility
     assert 'str.contains(symbol, "XAUUSD")' in eligibility
     assert 'str.contains(symbol, "NAS100")' in eligibility
-    assert "isForexAccZoneEligible() and candidateHasAccuracyGeometry(candidate, demand)" in variants
+    assert (
+        "isForexAccZoneEligible() and candidateHasAccuracyGeometry(candidate, demand)" in variants
+    )
 
 
 def test_accuracy_zone_wins_the_clean_overlap_slot_and_is_labeled() -> None:

@@ -2,8 +2,11 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-temporary_root_parent=${CONTAINER_SMOKE_TMPDIR:-${TMPDIR:-/tmp}}
+temporary_root_parent=${CONTAINER_SMOKE_TMPDIR:-$repository_root}
 temporary_root=$(mktemp -d "$temporary_root_parent/phase0-container-smoke.XXXXXX")
+# Docker Desktop/Colima receives host bind mounts, so resolve macOS's /var
+# symlink before exporting this path through Compose.
+temporary_root=$(CDPATH= cd -- "$temporary_root" && pwd -P)
 secret_file="$temporary_root/postgres_password.txt"
 project_name="phase0_verify_$$"
 api_port=$((20000 + ($$ % 5000)))

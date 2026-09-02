@@ -28,5 +28,9 @@ jobs:
         with:
           version: "0.11.21"
           enable-cache: true
-      - name: Verify Phase 0
-        run: make verify-phase0
+      - name: Bootstrap locked dependencies
+        run: make bootstrap
+      - name: Verify paper-only schema-3.1 loop
+        run: make verify-paper-loop-core
+      - name: Verify remaining Phase 0 proof
+        run: make verify-observation-remainder-core
