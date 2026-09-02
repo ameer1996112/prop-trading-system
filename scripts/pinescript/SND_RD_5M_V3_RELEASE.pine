@@ -568,6 +568,11 @@ candidateFormationId(Candidate candidate, bool demand) =>
 candidateHasAccuracyGeometry(Candidate candidate, bool demand) =>
     demand ? candidate.originHigh > candidate.firstDepartureHigh : candidate.originLow < candidate.firstDepartureLow
 
+isForexAccZoneEligible() =>
+    string symbol = str.upper(syminfo.ticker)
+    bool excluded = str.contains(symbol, "XAUUSD") or str.contains(symbol, "NAS100")
+    syminfo.type == "forex" and not excluded
+
 buildConfirmedZone(Candidate candidate, bool demand, int zoneId, string formation, string formationId, bool accuracy) =>
     string geometry = accuracy ? GEOMETRY_ACCURACY : GEOMETRY_STANDARD
     float bodyHigh = math.max(candidate.originOpen, candidate.originClose)
@@ -663,7 +668,7 @@ appendConfirmedZoneVariants(Candidate candidate, bool demand, int nextZoneId, st
     string formationId = candidateFormationId(candidate, demand)
     RawZone standardZone = buildConfirmedZone(candidate, demand, nextZoneId, formation, formationId, false)
     int createdCount = 1
-    if candidateHasAccuracyGeometry(candidate, demand)
+    if isForexAccZoneEligible() and candidateHasAccuracyGeometry(candidate, demand)
         RawZone accuracyZone = buildConfirmedZone(candidate, demand, nextZoneId + 1, formation, formationId, true)
         array.unshift(zoneItems, accuracyZone)
         createdCount := 2
@@ -688,7 +693,12 @@ zoneIncludedInCuratedView(RawZone zone) =>
 
 setupZoneRanksAhead(RawZone candidate, RawZone target, float candidateDistance, float targetDistance) =>
     bool ranksAhead = candidateDistance < targetDistance or (candidateDistance == targetDistance and candidate.id > target.id)
-    if displayMode == DISPLAY_SETUPS_ONLY
+    bool candidateAccuracy = candidate.geometry == GEOMETRY_ACCURACY
+    bool targetAccuracy = target.geometry == GEOMETRY_ACCURACY
+    bool sameFormation = candidate.formationId == target.formationId
+    if sameFormation and candidateAccuracy != targetAccuracy
+        ranksAhead := candidateAccuracy
+    else if displayMode == DISPLAY_SETUPS_ONLY
         bool candidateArmed = candidate.setupState == SETUP_ARMED
         bool targetArmed = target.setupState == SETUP_ARMED
         if candidateArmed != targetArmed
@@ -872,8 +882,10 @@ zoneText(RawZone zone) =>
 liquidityPriceLabelText(float price) =>
     "LIQ " + str.tostring(price, format.mintick)
 
-setupDisplayText(RawZone zone) =>
-    displayMode == DISPLAY_SETUPS_ONLY ? (premiumVisuals ? zone.setupState : zone.setupState + "\n" + zone.setupReason) : ""
+zoneDisplayText(RawZone zone) =>
+    string geometryLabel = zone.geometry == GEOMETRY_ACCURACY ? "ACC" : ""
+    string setupLabel = displayMode == DISPLAY_SETUPS_ONLY ? (premiumVisuals ? zone.setupState : zone.setupState + "\n" + zone.setupReason) : ""
+    str.length(geometryLabel) > 0 and str.length(setupLabel) > 0 ? geometryLabel + "\n" + setupLabel : str.length(geometryLabel) > 0 ? geometryLabel : setupLabel
 
 updateZoneDrawing(RawZone zone, bool visible, array<RawZone> allZones, array<LiquidityLevel> levels, array<bool> visibleZones) =>
     bool ownsLiquidityDisplay = visible and zoneOwnsCuratedLiquidityDisplay(zone, allZones, visibleZones)
@@ -890,7 +902,7 @@ updateZoneDrawing(RawZone zone, bool visible, array<RawZone> allZones, array<Liq
             box.set_bgcolor(zone.zoneBox, zoneColor(zone))
             box.set_border_color(zone.zoneBox, zoneBorderColor(zone))
             box.set_border_width(zone.zoneBox, zoneBorderWidth(zone))
-        box.set_text(zone.zoneBox, setupDisplayText(zone))
+        box.set_text(zone.zoneBox, zoneDisplayText(zone))
         box.set_text_color(zone.zoneBox,  color.new(color.white, 5))
         box.set_text_size(zone.zoneBox, size.tiny)
         box.set_text_halign(zone.zoneBox, text.align_right)
