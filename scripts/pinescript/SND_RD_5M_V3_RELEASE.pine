@@ -100,6 +100,7 @@ showStructureLiquidityLines = input.bool(true, "Show bigger-structure liquidity 
 liquidityPrimaryLineWidth = input.int(2, "Primary liquidity line width", minval = 1, maxval = 3, group = "Display")
 showLiquidityPriceLabels = input.bool(false, "Show liquidity price labels", group = "Display")
 showActionableTradeMarkers = input.bool(true, "Show actionable paper entry/exit markers", group = "Display", tooltip = "Marks only PAPER_ELIGIBLE selections and their exits. Shadow-only diagnostic observations remain webhook telemetry and are not shown as trades.")
+showTechnicalCandidates = input.bool(true, "Show technical paper candidates", group = "Display", tooltip = "Shows a non-executable PAPER CANDIDATE when the chart setup is technically valid but its reviewed identity is not configured. This never emits an alert, webhook, or order.")
 actionableTradeProjectionBars = input.int(12, "Trade ladder projection bars", minval = 4, maxval = 30, group = "Display", tooltip = "Length of the compact ENTRY / SL / TP ladder drawn for actionable PAPER_ONLY trades.")
 liquidityPivotStrength = input.int(2, "Liquidity pivot strength", minval = 1, maxval = 10, group = "Liquidity")
 enableOneCandleLiquidity = input.bool(false, "Enable one-candle liquidity", group = "Liquidity")
@@ -327,6 +328,7 @@ type EntryCore
     bool ruleZonePreEntryCloseOutside
     bool commonRulesPass
     bool paperDecisionEmitted
+    bool visualCandidateEmitted
     bool stopEventEmitted
     bool targetEventEmitted
     bool ambiguousExitEmitted
@@ -2203,6 +2205,7 @@ newEntryAttempt(RawZone zone) =>
     attempt.directionalClose.closeEmitted := false
     attempt.flip.flipEmitted := false
     attempt.core.paperDecisionEmitted := false
+    attempt.core.visualCandidateEmitted := false
     attempt.core.stopEventEmitted := false
     attempt.core.targetEventEmitted := false
     attempt.core.ambiguousExitEmitted := false
@@ -2660,17 +2663,20 @@ entryPlanFacts(EntryAttempt attempt) =>
     int frozenTargetTicks = not na(attempt.core.targetTicks) ? attempt.core.targetTicks : attempt.core.demand ? frozenEntryTicks + entryTargetTicks : frozenEntryTicks - entryTargetTicks
     [frozenEntryTicks, frozenStopTicks, frozenTargetTicks]
 
-entryHasPaperEligibleSelection(EntryAttempt attempt) =>
+entryHasTechnicalSelection(EntryAttempt attempt) =>
     bool twoPlusCandleLiquidity = attempt.core.liquidityCohort == LIQUIDITY_COHORT_TWO_PLUS
-    bool commonExact = attempt.core.commonRulesPass and reviewedProducerHashesValid()
-    bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonExact
-    bool closeExact = attempt.directionalClose.closeEmitted and commonExact
-    bool flipExact = attempt.flip.flipEmitted and attempt.flip.flipFidelity == "EXACT" and attempt.flip.flipTriggerCausal and attempt.flip.flipLifecycleCausal and commonExact
+    bool commonTechnical = attempt.core.commonRulesPass
+    bool bocExact = attempt.boc.bocEmitted and attempt.boc.bocFidelity == "EXACT" and attempt.boc.bocTriggerCausal and commonTechnical
+    bool closeExact = attempt.directionalClose.closeEmitted and commonTechnical
+    bool flipExact = attempt.flip.flipEmitted and attempt.flip.flipFidelity == "EXACT" and attempt.flip.flipTriggerCausal and attempt.flip.flipLifecycleCausal and commonTechnical
     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
     bool bocConflict = bocExact and attempt.boc.bocEventEpoch == selectedEpoch and attempt.boc.bocEventSequence == selectedSequence and attempt.boc.bocEventTicks != selectedTicks
     bool closeConflict = closeExact and attempt.directionalClose.closeEventEpoch == selectedEpoch and attempt.directionalClose.closeEventSequence == selectedSequence and attempt.directionalClose.closeEventTicks != selectedTicks
     bool flipConflict = flipExact and attempt.flip.flipEventEpoch == selectedEpoch and attempt.flip.flipEventSequence == selectedSequence and attempt.flip.flipEventTicks != selectedTicks
     twoPlusCandleLiquidity and not na(selectedEpoch) and (bocExact or closeExact or flipExact) and not (bocConflict or closeConflict or flipConflict)
+
+entryHasPaperEligibleSelection(EntryAttempt attempt) =>
+    entryHasTechnicalSelection(attempt) and reviewedProducerHashesValid()
 
 entryBundleReadyToEmit(EntryAttempt attempt) =>
     not attempt.boc.bocAuditPending and not attempt.flip.flipAuditPending and
@@ -2981,6 +2987,24 @@ drawActionableEntry(EntryAttempt attempt) =>
         label entryLabel = label.new(ladderRightBar, entryPrice, "ENTRY  " + str.tostring(entryPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(entryColor, 8), textcolor = stoneText, size = size.tiny)
         label stopLabel = label.new(ladderRightBar, stopPrice, "SL  " + str.tostring(stopPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(stopColor, 8), textcolor = stoneText, size = size.tiny)
         label targetLabel = label.new(ladderRightBar, targetPrice, "TP  " + str.tostring(targetPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(targetColor, 8), textcolor = stoneText, size = size.tiny)
+        recordActionableVisual(attempt.core.setupId, entryLine, stopLine, targetLine, directionLabel, entryLabel, stopLabel, targetLabel)
+
+drawTechnicalCandidate(EntryAttempt attempt) =>
+    if showActionableTradeMarkers and showTechnicalCandidates
+        [entryTicks, stopTicks, targetTicks] = entryPlanFacts(attempt)
+        float entryPrice = entryTicks * syminfo.mintick
+        float stopPrice = stopTicks * syminfo.mintick
+        float targetPrice = targetTicks * syminfo.mintick
+        int ladderRightBar = bar_index + actionableTradeProjectionBars
+        color candidateColor =  color.rgb(190, 133, 48)
+        color stoneText =  color.rgb(244, 240, 232)
+        line entryLine = line.new(bar_index, entryPrice, ladderRightBar, entryPrice, xloc = xloc.bar_index, extend = extend.none, color = candidateColor, style = line.style_dotted, width = 2)
+        line stopLine = line.new(bar_index, stopPrice, ladderRightBar, stopPrice, xloc = xloc.bar_index, extend = extend.none, color = candidateColor, style = line.style_dotted, width = 1)
+        line targetLine = line.new(bar_index, targetPrice, ladderRightBar, targetPrice, xloc = xloc.bar_index, extend = extend.none, color = candidateColor, style = line.style_dotted, width = 1)
+        label directionLabel = label.new(bar_index, attempt.core.demand ? low : high, (attempt.core.demand ? "LONG" : "SHORT") + " · PAPER CANDIDATE", xloc = xloc.bar_index, yloc = attempt.core.demand ? yloc.belowbar : yloc.abovebar, style = attempt.core.demand ? label.style_label_up : label.style_label_down, color = color.new(candidateColor, 8), textcolor = stoneText, size = size.tiny)
+        label entryLabel = label.new(ladderRightBar, entryPrice, "CAND ENTRY  " + str.tostring(entryPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(candidateColor, 10), textcolor = stoneText, size = size.tiny)
+        label stopLabel = label.new(ladderRightBar, stopPrice, "CAND SL  " + str.tostring(stopPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(candidateColor, 28), textcolor = stoneText, size = size.tiny)
+        label targetLabel = label.new(ladderRightBar, targetPrice, "CAND TP  " + str.tostring(targetPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(candidateColor, 28), textcolor = stoneText, size = size.tiny)
         recordActionableVisual(attempt.core.setupId, entryLine, stopLine, targetLine, directionLabel, entryLabel, stopLabel, targetLabel)
 
 drawActionableExit(EntryAttempt attempt, string exitReason, int exitTicks) =>
@@ -3808,14 +3832,20 @@ if isFiveMinute and validationReady and entryZoneCount > 0
             bool candidateChanged = bocTriggered or flipTriggered or closeTriggered
             bool bundleReady = entryBundleReadyToEmit(attempt)
             if candidateChanged and bundleReady
-                if not attempt.core.paperDecisionEmitted and entryHasPaperEligibleSelection(attempt)
+                bool technicalCandidate = entryHasTechnicalSelection(attempt)
+                bool paperEligible = entryHasPaperEligibleSelection(attempt)
+                if not attempt.core.paperDecisionEmitted and technicalCandidate
                     [selectedEpoch, selectedSequence, selectedTicks] = entrySelectedFacts(attempt)
-                    attempt.core.paperDecisionEmitted := true
                     attempt.core.entryTicks := selectedTicks
                     attempt.core.stopTicks := zone.demand ? selectedTicks - entryStopTicks : selectedTicks + entryStopTicks
                     attempt.core.targetTicks := zone.demand ? selectedTicks + entryTargetTicks : selectedTicks - entryTargetTicks
-                    actionablePaperEntryThisUpdate := true
-                    drawActionableEntry(attempt)
+                    if paperEligible
+                        attempt.core.paperDecisionEmitted := true
+                        actionablePaperEntryThisUpdate := true
+                        drawActionableEntry(attempt)
+                    else if not attempt.core.visualCandidateEmitted and technicalCandidate
+                        attempt.core.visualCandidateEmitted := true
+                        drawTechnicalCandidate(attempt)
                 bool intrabarCandidate = barstate.isrealtime and not closeTriggered
                 emitEntryPayload(attempt, zone, intrabarCandidate, "[]", false)
             if bundleReady
