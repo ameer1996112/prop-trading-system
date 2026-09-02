@@ -161,8 +161,8 @@ REQUIRED_V3_RULE_SOURCE_CLAIM_IDS = {
 class RDStrategyRuleContractV3(ContractModel):
     schema_id: Literal["phase0.rd-strategy-rule-contract.v3"]
     contract_id: Literal["rd-5m-video-contract-v3"]
-    contract_version: Literal["3.0.0"]
-    producer_strategy_version: Literal["3.0.0-contract3"]
+    contract_version: Literal["3.1.0"]
+    producer_strategy_version: Literal["3.1.0-contract3"]
     strategy_id: Literal["rd_liquidity_sd_5m_v1"]
     confirmed_timeframe_minutes: Literal[5]
     base_contract_sha256: Sha256

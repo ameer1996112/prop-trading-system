@@ -1,8 +1,8 @@
 {
   "schema_id": "phase0.rd-strategy-rule-contract.v3",
   "contract_id": "rd-5m-video-contract-v3",
-  "contract_version": "3.0.0",
-  "producer_strategy_version": "3.0.0-contract3",
+  "contract_version": "3.1.0",
+  "producer_strategy_version": "3.1.0-contract3",
   "strategy_id": "rd_liquidity_sd_5m_v1",
   "confirmed_timeframe_minutes": 5,
   "base_contract_sha256": "289cbf0bd1a59f3e3ca3ec12450f27bb326d210ec1e2444e17e7f90d10f17e28",

@@ -2,8 +2,13 @@
 
 Contract v3 is the reviewed, paper-only RD 5-minute entry contract. Its machine-readable source is
 [`config/phase0/rd-strategy-rule-contract-v3.json`](../config/phase0/rd-strategy-rule-contract-v3.json).
-The contract identity is `rd-5m-video-contract-v3`, the contract version is `3.0.0`, the producer
-version is `3.0.0-contract3`, and the arbitration policy is `rd-entry-arbitration-v3`.
+The contract identity is `rd-5m-video-contract-v3`, the current contract version is `3.1.0`, the
+canonical producer version is `3.1.0-contract3`, and the arbitration policy is
+`rd-entry-arbitration-v3`. The current producer is
+[`SND_RD_5M_V3_RELEASE.pine`](../scripts/pinescript/SND_RD_5M_V3_RELEASE.pine). The separately
+named `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` remains an immutable schema-3.0 rollback artifact. The
+edge accepts both versions for historical audit continuity; new alerts use only the release
+producer.
 
 ## Closed entry-model set
 
@@ -71,6 +76,10 @@ Paper eligibility also requires a configured immutable PAPER_ONLY account, risk 
 range, and reviewed nonzero detector/settings SHA-256 values that match the edge configuration.
 Missing or inconsistent authority fails closed to audit or shadow. All observations remain
 broker-free: contract v3 sets `paper_only` to true and `real_execution_allowed` to false.
+
+The optional one-candle-liquidity experiment defaults to disabled. When enabled it remains
+shadow-only and cannot become a selected paper decision. This preserves the reviewed three-model
+contract while allowing bounded observation of the experiment.
 
 ## Source correction
 

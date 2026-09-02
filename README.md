@@ -49,6 +49,7 @@ POST /api/v1/paper-simulations/intents/{intent_id}/settlement
 GET  /api/v1/paper-simulations/summary?limit=50
 GET  /api/v1/paper-readiness
 POST /api/v1/paper-readiness/kill-switch
+GET  /api/v1/rd-entry-readiness
 ```
 
 An intent names one or more PAPER_ONLY accounts, side, entry, stop, target, and risk in basis
@@ -65,17 +66,21 @@ system is stopped. Manual OPENs receive `423`; automated envelopes remain observ
 blocked OPEN, and still apply valid SETTLE commands from the same envelope. Every control change
 requires a reason and an idempotency key.
 
-The current three-entry Pine producer is
-[`scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`](scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine).
-Its frozen rule source is
+The canonical current three-entry Pine producer is
+[`scripts/pinescript/SND_RD_5M_V3_RELEASE.pine`](scripts/pinescript/SND_RD_5M_V3_RELEASE.pine).
+It emits the schema-3.1 / contract-3.1 PAPER_ONLY envelope. The older
+[`scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`](scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine)
+is retained strictly as the immutable schema-3.0 historical rollback artifact; do not use it for a
+new alert. Its frozen rule source is
 [`docs/rd-strategy-rule-contract-v3.md`](docs/rd-strategy-rule-contract-v3.md). Contract v3 keeps
 `BOC`, `DIR_CLOSE`, and `HTF_FLIP` distinct, evaluates all observed candidates, and lets the edge
 select at most one paper decision by exact event chronology. Strict HTF-timed BOC can be paper
 eligible; discretionary five-minute BOC is always visible but shadow-only. Atomic BOC/flip
 co-triggers retain both model identities and create at most one paper intent.
 
-The v2 producer and contract remain available for immutable historical records. The v3 producer
-uses authenticated schema-3.0 event bundles and never contains a broker command. Reviewed
+The v2 producer and contract remain available for immutable historical records. The edge accepts
+both schema-3.0 historical records and schema-3.1 current records, but new v3 alerts must use the
+canonical schema-3.1 producer. Neither producer contains a broker command. Reviewed
 TradingView **Any alert() function call** automatically sends the complete
 `{credential,payload}` envelope; operators do not compose a separate message template. Reviewed
 detector/settings identity and PAPER_ONLY account/risk configuration are required before the edge
@@ -86,6 +91,11 @@ not a remote-value or deployment gate. Operators must list all four remote secre
 deployment continuation, then prove the reviewed values after deployment with the signed strict
 DIR_CLOSE decision/intent and replay checks before Pine emission. The exact procedure is in the
 contract-v3 release runbook below.
+
+`GET /api/v1/rd-entry-readiness` is an authenticated, bounded release-readiness summary. It
+reports configuration presence, reviewed identity-binding mode, schema readiness, paper-readiness
+state, and the latest decision action/reason without returning credentials, digests, raw payloads,
+or unbounded ledgers.
 
 This is simulation bookkeeping, not broker execution. The older schema-1.1 transport can
 atomically create and settle internal simulator intents through authenticated observations, but
@@ -100,6 +110,11 @@ The one proof command is:
 ```sh
 make verify-observation
 ```
+
+For the focused schema-3.1 lifecycle proof, run `make verify-paper-loop`. It exercises strict
+wire rejection, current and historical ingestion, duplicate handling, paper-only selection and
+settlement, shadow-only one-candle behavior, bounded authenticated reads, and the kill-switch
+boundary. It does not call a remote Worker, broker, or trading platform.
 
 Its container test migrates a fresh PostgreSQL database and proves a Pine-shaped empty snapshot is
 accepted (`202`), replayed idempotently (`200/DUPLICATE`), rejected on conflicting replay (`409`)

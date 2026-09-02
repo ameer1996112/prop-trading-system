@@ -16,7 +16,9 @@ Record the reviewed commit and local build artifacts before approval:
 - edge dry-run artifact: `apps/observation-edge/dist`;
 - console source: `apps/operations-console`;
 - console static artifact: `apps/operations-console/out`;
-- TradingView producer: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`;
+- TradingView producer: `scripts/pinescript/SND_RD_5M_V3_RELEASE.pine` (schema 3.1);
+- historical rollback artifact: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine` (schema
+  3.0; do not use for a new alert);
 - D1 migrations: `0024_observation_entries_v3.sql`,
   `0025_observation_entry_v3_decision_order.sql`, and
   `0026_observation_entry_v3_attempt_order.sql`.
@@ -66,10 +68,12 @@ Build the two production artifacts again and retain their output paths:
 
 Do not continue if the working tree differs from the reviewed commit.
 
-## 2. Apply D1 migrations through 0027
+## 2. Apply D1 migrations through 0029
 
 After explicit deployment approval, apply every pending migration through
-`0027_observation_entry_v3_paper_fallback_shadow.sql`:
+`0027_observation_entry_v3_paper_fallback_shadow.sql`,
+`0028_observation_entry_v3_liquidity_cohorts.sql`, and
+`0029_observation_entry_v3_one_candle_reason.sql`:
 
 ```sh
 (cd apps/observation-edge && npm run db:migrate:remote)
@@ -85,7 +89,7 @@ Do not delete, rename, or roll back any of these migrations.
 Compute the detector digest from the exact saved Pine bytes in the reviewed commit:
 
 ```sh
-shasum -a 256 scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine
+shasum -a 256 scripts/pinescript/SND_RD_5M_V3_RELEASE.pine
 ```
 
 Separately capture every TradingView input, feed, symbol, timeframe, timezone, and session setting
@@ -168,9 +172,11 @@ origin:
 ```text
 GET /health/live
 GET /api/v1/rd-entry-decisions?limit=20
+GET /api/v1/rd-entry-readiness
 ```
 
-The decision route is protected by the paper-admin bearer credential. No `/webhook`, broker,
+Both RD routes are protected by the paper-admin bearer credential. The readiness route returns
+only bounded configuration/readiness/last-decision status. No `/webhook`, broker,
 provider, order, fill, or live-account route may exist.
 
 ## 5. Create or verify the PAPER_ONLY account
@@ -184,7 +190,8 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
 ## 6. Install the TradingView producer
 
 1. Open a supported Forex chart at the five-minute timeframe.
-2. Add `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` to Pine Editor.
+2. Add `SND_RD_5M_V3_RELEASE.pine` to Pine Editor. Do not create a new alert from the historical
+   `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` rollback artifact.
 3. Save, compile, and add it to the chart.
 4. Enter the dedicated contract-v3 ingress credential only in
    **Contract-v3 ingress credential**. Use the approved printable token format

@@ -69,10 +69,15 @@ permits exactly these additional routes:
 - `GET /api/v1/paper-simulations/summary`
 - `GET /api/v1/paper-readiness`
 - `POST /api/v1/paper-readiness/kill-switch`
+- `GET /api/v1/rd-entry-readiness`
 
 Every simulator route uses the same fail-closed paper-ledger feature gate and paper-admin bearer
 credential. There is no unauthenticated account, intent, allocation, settlement, balance, P&L, or
 drawdown read.
+
+The RD readiness route is a bounded status projection only: it reports configuration presence,
+reviewed-identity binding mode, current schema readiness, paper readiness, and the latest decision
+action/reason. It never returns credentials, hashes, raw ingress payloads, or an unbounded ledger.
 
 An intent is explicit versioned input: identifier, symbol, BUY/SELL side, fixed-decimal entry,
 stop, target, risk basis points, and one or more immutable PAPER_ONLY account identifiers. It can

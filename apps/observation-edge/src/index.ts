@@ -148,6 +148,7 @@ const MAX_STORED_DECISION_JSON_BYTES = 65_536;
 const MAX_DECISION_CANDIDATES = 3;
 const MAX_DECISION_EVIDENCE = 3;
 const MAX_DECISION_MEMBERS = 6;
+const MAX_RD_ENTRY_READINESS_REASON_CODES = 12;
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const SHA256 = /^[a-f0-9]{64}$/;
 
@@ -2013,6 +2014,95 @@ async function listRdEntryDecisions(
   }
 }
 
+function rdEntryReadinessConfiguration(env: Env): Record<string, unknown> {
+  const accountIds = env.RD_ENTRY_PAPER_ACCOUNT_IDS;
+  const riskBps = env.RD_ENTRY_PAPER_RISK_BPS;
+  const accountCount =
+    typeof accountIds === "string" && accountIds.length > 0
+      ? accountIds.split(",").length
+      : 0;
+  const riskConfigured =
+    typeof riskBps === "string" && /^(?:[1-9][0-9]{0,2})$/u.test(riskBps);
+  return {
+    accounts_configured: accountCount > 0,
+    configured_account_count: accountCount,
+    risk_bps_configured: riskConfigured,
+    reviewed_identity: {
+      detector_hash_configured:
+        typeof env.RD_ENTRY_V3_DETECTOR_CODE_HASH === "string" &&
+        SHA256.test(env.RD_ENTRY_V3_DETECTOR_CODE_HASH) &&
+        env.RD_ENTRY_V3_DETECTOR_CODE_HASH !== "0".repeat(64),
+      settings_binding:
+        env.RD_ENTRY_V3_SETTINGS_HASHES_JSON !== undefined
+          ? "TICKER_MAP"
+          : typeof env.RD_ENTRY_V3_SETTINGS_HASH === "string" &&
+              SHA256.test(env.RD_ENTRY_V3_SETTINGS_HASH) &&
+              env.RD_ENTRY_V3_SETTINGS_HASH !== "0".repeat(64)
+            ? "LEGACY_SINGLE_PROFILE"
+            : "MISSING",
+    },
+  };
+}
+
+async function getRdEntryReadiness(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const authorizationError = await requirePaperAuthorization(request, env);
+  if (authorizationError !== null) return authorizationError;
+  try {
+    const [paperReadiness, decisionResult] = await Promise.all([
+      paperReadinessReport(env),
+      env.DB.prepare(LIST_ENTRY_V3_DECISIONS_SQL).bind(1).all<DecisionSelectionRow>(),
+    ]);
+    const rows = decisionResult.results;
+    if (rows.length > 1) throw new StorageUnavailableError();
+    const row = rows[0] ?? null;
+    let lastDecision: Record<string, unknown> | null = null;
+    if (row !== null) {
+      validateStoredDecisionCohort(row.liquidity_cohort, row.one_candle_enabled);
+      const selection = parseStoredDecisionJson<EntrySelectionV3>(
+        row.selection_json,
+        validateSelectionShapeV3,
+      );
+      const view = decisionSelectionView(selection, row);
+      lastDecision = {
+        canonical_model: view.canonical_model,
+        reason: view.reason,
+        policy_action: view.policy_action,
+        action: view.action,
+        effective_action_reason: view.effective_action_reason,
+        liquidity_cohort: view.liquidity_cohort,
+        one_candle_enabled: view.one_candle_enabled,
+        evaluated_at_epoch: view.evaluated_at_epoch,
+      };
+    }
+    return jsonResponse({
+      schema_version: "1.0",
+      mode: "PAPER_ONLY",
+      execution: "DISABLED",
+      account_configuration: rdEntryReadinessConfiguration(env),
+      migration_readiness: {
+        state: "READY",
+        required_schema_version: "3.1",
+      },
+      reviewed_readiness: {
+        state: paperReadiness.state,
+        reason_codes: paperReadiness.reasons
+          .slice(0, MAX_RD_ENTRY_READINESS_REASON_CODES)
+          .map((reason) => reason.code),
+      },
+      last_decision: lastDecision,
+    });
+  } catch {
+    return errorResponse(
+      503,
+      "RD_ENTRY_READINESS_UNAVAILABLE",
+      "RD entry readiness evidence is unavailable",
+    );
+  }
+}
+
 async function listReceipts(request: Request, env: Env): Promise<Response> {
   if (!ingressConfigured(env)) {
     return errorResponse(
@@ -3687,6 +3777,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
     }
     return listRdEntryDecisions(request, env);
+  }
+  if (url.pathname === "/api/v1/rd-entry-readiness") {
+    if (request.method !== "GET") {
+      return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
+    }
+    return getRdEntryReadiness(request, env);
   }
   if (url.pathname === "/api/v1/paper-readiness") {
     if (request.method === "GET") {

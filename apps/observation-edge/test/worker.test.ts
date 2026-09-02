@@ -2183,6 +2183,67 @@ describe("observation edge Worker", () => {
     ).toHaveLength(1);
   });
 
+  it("returns an authenticated bounded paper-only readiness summary", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    seedEntryV3Decision(
+      database,
+      "close_fallback_after_blocked_aggressive_models",
+    );
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "100",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "d".repeat(64),
+    });
+
+    const denied = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-readiness`),
+      env,
+    );
+    expect(denied.status).toBe(401);
+
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-readiness`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    const report = await body(response);
+
+    expect(response.status).toBe(200);
+    expect(report).toMatchObject({
+      schema_version: "1.0",
+      mode: "PAPER_ONLY",
+      execution: "DISABLED",
+      account_configuration: {
+        accounts_configured: true,
+        configured_account_count: 1,
+        risk_bps_configured: true,
+        reviewed_identity: {
+          detector_hash_configured: true,
+          settings_binding: "LEGACY_SINGLE_PROFILE",
+        },
+      },
+      migration_readiness: {
+        state: "READY",
+        required_schema_version: "3.1",
+      },
+      last_decision: {
+        canonical_model: "DIR_CLOSE",
+        policy_action: "PAPER_ELIGIBLE",
+        action: "SHADOW_ONLY",
+      },
+    });
+    expect(JSON.stringify(report)).not.toContain(CREDENTIAL);
+    expect(JSON.stringify(report)).not.toContain("RD_ENTRY_");
+    expect(new TextEncoder().encode(JSON.stringify(report)).byteLength).toBeLessThan(
+      16_384,
+    );
+  });
+
   it.each([
     "/api/v1/rd-entry-decisions",
     "/api/v1/rd-entry-decisions?limit=0",

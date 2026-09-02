@@ -9,12 +9,13 @@ DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.worktrees|\.venv|\.mypy_cache|\.pytest_c
 .PHONY: help bootstrap format format-check lint typecheck backend-tests frontend-checks \
 	edge-checks \
 	verify-generated verify-evidence frozen-spec-check contract-v3-check secret-scan boundary-check container-check \
-	verify-observation verify-phase0
+	verify-observation verify-paper-loop verify-phase0
 
 help:
 	@echo "make bootstrap       Install exactly locked Python and Node dependencies"
 	@echo "make format          Apply Python formatting"
 	@echo "make contract-v3-check  Validate the frozen RD three-entry contract"
+	@echo "make verify-paper-loop   Prove the local schema-3.1 paper-only lifecycle"
 	@echo "make verify-observation  Run the complete observation-ingress proof"
 	@echo "make verify-phase0      Compatibility alias for the complete proof"
 
@@ -91,5 +92,15 @@ container-check:
 
 verify-observation: bootstrap format-check lint typecheck backend-tests edge-checks verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check
 	@echo "OBSERVATION VERIFICATION PASSED — ingress records metadata and no execution surface exists"
+
+verify-paper-loop: contract-v3-check
+	$(PYTHON) -m pytest tests/static/test_rd_release_edge_contract_compatibility.py
+	cd $(EDGE) && npm test -- --run \
+		test/rd-entry-wire-v3.test.ts \
+		test/rd-entry-store-v3.test.ts \
+		test/rd-entry-pine-v3-parity.test.ts \
+		test/paper-simulator.test.ts \
+		test/worker.test.ts
+	@echo "PAPER LOOP VERIFICATION PASSED — all actions remain PAPER_ONLY"
 
 verify-phase0: verify-observation
