@@ -1,6 +1,5 @@
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 PINE = Path("scripts/pinescript/SND_RD_5M_V3_RELEASE.pine")
 
@@ -16,10 +15,7 @@ def test_direction_badge_is_separated_from_the_entry_price_marker() -> None:
     assert '(attempt.core.demand ? "LONG" : "SHORT") + " · PAPER"' in pine
     assert "label.new(bar_index, attempt.core.demand ? low : high" in pine
     assert "yloc = attempt.core.demand ? yloc.belowbar : yloc.abovebar" in pine
-    assert (
-        "style = attempt.core.demand ? label.style_label_up : label.style_label_down"
-        in pine
-    )
+    assert "style = attempt.core.demand ? label.style_label_up : label.style_label_down" in pine
 
 
 def test_entry_stop_and_target_remain_distinct_right_edge_price_markers() -> None:

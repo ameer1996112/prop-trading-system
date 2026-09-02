@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 PINE = Path("scripts/pinescript/SND_RD_5M_V3_RELEASE.pine")
 
 
