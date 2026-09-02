@@ -285,6 +285,50 @@ ORDER BY selection.evaluated_at_epoch DESC, selection.ingest_ordinal DESC
 LIMIT ?
 `;
 
+// This readiness query is intentionally independent of the schema-1.1 paper
+// automation receipt stream. Contract-v3 ingress has its own immutable event
+// parent and a schema-3.1 receipt must be sufficient to prove freshness.
+export const SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL = `
+SELECT
+  receipt.received_at,
+  event.event_id,
+  receipt.ticker_id
+FROM observation_receipts AS receipt
+JOIN observation_entry_v3_events AS event
+  ON event.receipt_id = receipt.receipt_id
+WHERE receipt.schema_version IN ('3.0', '3.1')
+  AND (? IS NULL OR receipt.ticker_id = ?)
+ORDER BY receipt.received_at DESC, event.rowid DESC
+LIMIT 1
+`;
+
+export const SELECT_LATEST_RD_ENTRY_V3_DECISION_SQL = `
+SELECT
+  selection.policy_action,
+  selection.action AS effective_action,
+  selection.effective_action_reason,
+  link.intent_id AS paper_intent_id
+FROM observation_entry_v3_selections AS selection
+JOIN observation_entry_v3_events AS event
+  ON event.event_id = selection.event_id
+JOIN observation_receipts AS receipt
+  ON receipt.receipt_id = event.receipt_id
+LEFT JOIN observation_entry_v3_paper_links AS link
+  ON link.selection_id = selection.selection_id
+WHERE (? IS NULL OR receipt.ticker_id = ?)
+ORDER BY selection.evaluated_at_epoch DESC, selection.rowid DESC
+LIMIT 1
+`;
+
+// Migrations 0028 and 0029 recreate this table. The resulting table SQL is a
+// compact, deterministic schema witness without exposing D1 internals.
+export const SELECT_RD_ENTRY_V3_SELECTIONS_SCHEMA_SQL = `
+SELECT sql
+FROM sqlite_master
+WHERE type = 'table' AND name = 'observation_entry_v3_selections'
+LIMIT 1
+`;
+
 export const LIST_ENTRY_V3_DECISION_CANDIDATES_SQL = `
 SELECT
   member.selection_id,

@@ -113,6 +113,12 @@ import {
 import {
   appendEntryV3Observation,
   EntryV3StoreConflict,
+  paperConfigurationReadiness,
+  parsePaperConfiguration,
+  parseReviewedSettingsConfiguration,
+  REVIEWED_TICKER_ID,
+  reviewedDetectorIdentityConfigured,
+  reviewedSettingsHashForTicker,
 } from "./rd-entry-store-v3";
 import {
   LIST_ENTRY_V3_DECISION_CANDIDATES_SQL,
@@ -122,6 +128,9 @@ import {
   LIST_ENTRY_V3_DECISION_PARITY_SQL,
   LIST_ENTRY_V3_DECISION_SHADOW_SQL,
   LIST_ENTRY_V3_DECISIONS_SQL,
+  SELECT_LATEST_RD_ENTRY_V3_DECISION_SQL,
+  SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL,
+  SELECT_RD_ENTRY_V3_SELECTIONS_SCHEMA_SQL,
 } from "./rd-entry-queries-v3";
 import {
   validateEntryCandidateV3,
@@ -151,6 +160,12 @@ const MAX_DECISION_MEMBERS = 6;
 const MAX_RD_ENTRY_READINESS_REASON_CODES = 12;
 const MAX_SAFE_INTEGER = 9_007_199_254_740_991;
 const SHA256 = /^[a-f0-9]{64}$/;
+const RD_ENTRY_ACCEPTED_VERSION_TUPLES = [
+  { schema_version: "3.0", strategy_version: "3.0.0-contract3", rule_contract_version: "3.0.0" },
+  { schema_version: "3.1", strategy_version: "3.1.0-contract3", rule_contract_version: "3.1.0" },
+] as const;
+const RD_ENTRY_CANONICAL_PINE_ARTIFACT =
+  "scripts/pinescript/SND_RD_5M_V3_RELEASE.pine";
 
 class BodyTooLargeError extends Error {}
 class MalformedBodyError extends Error {}
@@ -2014,34 +2029,35 @@ async function listRdEntryDecisions(
   }
 }
 
-function rdEntryReadinessConfiguration(env: Env): Record<string, unknown> {
-  const accountIds = env.RD_ENTRY_PAPER_ACCOUNT_IDS;
-  const riskBps = env.RD_ENTRY_PAPER_RISK_BPS;
-  const accountCount =
-    typeof accountIds === "string" && accountIds.length > 0
-      ? accountIds.split(",").length
-      : 0;
-  const riskConfigured =
-    typeof riskBps === "string" && /^(?:[1-9][0-9]{0,2})$/u.test(riskBps);
-  return {
-    accounts_configured: accountCount > 0,
-    configured_account_count: accountCount,
-    risk_bps_configured: riskConfigured,
-    reviewed_identity: {
-      detector_hash_configured:
-        typeof env.RD_ENTRY_V3_DETECTOR_CODE_HASH === "string" &&
-        SHA256.test(env.RD_ENTRY_V3_DETECTOR_CODE_HASH) &&
-        env.RD_ENTRY_V3_DETECTOR_CODE_HASH !== "0".repeat(64),
-      settings_binding:
-        env.RD_ENTRY_V3_SETTINGS_HASHES_JSON !== undefined
-          ? "TICKER_MAP"
-          : typeof env.RD_ENTRY_V3_SETTINGS_HASH === "string" &&
-              SHA256.test(env.RD_ENTRY_V3_SETTINGS_HASH) &&
-              env.RD_ENTRY_V3_SETTINGS_HASH !== "0".repeat(64)
-            ? "LEGACY_SINGLE_PROFILE"
-            : "MISSING",
-    },
-  };
+function parseRdEntryReadinessTicker(url: URL): string | null | "INVALID" {
+  if ([...url.searchParams.keys()].some((key) => key !== "ticker_id")) {
+    return "INVALID";
+  }
+  const values = url.searchParams.getAll("ticker_id");
+  if (values.length === 0) return null;
+  if (values.length !== 1 || !REVIEWED_TICKER_ID.test(values[0] ?? "")) {
+    return "INVALID";
+  }
+  return values[0]!;
+}
+
+function requiredRdEntryMigrationsAvailable(schemaSql: unknown): boolean {
+  return (
+    typeof schemaSql === "string" &&
+    schemaSql.length <= 16_384 &&
+    schemaSql.includes("liquidity_cohort") &&
+    schemaSql.includes("one_candle_enabled") &&
+    schemaSql.includes("ONE_CANDLE_EXPERIMENT_NOT_PROMOTED")
+  );
+}
+
+function receiptIsFresh(receivedAt: string): boolean {
+  const age = Date.now() - Date.parse(receivedAt);
+  return (
+    Number.isFinite(age) &&
+    age >= -60_000 &&
+    age <= PAPER_READINESS_THRESHOLDS.receipt_max_age_seconds * 1_000
+  );
 }
 
 async function getRdEntryReadiness(
@@ -2050,56 +2066,116 @@ async function getRdEntryReadiness(
 ): Promise<Response> {
   const authorizationError = await requirePaperAuthorization(request, env);
   if (authorizationError !== null) return authorizationError;
+  const tickerId = parseRdEntryReadinessTicker(new URL(request.url));
+  if (tickerId === "INVALID") {
+    return errorResponse(422, "INVALID_TICKER_ID", "ticker_id must be one exact supported identifier");
+  }
+  const configuration = parsePaperConfiguration(env);
+  const settings = parseReviewedSettingsConfiguration(env);
+  const detectorIdentityConfigured = reviewedDetectorIdentityConfigured(env);
+  const reviewedSettingsFound =
+    tickerId === null ? null : reviewedSettingsHashForTicker(env, tickerId) !== null;
+  const base = {
+    schema_version: "1.0",
+    mode: "PAPER_ONLY" as const,
+    execution: "DISABLED" as const,
+    accepted_version_tuples: RD_ENTRY_ACCEPTED_VERSION_TUPLES,
+    canonical_pine_artifact: RD_ENTRY_CANONICAL_PINE_ARTIFACT,
+    requested_ticker_id: tickerId,
+    ingress_enabled: ingressConfigured(env),
+    paper_ledger_enabled: paperLedgerConfigured(env),
+    configured_paper_account_ids: configuration?.accountIds ?? [],
+    risk_bps: configuration?.riskBps ?? null,
+    detector_identity_configured: detectorIdentityConfigured,
+    settings_mode: settings.mode,
+    reviewed_settings_found_for_ticker: reviewedSettingsFound,
+  };
   try {
-    const [paperReadiness, decisionResult] = await Promise.all([
-      paperReadinessReport(env),
-      env.DB.prepare(LIST_ENTRY_V3_DECISIONS_SQL).bind(1).all<DecisionSelectionRow>(),
-    ]);
-    const rows = decisionResult.results;
-    if (rows.length > 1) throw new StorageUnavailableError();
-    const row = rows[0] ?? null;
-    let lastDecision: Record<string, unknown> | null = null;
-    if (row !== null) {
-      validateStoredDecisionCohort(row.liquidity_cohort, row.one_candle_enabled);
-      const selection = parseStoredDecisionJson<EntrySelectionV3>(
-        row.selection_json,
-        validateSelectionShapeV3,
-      );
-      const view = decisionSelectionView(selection, row);
-      lastDecision = {
-        canonical_model: view.canonical_model,
-        reason: view.reason,
-        policy_action: view.policy_action,
-        action: view.action,
-        effective_action_reason: view.effective_action_reason,
-        liquidity_cohort: view.liquidity_cohort,
-        one_candle_enabled: view.one_candle_enabled,
-        evaluated_at_epoch: view.evaluated_at_epoch,
-      };
+    const [schemaResult, receiptResult, decisionResult, configurationReadiness] =
+      await Promise.all([
+        env.DB.prepare(SELECT_RD_ENTRY_V3_SELECTIONS_SCHEMA_SQL).first<{ sql: string }>(),
+        env.DB
+          .prepare(SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL)
+          .bind(tickerId, tickerId)
+          .first<{ received_at: string; event_id: string; ticker_id: string }>(),
+        env.DB
+          .prepare(SELECT_LATEST_RD_ENTRY_V3_DECISION_SQL)
+          .bind(tickerId, tickerId)
+          .first<{
+            policy_action: SelectionActionV3;
+            effective_action: SelectionActionV3;
+            effective_action_reason: string | null;
+            paper_intent_id: string | null;
+          }>(),
+        configuration === null
+          ? Promise.resolve(null)
+          : paperConfigurationReadiness(env, configuration, 1),
+      ]);
+    const migrationsAvailable = requiredRdEntryMigrationsAvailable(schemaResult?.sql);
+    const blockers: string[] = [];
+    if (!base.ingress_enabled) blockers.push("INGRESS_DISABLED");
+    if (!base.paper_ledger_enabled) blockers.push("PAPER_LEDGER_DISABLED");
+    if (!migrationsAvailable) blockers.push("REQUIRED_MIGRATION_MISSING");
+    if (configuration === null) blockers.push("PAPER_CONFIGURATION_INVALID");
+    if (configurationReadiness !== null) {
+      if (configurationReadiness.missingAccountIds.length > 0) {
+        blockers.push("PAPER_ACCOUNT_MISSING");
+      }
+      if (configurationReadiness.nonPositiveAccountIds.length > 0) {
+        blockers.push("PAPER_ACCOUNT_NON_POSITIVE");
+      }
+      if (configurationReadiness.riskLimitedAccountIds.length > 0) {
+        blockers.push("ACCOUNT_RISK_LIMIT");
+      }
+      if (configurationReadiness.killSwitchEnabled !== false) {
+        blockers.push("KILL_SWITCH_ENABLED");
+      }
     }
+    if (!detectorIdentityConfigured) blockers.push("DETECTOR_IDENTITY_MISSING");
+    if (settings.mode === "MISSING") blockers.push("SETTINGS_CONFIGURATION_MISSING");
+    if (settings.mode === "INVALID") blockers.push("SETTINGS_CONFIGURATION_INVALID");
+    if (tickerId === null || reviewedSettingsFound === false) {
+      blockers.push("TICKER_SETTINGS_MISSING");
+    }
+    if (receiptResult === null) blockers.push("V3_RECEIPT_MISSING");
+    else if (!receiptIsFresh(receiptResult.received_at)) blockers.push("V3_RECEIPT_STALE");
     return jsonResponse({
-      schema_version: "1.0",
-      mode: "PAPER_ONLY",
-      execution: "DISABLED",
-      account_configuration: rdEntryReadinessConfiguration(env),
-      migration_readiness: {
-        state: "READY",
-        required_schema_version: "3.1",
-      },
-      reviewed_readiness: {
-        state: paperReadiness.state,
-        reason_codes: paperReadiness.reasons
-          .slice(0, MAX_RD_ENTRY_READINESS_REASON_CODES)
-          .map((reason) => reason.code),
-      },
-      last_decision: lastDecision,
+      ...base,
+      database_bound: true,
+      required_migrations_available: migrationsAvailable,
+      missing_paper_account_ids: configurationReadiness?.missingAccountIds ?? [],
+      non_positive_paper_account_ids:
+        configurationReadiness?.nonPositiveAccountIds ?? [],
+      kill_switch_enabled: configurationReadiness?.killSwitchEnabled ?? null,
+      latest_v3_receipt_at: receiptResult?.received_at ?? null,
+      latest_v3_event_id: receiptResult?.event_id ?? null,
+      latest_policy_action: decisionResult?.policy_action ?? null,
+      latest_effective_action: decisionResult?.effective_action ?? null,
+      latest_effective_action_reason:
+        decisionResult?.effective_action_reason ?? null,
+      latest_paper_intent_id: decisionResult?.paper_intent_id ?? null,
+      can_create_paper_intent: blockers.length === 0,
+      state: blockers.length === 0 ? "READY" : "BLOCKED",
+      blockers,
     });
   } catch {
-    return errorResponse(
-      503,
-      "RD_ENTRY_READINESS_UNAVAILABLE",
-      "RD entry readiness evidence is unavailable",
-    );
+    return jsonResponse({
+      ...base,
+      database_bound: false,
+      required_migrations_available: false,
+      missing_paper_account_ids: [],
+      non_positive_paper_account_ids: [],
+      kill_switch_enabled: null,
+      latest_v3_receipt_at: null,
+      latest_v3_event_id: null,
+      latest_policy_action: null,
+      latest_effective_action: null,
+      latest_effective_action_reason: null,
+      latest_paper_intent_id: null,
+      can_create_paper_intent: false,
+      state: "BLOCKED",
+      blockers: ["DATABASE_UNAVAILABLE"],
+    });
   }
 }
 

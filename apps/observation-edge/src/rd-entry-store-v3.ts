@@ -64,7 +64,7 @@ import type {
 const SHA256 = /^[a-f0-9]{64}$/u;
 const NONZERO_SHA256 = /^(?!0{64}$)[a-f0-9]{64}$/u;
 const RISK_BPS = /^(?:[1-9][0-9]{0,2})$/u;
-const REVIEWED_TICKER_ID =
+export const REVIEWED_TICKER_ID =
   /^[A-Z0-9][A-Z0-9._-]{0,31}:[A-Z0-9][A-Z0-9._-]{0,63}$/u;
 const MAX_REVIEWED_TICKERS = 64;
 const MAX_REVIEWED_SETTINGS_JSON_BYTES = 16_384;
@@ -152,9 +152,29 @@ interface StoredEventDispositionV3 {
   readonly recorded_at: string;
 }
 
-interface PaperConfiguration {
+export interface PaperConfiguration {
   readonly accountIds: readonly string[];
   readonly riskBps: number;
+}
+
+export type ReviewedSettingsMode =
+  | "TICKER_MAP"
+  | "LEGACY_SINGLE"
+  | "MISSING"
+  | "INVALID";
+
+export interface ReviewedSettingsConfiguration {
+  readonly mode: ReviewedSettingsMode;
+  readonly byTicker: Readonly<Record<string, string>> | null;
+  readonly legacyHash: string | null;
+}
+
+export interface PaperConfigurationReadiness {
+  readonly killSwitchEnabled: boolean | null;
+  readonly missingAccountIds: readonly string[];
+  readonly nonPositiveAccountIds: readonly string[];
+  readonly riskLimitedAccountIds: readonly string[];
+  readonly usable: boolean;
 }
 
 function entryV3VersionTuple(
@@ -247,7 +267,7 @@ export class EntryV3StoreConflict extends Error {
   }
 }
 
-function parsePaperConfiguration(env: Env): PaperConfiguration | null {
+export function parsePaperConfiguration(env: Env): PaperConfiguration | null {
   const rawAccounts = env.RD_ENTRY_PAPER_ACCOUNT_IDS;
   const rawRisk = env.RD_ENTRY_PAPER_RISK_BPS;
   if (
@@ -274,6 +294,13 @@ function parsePaperConfiguration(env: Env): PaperConfiguration | null {
   }
 }
 
+export function reviewedDetectorIdentityConfigured(env: Env): boolean {
+  return (
+    typeof env.RD_ENTRY_V3_DETECTOR_CODE_HASH === "string" &&
+    NONZERO_SHA256.test(env.RD_ENTRY_V3_DETECTOR_CODE_HASH)
+  );
+}
+
 function reviewedIdentityMatches(
   env: Env,
   observation: EntryV3Observation,
@@ -283,37 +310,38 @@ function reviewedIdentityMatches(
     observation.metadata.tickerId,
   );
   return (
-    typeof env.RD_ENTRY_V3_DETECTOR_CODE_HASH === "string" &&
-    NONZERO_SHA256.test(env.RD_ENTRY_V3_DETECTOR_CODE_HASH) &&
+    reviewedDetectorIdentityConfigured(env) &&
     settingsHash !== null &&
     observation.detectorCodeHash === env.RD_ENTRY_V3_DETECTOR_CODE_HASH &&
     observation.settingsHash === settingsHash
   );
 }
 
-function reviewedSettingsHashForTicker(
+export function parseReviewedSettingsConfiguration(
   env: Env,
-  tickerId: string,
-): string | null {
+): ReviewedSettingsConfiguration {
   const rawByTicker = env.RD_ENTRY_V3_SETTINGS_HASHES_JSON;
   if (rawByTicker === undefined) {
     const legacyHash = env.RD_ENTRY_V3_SETTINGS_HASH;
-    return typeof legacyHash === "string" && NONZERO_SHA256.test(legacyHash)
-      ? legacyHash
-      : null;
+    if (legacyHash === undefined || legacyHash.length === 0) {
+      return { mode: "MISSING", byTicker: null, legacyHash: null };
+    }
+    return NONZERO_SHA256.test(legacyHash)
+      ? { mode: "LEGACY_SINGLE", byTicker: null, legacyHash }
+      : { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   if (
     rawByTicker.length === 0 ||
     new TextEncoder().encode(rawByTicker).byteLength >
       MAX_REVIEWED_SETTINGS_JSON_BYTES
   ) {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
-  let value;
+  let value: unknown;
   try {
     value = parseStrictJson(new TextEncoder().encode(rawByTicker));
   } catch {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   if (
     typeof value !== "object" ||
@@ -321,11 +349,11 @@ function reviewedSettingsHashForTicker(
     Array.isArray(value) ||
     isStrictJsonNumber(value)
   ) {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   const entries = Object.entries(value);
   if (entries.length === 0 || entries.length > MAX_REVIEWED_TICKERS) {
-    return null;
+    return { mode: "INVALID", byTicker: null, legacyHash: null };
   }
   for (const [configuredTickerId, configuredHash] of entries) {
     if (
@@ -333,11 +361,97 @@ function reviewedSettingsHashForTicker(
       typeof configuredHash !== "string" ||
       !NONZERO_SHA256.test(configuredHash)
     ) {
-      return null;
+      return { mode: "INVALID", byTicker: null, legacyHash: null };
     }
   }
-  const reviewedHash = value[tickerId];
-  return typeof reviewedHash === "string" ? reviewedHash : null;
+  return {
+    mode: "TICKER_MAP",
+    byTicker: Object.fromEntries(entries) as Readonly<Record<string, string>>,
+    legacyHash: null,
+  };
+}
+
+export function reviewedSettingsHashForTicker(
+  env: Env,
+  tickerId: string,
+): string | null {
+  const configuration = parseReviewedSettingsConfiguration(env);
+  if (configuration.mode === "TICKER_MAP") {
+    return configuration.byTicker?.[tickerId] ?? null;
+  }
+  return configuration.mode === "LEGACY_SINGLE"
+    ? configuration.legacyHash
+    : null;
+}
+
+export async function paperConfigurationReadiness(
+  env: Env,
+  configuration: PaperConfiguration,
+  candidatePositions: number,
+): Promise<PaperConfigurationReadiness> {
+  if (!Number.isSafeInteger(candidatePositions) || candidatePositions < 1) {
+    return {
+      killSwitchEnabled: null,
+      missingAccountIds: [],
+      nonPositiveAccountIds: [],
+      riskLimitedAccountIds: [],
+      usable: false,
+    };
+  }
+  const killSwitch = await env.DB
+    .prepare(SELECT_LATEST_PAPER_KILL_SWITCH_SQL)
+    .first<StoredPaperKillSwitchEvent>();
+  if (killSwitch === null || killSwitch.enabled !== 0) {
+    return {
+      killSwitchEnabled: killSwitch === null ? null : killSwitch.enabled === 1,
+      missingAccountIds: [],
+      nonPositiveAccountIds: [],
+      riskLimitedAccountIds: [],
+      usable: false,
+    };
+  }
+  const results = await env.DB.batch(
+    configuration.accountIds.map((accountId) =>
+      env.DB.prepare(SELECT_PAPER_ACCOUNT_READINESS_METRIC_SQL).bind(accountId),
+    ),
+  );
+  const missingAccountIds: string[] = [];
+  const nonPositiveAccountIds: string[] = [];
+  const riskLimitedAccountIds: string[] = [];
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index]!;
+    const accountId = configuration.accountIds[index];
+    const account = result.results[0] as PaperReadinessAccountInput | undefined;
+    if (
+      account === undefined ||
+      !Number.isSafeInteger(account.balance_minor) ||
+      account.balance_minor <= 0
+    ) {
+      if (account === undefined) missingAccountIds.push(accountId!);
+      else nonPositiveAccountIds.push(accountId!);
+      continue;
+    }
+    const riskPerPosition =
+      (BigInt(account.balance_minor) * BigInt(configuration.riskBps)) / 10_000n;
+    const risk = riskPerPosition * BigInt(candidatePositions);
+    if (
+      risk <= 0n ||
+      risk > MAX_SAFE_INTEGER ||
+      !paperAccountAllowsNewOpen(account, Number(risk), candidatePositions)
+    ) {
+      riskLimitedAccountIds.push(accountId!);
+    }
+  }
+  return {
+    killSwitchEnabled: false,
+    missingAccountIds,
+    nonPositiveAccountIds,
+    riskLimitedAccountIds,
+    usable:
+      missingAccountIds.length === 0 &&
+      nonPositiveAccountIds.length === 0 &&
+      riskLimitedAccountIds.length === 0,
+  };
 }
 
 async function paperConfigurationIsUsable(
@@ -345,36 +459,8 @@ async function paperConfigurationIsUsable(
   configuration: PaperConfiguration,
   candidatePositions: number,
 ): Promise<boolean> {
-  if (!Number.isSafeInteger(candidatePositions) || candidatePositions < 1) {
-    return false;
-  }
-  const killSwitch = await env.DB
-    .prepare(SELECT_LATEST_PAPER_KILL_SWITCH_SQL)
-    .first<StoredPaperKillSwitchEvent>();
-  if (killSwitch === null || killSwitch.enabled !== 0) return false;
-  const results = await env.DB.batch(
-    configuration.accountIds.map((accountId) =>
-      env.DB.prepare(SELECT_PAPER_ACCOUNT_READINESS_METRIC_SQL).bind(accountId),
-    ),
-  );
-  return results.every((result) => {
-    const account = result.results[0] as PaperReadinessAccountInput | undefined;
-    if (
-      account === undefined ||
-      !Number.isSafeInteger(account.balance_minor) ||
-      account.balance_minor <= 0
-    ) {
-      return false;
-    }
-    const riskPerPosition =
-      (BigInt(account.balance_minor) * BigInt(configuration.riskBps)) / 10_000n;
-    const risk = riskPerPosition * BigInt(candidatePositions);
-    return (
-      risk > 0n &&
-      risk <= MAX_SAFE_INTEGER &&
-      paperAccountAllowsNewOpen(account, Number(risk), candidatePositions)
-    );
-  });
+  return (await paperConfigurationReadiness(env, configuration, candidatePositions))
+    .usable;
 }
 
 function ticksToDecimal(ticks: number, tickSize: string): string {

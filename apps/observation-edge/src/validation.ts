@@ -1035,7 +1035,10 @@ export async function validateObservationEnvelope(
       paperCommands: [],
     };
   }
-  if (field(payloadObject, "schema_version") === "3.0") {
+  if (
+    field(payloadObject, "schema_version") === "3.0" ||
+    field(payloadObject, "schema_version") === "3.1"
+  ) {
     if (rawBody !== undefined) {
       validateEntryV3BodySize(rawBody);
     }

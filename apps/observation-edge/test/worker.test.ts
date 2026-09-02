@@ -1,9 +1,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { handleRequest } from "../src/index";
+import { validateEntryV3Payload } from "../src/rd-entry-wire-v3";
+import { parseStrictJson } from "../src/strict-json";
+import { validateObservationEnvelope } from "../src/validation";
 import { SOURCE_CLAIMS } from "../src/rd-entry-policy";
 import {
   INSERT_RECEIPT_SQL,
@@ -20,7 +23,9 @@ import {
   LIST_ENTRY_V3_DECISION_PARITY_SQL,
   LIST_ENTRY_V3_DECISION_SHADOW_SQL,
   LIST_ENTRY_V3_DECISIONS_SQL,
+  SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL,
 } from "../src/rd-entry-queries-v3";
+import { SELECT_LATEST_PAPER_AUTOMATION_RECEIPT_SQL } from "../src/paper-readiness-queries";
 import type {
   Env,
   StoredEntryCandidate,
@@ -851,10 +856,11 @@ class FakeD1 {
   constructor(
     readonly failEvidenceWrites = false,
     private readonly failEntryBatchOnce = false,
+    migrationVersion = 29,
   ) {
     const root = fileURLToPath(new URL("..", import.meta.url));
     this.sqlite.exec("PRAGMA foreign_keys = ON");
-    applyObservationMigrationsThrough(this.sqlite, root, 28);
+    applyObservationMigrationsThrough(this.sqlite, root, migrationVersion);
     this.syncEntryMaps();
   }
 
@@ -1432,7 +1438,11 @@ function entryV3WorkerPayload(
   const vector = structuredClone(
     vectors.cases.find((item) => item.case_id === caseId)!,
   );
-  const evidence = vector.expected.evidence[0]!;
+  const selection = vector.expected.selection;
+  const evidence = vector.expected.evidence.find(
+    (item) => item.evidence_id === selection.canonical_evidence_id,
+  )!;
+  const canonicalModel = selection.canonical_model;
   const input = vector.input;
   const commonRuleIds = [
     "LIQ_ACTUAL_EXTREME_SWEPT",
@@ -1472,8 +1482,18 @@ function entryV3WorkerPayload(
       epoch: evidence.observed_trigger_epoch,
       sequence: evidence.trigger_sequence,
       tick_price_ticks: evidence.observed_trigger_ticks,
-      barstate_isconfirmed: false,
-      confirmed_bar: null,
+      barstate_isconfirmed: canonicalModel === "DIR_CLOSE",
+      confirmed_bar:
+        canonicalModel === "DIR_CLOSE"
+          ? {
+              open_epoch: evidence.coverage_start_epoch,
+              close_epoch: evidence.coverage_end_epoch,
+              open_ticks: evidence.observed_trigger_ticks,
+              high_ticks: evidence.observed_trigger_ticks,
+              low_ticks: evidence.observed_trigger_ticks,
+              close_ticks: evidence.observed_trigger_ticks,
+            }
+          : null,
     },
     exit_events: [],
     setups: [
@@ -1493,7 +1513,7 @@ function entryV3WorkerPayload(
         },
         candidates: vector.expected.candidates,
         evidence: vector.expected.evidence,
-        selection_proposal: vector.expected.selection,
+        selection_proposal: selection,
         trade_plan: {
           direction: "LONG",
           entry_ticks: evidence.observed_trigger_ticks,
@@ -1503,6 +1523,20 @@ function entryV3WorkerPayload(
       },
     ],
   };
+}
+
+function canonicalSchema31WorkerPayload(
+  caseId = "strict_long_boc_only",
+): Record<string, unknown> {
+  const payload = entryV3WorkerPayload(caseId);
+  payload.schema_version = "3.1";
+  payload.strategy_version = "3.1.0-contract3";
+  payload.rule_contract_version = "3.1.0";
+  const setup = (payload.setups as Array<Record<string, unknown>>)[0]!
+    .setup as Record<string, unknown>;
+  setup.liquidity_cohort = "TWO_PLUS_CANDLES";
+  setup.one_candle_enabled = false;
+  return payload;
 }
 
 function seedEntryV3Decision(
@@ -2122,6 +2156,20 @@ async function body(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
+async function rdEntryReadiness(
+  env: Env,
+  tickerId = "OANDA:EURUSD",
+): Promise<Record<string, unknown>> {
+  const response = await handleRequest(
+    new Request(`${BASE_URL}/api/v1/rd-entry-readiness?ticker_id=${tickerId}`, {
+      headers: { Authorization: `Bearer ${CREDENTIAL}` },
+    }),
+    env,
+  );
+  expect(response.status).toBe(200);
+  return body(response);
+}
+
 describe("observation edge Worker", () => {
   it("returns a protected, bounded v3 decision ledger with all competing models", async () => {
     const database = new FakeD1();
@@ -2186,17 +2234,13 @@ describe("observation edge Worker", () => {
   it("returns an authenticated bounded paper-only readiness summary", async () => {
     const database = new FakeD1();
     installWorkerPaperAccount(database);
-    seedEntryV3Decision(
-      database,
-      "close_fallback_after_blocked_aggressive_models",
-    );
     const env = await environment(database, {
       PAPER_LEDGER_ENABLED: "true",
       PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
       RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
       RD_ENTRY_PAPER_RISK_BPS: "100",
-      RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64),
-      RD_ENTRY_V3_SETTINGS_HASH: "d".repeat(64),
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
     });
 
     const denied = await handleRequest(
@@ -2205,8 +2249,30 @@ describe("observation edge Worker", () => {
     );
     expect(denied.status).toBe(401);
 
+    const entry = entryV3WorkerPayload();
+    entry.schema_version = "3.1";
+    entry.strategy_version = "3.1.0-contract3";
+    entry.rule_contract_version = "3.1.0";
+    const setup = (entry.setups as Array<Record<string, unknown>>)[0]!.setup as Record<string, unknown>;
+    setup.liquidity_cohort = "TWO_PLUS_CANDLES";
+    setup.one_candle_enabled = false;
+    await validateEntryV3Payload(
+      JSON.parse(JSON.stringify(entry)),
+      { detector_code_hash: "a".repeat(64), settings_hash: "b".repeat(64) },
+    );
+    const rawEntry = new TextEncoder().encode(
+      JSON.stringify({ credential: CREDENTIAL, payload: entry }),
+    );
+    await validateObservationEnvelope(
+      parseStrictJson(rawEntry),
+      rawEntry,
+      { detector_code_hash: "a".repeat(64), settings_hash: "b".repeat(64) },
+    );
+    const entryResponse = await handleRequest(postBody(entry), env);
+    expect(await body(entryResponse)).toMatchObject({ status: "RECEIVED" });
+
     const response = await handleRequest(
-      new Request(`${BASE_URL}/api/v1/rd-entry-readiness`, {
+      new Request(`${BASE_URL}/api/v1/rd-entry-readiness?ticker_id=OANDA:EURUSD`, {
         headers: { Authorization: `Bearer ${CREDENTIAL}` },
       }),
       env,
@@ -2218,30 +2284,433 @@ describe("observation edge Worker", () => {
       schema_version: "1.0",
       mode: "PAPER_ONLY",
       execution: "DISABLED",
-      account_configuration: {
-        accounts_configured: true,
-        configured_account_count: 1,
-        risk_bps_configured: true,
-        reviewed_identity: {
-          detector_hash_configured: true,
-          settings_binding: "LEGACY_SINGLE_PROFILE",
-        },
-      },
-      migration_readiness: {
-        state: "READY",
-        required_schema_version: "3.1",
-      },
-      last_decision: {
-        canonical_model: "DIR_CLOSE",
-        policy_action: "PAPER_ELIGIBLE",
-        action: "SHADOW_ONLY",
-      },
+      requested_ticker_id: "OANDA:EURUSD",
+      required_migrations_available: true,
+      settings_mode: "LEGACY_SINGLE",
+      reviewed_settings_found_for_ticker: true,
+      can_create_paper_intent: true,
+      blockers: [],
+      latest_policy_action: "PAPER_ELIGIBLE",
+      latest_effective_action: "PAPER_ELIGIBLE",
+      latest_paper_intent_id: expect.any(String),
+      state: "READY",
+      configured_paper_account_ids: ["paper-primary"],
+      risk_bps: 100,
+      detector_identity_configured: true,
+      kill_switch_enabled: false,
     });
+    expect(report).toMatchObject({
+      accepted_version_tuples: expect.arrayContaining([
+        expect.objectContaining({
+          schema_version: "3.1",
+          strategy_version: "3.1.0-contract3",
+          rule_contract_version: "3.1.0",
+        }),
+      ]),
+      canonical_pine_artifact: "scripts/pinescript/SND_RD_5M_V3_RELEASE.pine",
+    });
+    expect(report).not.toMatchObject({
+      latest_policy_action: "SHADOW_ONLY",
+      latest_effective_action: "SHADOW_ONLY",
+    });
+    expect(database.preparedSql).toContain(SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL);
+    expect(database.preparedSql).not.toContain(
+      SELECT_LATEST_PAPER_AUTOMATION_RECEIPT_SQL,
+    );
     expect(JSON.stringify(report)).not.toContain(CREDENTIAL);
     expect(JSON.stringify(report)).not.toContain("RD_ENTRY_");
     expect(new TextEncoder().encode(JSON.stringify(report)).byteLength).toBeLessThan(
       16_384,
     );
+  });
+
+  it("fails closed when a configured paper risk exceeds the shared 500 bps limit", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "999",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "d".repeat(64),
+    });
+
+    const response = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/rd-entry-readiness?ticker_id=OANDA:EURUSD`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await body(response)).toMatchObject({
+      requested_ticker_id: "OANDA:EURUSD",
+      risk_bps: null,
+      can_create_paper_intent: false,
+      blockers: expect.arrayContaining(["PAPER_CONFIGURATION_INVALID"]),
+    });
+  });
+
+  it.each(["0", "999"]) (
+    "rejects paper risk %s using the intent-path configuration parser",
+    async (risk) => {
+      const database = new FakeD1();
+      installWorkerPaperAccount(database);
+      const env = await environment(database, {
+        PAPER_LEDGER_ENABLED: "true",
+        PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+        RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+        RD_ENTRY_PAPER_RISK_BPS: risk,
+        RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+        RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+      });
+      expect(await rdEntryReadiness(env)).toMatchObject({
+        risk_bps: null,
+        can_create_paper_intent: false,
+        blockers: expect.arrayContaining(["PAPER_CONFIGURATION_INVALID"]),
+      });
+    },
+  );
+
+  it.each([
+    ["{", "SETTINGS_CONFIGURATION_INVALID", false],
+    ["{}", "SETTINGS_CONFIGURATION_INVALID", false],
+    [JSON.stringify({ "OANDA:GBPUSD": "b".repeat(64) }), "TICKER_SETTINGS_MISSING", false],
+    [JSON.stringify({ "OANDA:EURUSD": "b".repeat(64) }), "V3_RECEIPT_MISSING", true],
+  ] as const)(
+    "reports ticker settings readiness for map %s",
+    async (settingsMap, blocker, reviewedFound) => {
+      const database = new FakeD1();
+      installWorkerPaperAccount(database);
+      const env = await environment(database, {
+        PAPER_LEDGER_ENABLED: "true",
+        PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+        RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+        RD_ENTRY_PAPER_RISK_BPS: "50",
+        RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+        RD_ENTRY_V3_SETTINGS_HASHES_JSON: settingsMap,
+      });
+      expect(await rdEntryReadiness(env)).toMatchObject({
+        settings_mode: settingsMap === "{" || settingsMap === "{}" ? "INVALID" : "TICKER_MAP",
+        reviewed_settings_found_for_ticker: reviewedFound,
+        blockers: expect.arrayContaining([blocker]),
+      });
+    },
+  );
+
+  it.each(["paper-primary,paper-primary", "paper-primary, paper-secondary"]) (
+    "rejects invalid paper account list %s",
+    async (accountIds) => {
+      const database = new FakeD1();
+      installWorkerPaperAccount(database);
+      const env = await environment(database, {
+        PAPER_LEDGER_ENABLED: "true",
+        PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+        RD_ENTRY_PAPER_ACCOUNT_IDS: accountIds,
+        RD_ENTRY_PAPER_RISK_BPS: "50",
+        RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+        RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+      });
+      expect(await rdEntryReadiness(env)).toMatchObject({
+        configured_paper_account_ids: [],
+        blockers: expect.arrayContaining(["PAPER_CONFIGURATION_INVALID"]),
+      });
+    },
+  );
+
+  it("reports a missing configured account even when an unrelated account exists", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-missing",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+    });
+    expect(await rdEntryReadiness(env)).toMatchObject({
+      missing_paper_account_ids: ["paper-missing"],
+      blockers: expect.arrayContaining(["PAPER_ACCOUNT_MISSING"]),
+    });
+  });
+
+  it("reports a non-positive configured paper account", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    database.sqlite
+      .prepare(
+        `INSERT INTO paper_ledger_entries (
+          entry_id, account_id, sequence, idempotency_key, payload_sha256,
+          entry_kind, amount_minor, recorded_at
+        ) VALUES (?, 'paper-primary', 1, ?, ?, 'MANUAL_ADJUSTMENT', ?, ?)` ,
+      )
+      .run(
+        "paper-primary-zero-balance",
+        "paper-ledger:paper-primary:1",
+        "6".repeat(64),
+        -5_000_000,
+        "2026-09-02T00:00:00.000Z",
+      );
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+    });
+    expect(await rdEntryReadiness(env)).toMatchObject({
+      non_positive_paper_account_ids: ["paper-primary"],
+      blockers: expect.arrayContaining(["PAPER_ACCOUNT_NON_POSITIVE"]),
+    });
+  });
+
+  it("reports an engaged paper kill switch", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    database.sqlite
+      .prepare(
+        `INSERT INTO paper_kill_switch_events (
+          event_id, idempotency_key, payload_sha256, enabled, reason, changed_at
+        ) VALUES (?, ?, ?, 1, ?, ?)` ,
+      )
+      .run("paper-kill-switch-test-enabled", "paper-kill-switch:test-enabled", "7".repeat(64), "TEST_ENABLED", "2026-09-02T00:00:00.000Z");
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+    });
+    expect(await rdEntryReadiness(env)).toMatchObject({
+      kill_switch_enabled: true,
+      blockers: expect.arrayContaining(["KILL_SWITCH_ENABLED"]),
+    });
+  });
+
+  it("detects missing migrations 0028 and 0029 from the actual D1 schema", async () => {
+    const database = new FakeD1(false, false, 27);
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+    });
+    expect(await rdEntryReadiness(env)).toMatchObject({
+      required_migrations_available: false,
+      blockers: expect.arrayContaining(["REQUIRED_MIGRATION_MISSING"]),
+    });
+  });
+
+  it("reports a stale schema-3.1 receipt without consulting the legacy 1.1 stream", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-02T00:00:00.000Z"));
+      const database = new FakeD1();
+      installWorkerPaperAccount(database);
+      const env = await environment(database, {
+        PAPER_LEDGER_ENABLED: "true",
+        PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+        RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+        RD_ENTRY_PAPER_RISK_BPS: "50",
+        RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+        RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+      });
+      expect(
+        (await handleRequest(postBody(canonicalSchema31WorkerPayload()), env)).status,
+      ).toBe(202);
+      vi.setSystemTime(new Date("2026-09-02T00:16:00.000Z"));
+      expect(await rdEntryReadiness(env)).toMatchObject({
+        latest_v3_event_id: "worker-v3:1",
+        blockers: expect.arrayContaining(["V3_RECEIPT_STALE"]),
+        can_create_paper_intent: false,
+      });
+      expect(database.preparedSql).toContain(SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL);
+      expect(database.preparedSql).not.toContain(
+        SELECT_LATEST_PAPER_AUTOMATION_RECEIPT_SQL,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns a bounded DATABASE_UNAVAILABLE readiness report", async () => {
+    const env = await environment(new FailingD1(), {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+    });
+    expect(await rdEntryReadiness(env)).toMatchObject({
+      database_bound: false,
+      can_create_paper_intent: false,
+      blockers: ["DATABASE_UNAVAILABLE"],
+    });
+  });
+
+  it.each([
+    "/api/v1/rd-entry-readiness?ticker_id=OANDA:EURUSD&ticker_id=OANDA:GBPUSD",
+    "/api/v1/rd-entry-readiness?ticker_id=",
+    "/api/v1/rd-entry-readiness?ticker_id=bad",
+    "/api/v1/rd-entry-readiness?limit=1",
+  ])("rejects a non-exact readiness ticker query: %s", async (path) => {
+    const env = await environment(new FakeD1(), {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+    });
+    const response = await handleRequest(
+      new Request(`${BASE_URL}${path}`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    expect(response.status).toBe(422);
+    expect(await body(response)).toMatchObject({ error: { code: "INVALID_TICKER_ID" } });
+  });
+
+  it("runs the canonical schema-3.1 DIR_CLOSE paper-only lifecycle through ingress exactly once", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:EURUSD": "b".repeat(64),
+      }),
+    });
+    const entry = canonicalSchema31WorkerPayload(
+      "close_fallback_after_blocked_aggressive_models",
+    );
+    const setup = (entry.setups as Array<Record<string, unknown>>)[0]!;
+    const setupFacts = setup.setup as Record<string, unknown>;
+    const plan = setup.trade_plan as Record<string, unknown>;
+    const closeCandidate = (setup.candidates as Array<Record<string, unknown>>).find(
+      (item) => item.model === "DIR_CLOSE",
+    )!;
+    const evidence = (setup.evidence as Array<Record<string, unknown>>).find(
+      (item) => item.candidate_id === closeCandidate.candidate_id,
+    )!;
+    await validateEntryV3Payload(
+      JSON.parse(JSON.stringify(entry)),
+      { detector_code_hash: "a".repeat(64), settings_hash: "b".repeat(64) },
+    );
+
+    const first = await handleRequest(postBody(entry), env);
+    expect(first.status).toBe(202);
+    expect(await body(first)).toMatchObject({
+      status: "RECEIVED",
+      evaluations: [
+        {
+          canonical_model: "DIR_CLOSE",
+          policy_action: "PAPER_ELIGIBLE",
+          action: "PAPER_ELIGIBLE",
+        },
+      ],
+      paper_intent_ids: [expect.any(String)],
+      execution: "PAPER_ONLY",
+    });
+    expect(
+      database.sqlite
+        .prepare(`SELECT COUNT(*) AS count FROM paper_trade_intents`)
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.sqlite
+        .prepare(`SELECT COUNT(*) AS count FROM paper_trade_allocations`)
+        .get(),
+    ).toEqual({ count: 1 });
+    expect(
+      database.sqlite
+        .prepare(
+          `SELECT link.setup_id, selection.canonical_model, intent.symbol,
+            intent.side, intent.entry_price, intent.stop_loss, intent.take_profit,
+            intent.risk_bps
+           FROM observation_entry_v3_paper_links AS link
+           JOIN observation_entry_v3_selections AS selection
+             ON selection.selection_id = link.selection_id
+           JOIN paper_trade_intents AS intent ON intent.intent_id = link.intent_id`,
+        )
+        .get(),
+    ).toEqual({
+      setup_id: setupFacts.setup_id,
+      canonical_model: "DIR_CLOSE",
+      symbol: entry.symbol,
+      side: "BUY",
+      entry_price: (Number(evidence.observed_trigger_ticks) * 0.00001).toFixed(5),
+      stop_loss: (Number(plan.stop_ticks) * 0.00001).toFixed(5),
+      take_profit: (Number(plan.target_ticks) * 0.00001).toFixed(5),
+      risk_bps: 50,
+    });
+
+    const duplicate = await handleRequest(postBody(entry), env);
+    expect(duplicate.status).toBe(200);
+    expect(await body(duplicate)).toMatchObject({ status: "DUPLICATE" });
+    for (const table of [
+      "observation_entry_v3_events",
+      "observation_entry_v3_selections",
+      "observation_entry_v3_paper_links",
+      "paper_trade_intents",
+      "paper_trade_allocations",
+    ]) {
+      expect(
+        database.sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get(),
+      ).toEqual({ count: 1 });
+    }
+
+    const exit = entryV3WorkerExitPayload(
+      entry,
+      "worker-v31:dir-close-stop",
+      "STOP_LOSS",
+      2,
+    );
+    expect((await handleRequest(postBody(exit), env)).status).toBe(202);
+    expect(
+      database.sqlite
+        .prepare(`SELECT COUNT(*) AS count FROM paper_trade_settlements`)
+        .get(),
+    ).toEqual({ count: 1 });
+    expect((await handleRequest(postBody(exit), env)).status).toBe(200);
+    expect(
+      database.sqlite
+        .prepare(`SELECT COUNT(*) AS count FROM paper_trade_settlements`)
+        .get(),
+    ).toEqual({ count: 1 });
+
+    const summary = await handleRequest(
+      new Request(`${BASE_URL}/api/v1/paper-simulations/summary?limit=20`, {
+        headers: { Authorization: `Bearer ${CREDENTIAL}` },
+      }),
+      env,
+    );
+    expect(summary.status).toBe(200);
+    expect(await body(summary)).toMatchObject({
+      intents: [
+        {
+          setup_id: setupFacts.setup_id,
+          selected_entry_model: "DIR_CLOSE",
+          state: "SETTLED",
+          settlement: { outcome_r_millis: -1000, exit_reason: "STOP" },
+          allocations: [
+            {
+              account_id: "paper-primary",
+              risk_amount_minor: 25_000,
+              pnl_minor: -25_000,
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it.each([

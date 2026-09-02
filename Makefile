@@ -6,22 +6,27 @@ CONSOLE := apps/operations-console
 EDGE := apps/observation-edge
 DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.worktrees|\.venv|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.superpowers|node_modules|\.next|dist|out|\.wrangler)(/|$$)|(^|/)(tsconfig\.tsbuildinfo|\.secrets\.baseline)$$
 
-.PHONY: help bootstrap format format-check lint typecheck backend-tests frontend-checks \
+.PHONY: help bootstrap bootstrap-paper-loop format format-check lint typecheck backend-tests frontend-checks \
 	edge-checks \
 	verify-generated verify-evidence frozen-spec-check contract-v3-check secret-scan boundary-check container-check \
-	verify-observation verify-paper-loop verify-phase0
+	verify-observation verify-observation-core verify-paper-loop verify-paper-loop-core verify-phase0
 
 help:
 	@echo "make bootstrap       Install exactly locked Python and Node dependencies"
 	@echo "make format          Apply Python formatting"
 	@echo "make contract-v3-check  Validate the frozen RD three-entry contract"
 	@echo "make verify-paper-loop   Prove the local schema-3.1 paper-only lifecycle"
+	@echo "                         (installs locked Python and edge dependencies when clean)"
 	@echo "make verify-observation  Run the complete observation-ingress proof"
 	@echo "make verify-phase0      Compatibility alias for the complete proof"
 
 bootstrap:
 	uv sync --locked --python 3.12
 	cd $(CONSOLE) && npm ci --ignore-scripts --no-audit --no-fund
+	cd $(EDGE) && npm ci --ignore-scripts --no-audit --no-fund
+
+bootstrap-paper-loop:
+	uv sync --locked --python 3.12
 	cd $(EDGE) && npm ci --ignore-scripts --no-audit --no-fund
 
 format:
@@ -90,11 +95,17 @@ boundary-check:
 container-check:
 	./scripts/container_smoke.sh
 
-verify-observation: bootstrap format-check lint typecheck backend-tests edge-checks verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check
+verify-observation: bootstrap verify-observation-core
+
+verify-observation-core: format-check lint typecheck backend-tests edge-checks verify-paper-loop-core verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check
 	@echo "OBSERVATION VERIFICATION PASSED — ingress records metadata and no execution surface exists"
 
-verify-paper-loop: contract-v3-check
-	$(PYTHON) -m pytest tests/static/test_rd_release_edge_contract_compatibility.py
+verify-paper-loop: bootstrap-paper-loop verify-paper-loop-core
+
+verify-paper-loop-core: contract-v3-check
+	$(PYTHON) -m pytest \
+		tests/static/test_rd_release_edge_contract_compatibility.py \
+		tests/static/test_paper_loop_ci_verification.py
 	cd $(EDGE) && npm test -- --run \
 		test/rd-entry-wire-v3.test.ts \
 		test/rd-entry-store-v3.test.ts \
