@@ -911,6 +911,20 @@ updateZoneDrawing(RawZone zone, bool visible, array<RawZone> allZones, array<Liq
         box.set_text_size(zone.zoneBox, size.tiny)
         box.set_text_halign(zone.zoneBox, text.align_right)
         box.set_text_valign(zone.zoneBox, text.align_center)
+        bool rawAuditVisible = displayMode == DISPLAY_RAW_AUDIT
+        if rawAuditVisible
+            float auditPrice = zone.demand ? zone.bottom : zone.top
+            color auditColor = zone.demand ? color.teal : color.red
+            if na(zone.debugLabel)
+                zone.debugLabel := label.new(rightBar, auditPrice, zoneText(zone), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(auditColor, 15), textcolor = color.white, size = size.tiny)
+            else
+                label.set_xy(zone.debugLabel, rightBar, auditPrice)
+                label.set_text(zone.debugLabel, zoneText(zone))
+                label.set_color(zone.debugLabel, color.new(auditColor, 15))
+                label.set_textcolor(zone.debugLabel, color.white)
+        else if not na(zone.debugLabel)
+            label.delete(zone.debugLabel)
+            zone.debugLabel := na
     else
         if not na(zone.zoneBox)
             box.delete(zone.zoneBox)
