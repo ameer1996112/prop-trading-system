@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendEntryV3Observation,
   EntryV3StoreConflict,
+  paperConfigurationReadiness,
 } from "../src/rd-entry-store-v3";
 import { validateEntryV3Payload } from "../src/rd-entry-wire-v3";
 import { parseStrictJson } from "../src/strict-json";
@@ -37,6 +38,8 @@ class SqliteStatement {
     private readonly database: DatabaseSync,
     readonly sql: string,
     private readonly hideFirstRow: () => boolean = () => false,
+    private readonly recordQuery: () => void = () => {},
+    private readonly failRead: () => boolean = () => false,
   ) {}
 
   bind(...values: unknown[]): SqliteStatement {
@@ -45,12 +48,16 @@ class SqliteStatement {
   }
 
   execute(): D1Result {
+    this.recordQuery();
     if (/^\s*SELECT\b/iu.test(this.sql)) {
+      if (this.failRead()) {
+        return { success: false, results: [], meta: {} } as unknown as D1Result;
+      }
       return {
         success: true,
-        results: this.database
-          .prepare(this.sql)
-          .all(...(this.values as SqliteInput[])),
+        results: this.hideFirstRow()
+          ? []
+          : this.database.prepare(this.sql).all(...(this.values as SqliteInput[])),
         meta: {},
       } as unknown as D1Result;
     }
@@ -65,6 +72,7 @@ class SqliteStatement {
   }
 
   async first<T>(): Promise<T | null> {
+    this.recordQuery();
     if (this.hideFirstRow()) return null;
     return (
       (this.database
@@ -84,6 +92,8 @@ class SqliteStatement {
 
 class SqliteD1 {
   readonly database = migratedDatabase();
+  readonly queries: string[] = [];
+  unsuccessfulReadTable: string | null = null;
   failNextAllocationReadiness = false;
   failNextBatchUnrelated = false;
   hideNextPaperLinkRead = false;
@@ -114,6 +124,17 @@ class SqliteD1 {
           sql.includes("FROM observation_entry_v3_exit_applications")
         ) {
           this.hideNextPaperExitApplicationRead = false;
+          return true;
+        }
+        return false;
+      },
+      () => this.queries.push(sql),
+      () => {
+        if (
+          this.unsuccessfulReadTable !== null &&
+          sql.includes(`FROM ${this.unsuccessfulReadTable}`)
+        ) {
+          this.unsuccessfulReadTable = null;
           return true;
         }
         return false;
@@ -373,9 +394,9 @@ function retagBundle(
     };
   };
   const setupId = `setup-readiness-${tag}`;
-  const candidateId = tag.toString(16).padStart(1, "0").repeat(64);
-  const evidenceId = ((tag + 5) % 16).toString(16).repeat(64);
-  const selectionId = ((tag + 10) % 16).toString(16).repeat(64);
+  const candidateId = tag.toString(16).padStart(64, "0");
+  const evidenceId = (tag + 100).toString(16).padStart(64, "0");
+  const selectionId = (tag + 200).toString(16).padStart(64, "0");
   bundle.setup.setup_id = setupId;
   for (const candidate of [...bundle.candidates, ...bundle.evaluation.candidates]) {
     candidate.setup_id = setupId;
@@ -556,6 +577,105 @@ function setExitSequence(
 }
 
 describe("RD entry v3 persistence", () => {
+  it.each([
+    "paper_account_readiness_metrics",
+    "observation_entry_v3_paper_links",
+    "observation_entry_v3_shadow_positions",
+  ])("fails closed on an unsuccessful %s preflight result", async (table) => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    database.unsuccessfulReadTable = table;
+    const payload = payloadFor("strict_long_boc_only");
+    await expect(
+      appendEntryV3Observation(
+        env(database), await observation(payload), await payloadDigest(payload),
+      ),
+    ).rejects.toThrow(/read failed/u);
+    expect(
+      database.database.prepare("SELECT COUNT(*) AS count FROM paper_trade_intents").get(),
+    ).toEqual({ count: 0 });
+    expect(
+      database.database.prepare("SELECT COUNT(*) AS count FROM observation_entry_v3_events").get(),
+    ).toEqual({ count: 0 });
+    database.database.close();
+  });
+
+  it("keeps zero and negative balances distinct from missing configured accounts", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    database.database.prepare(`INSERT INTO paper_accounts VALUES (
+      'paper-zero', 'PAPER_ONLY', 'Zero', 'USD', 2, 0,
+      'paper-account:paper-zero', ?, '2026-09-02T00:00:00Z'
+    )`).run("f".repeat(64));
+    database.database.prepare(`INSERT INTO paper_ledger_entries VALUES (
+      'negative-adjustment', 'paper-primary', 1, 'paper-ledger:paper-primary:1', ?,
+      'MANUAL_ADJUSTMENT', -5000001, '2026-09-02T00:00:00Z'
+    )`).run("e".repeat(64));
+    const result = await paperConfigurationReadiness(
+      env(database),
+      { accountIds: ["paper-zero", "paper-missing", "paper-primary"], riskBps: 50 },
+      1,
+    );
+    expect(result).toMatchObject({
+      missingAccountIds: ["paper-missing"],
+      nonPositiveAccountIds: ["paper-zero", "paper-primary"],
+      riskLimitedAccountIds: [],
+      usable: false,
+    });
+    database.database.close();
+  });
+
+  it("reads configured account readiness in one statement, preserving missing and risk-limited IDs", async () => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const configuration = {
+      accountIds: ["paper-missing-z", "paper-primary", "paper-missing-a"],
+      riskBps: 50,
+    };
+    const result = await paperConfigurationReadiness(env(database), configuration, 5);
+    expect(result).toEqual({
+      killSwitchEnabled: false,
+      missingAccountIds: ["paper-missing-z", "paper-missing-a"],
+      nonPositiveAccountIds: [],
+      riskLimitedAccountIds: ["paper-primary"],
+      usable: false,
+    });
+    expect(
+      database.queries.filter((sql) => sql.includes("FROM paper_account_readiness_metrics")),
+    ).toHaveLength(1);
+    database.database.close();
+  });
+
+  it.each([1, 4, 32])("loads ownership for %i setups with two set reads and preserves missing links", async (count) => {
+    const database = new SqliteD1();
+    installPaperAccount(database);
+    const source = await observation(payloadFor("strict_long_boc_only"));
+    const bundles = Array.from(
+      { length: count },
+      (_, index) => retagBundle(source.entryBundles[0]!, index + 1),
+    );
+    const result = await appendEntryV3Observation(
+      env(database, { RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64) }),
+      observationWithBundles(source, `bulk-${count}`, 2000, bundles),
+      await payloadDigest({ count }),
+    );
+    expect(result.evaluations).toHaveLength(count);
+    expect(
+      result.evaluations.every((item) => item.effectiveActionReason === "PROMOTION_IDENTITY_MISMATCH"),
+    ).toBe(true);
+    expect(
+      database.database.prepare("SELECT COUNT(*) AS count FROM paper_trade_intents").get(),
+    ).toEqual({ count: 0 });
+    for (const table of ["observation_entry_v3_paper_links", "observation_entry_v3_shadow_positions"]) {
+      const queries = database.queries.filter(
+        (sql) => sql.includes(`FROM ${table}`) && !sql.includes("JOIN"),
+      );
+      expect(queries).toHaveLength(1);
+      expect(queries[0]).toContain("json_each(?)");
+    }
+    database.database.close();
+  });
+
   it("installs the v3 entry and paper decision schema", () => {
     const database = migratedDatabase();
     const names = database

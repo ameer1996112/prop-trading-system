@@ -107,6 +107,23 @@ WHERE account_id = ?
 LIMIT 1
 `;
 
+// Compute the historical view once for the entire configured preflight, not
+// once per account. Atomic allocation triggers still recheck current safety.
+export const LIST_CONFIGURED_PAPER_ACCOUNT_READINESS_METRICS_SQL = `
+SELECT
+  account_id,
+  label,
+  opening_balance_minor,
+  balance_minor,
+  daily_pnl_minor,
+  open_risk_minor,
+  open_positions,
+  max_drawdown_minor
+FROM paper_account_readiness_metrics
+WHERE account_id IN (SELECT value FROM json_each(?))
+ORDER BY account_id
+`;
+
 export const INSERT_BLOCKED_PAPER_AUTOMATION_INTENT_SQL = `
 INSERT INTO paper_blocked_automation_intents (
   intent_id,
