@@ -320,7 +320,7 @@ describe("RD Pine v3 independent raw payload parity", () => {
         canonical_candidate_id: null,
         canonical_evidence_id: null,
         canonical_model: null,
-        reason: "NO_EXACT_CANDIDATE",
+        reason: "ONE_CANDLE_EXPERIMENT_NOT_PROMOTED",
         fidelity: null,
         action: "SHADOW_ONLY",
         co_triggered_models: [],
