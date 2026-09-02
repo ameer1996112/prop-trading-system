@@ -426,6 +426,7 @@ function observationWithBundles(
 function env(database: SqliteD1, overrides: Partial<Env> = {}): Env {
   return {
     DB: database as unknown as D1Database,
+    PAPER_LEDGER_ENABLED: "true",
     RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
     RD_ENTRY_PAPER_RISK_BPS: "50",
     RD_ENTRY_V3_DETECTOR_CODE_HASH: detectorHash,

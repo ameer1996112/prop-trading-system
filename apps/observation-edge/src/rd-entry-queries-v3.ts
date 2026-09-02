@@ -286,17 +286,24 @@ LIMIT ?
 `;
 
 // This readiness query is intentionally independent of the schema-1.1 paper
-// automation receipt stream. Contract-v3 ingress has its own immutable event
-// parent and a schema-3.1 receipt must be sufficient to prove freshness.
+// automation receipt stream. Historical 3.0 ingress remains supported, but
+// canonical RELEASE rollout readiness requires the exact 3.1 producer tuple.
 export const SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL = `
 SELECT
   receipt.received_at,
   event.event_id,
-  receipt.ticker_id
+  receipt.ticker_id,
+  receipt.schema_version,
+  event.strategy_version,
+  event.rule_contract_version,
+  event.detector_code_hash,
+  event.settings_hash
 FROM observation_receipts AS receipt
 JOIN observation_entry_v3_events AS event
   ON event.receipt_id = receipt.receipt_id
-WHERE receipt.schema_version IN ('3.0', '3.1')
+WHERE receipt.schema_version = '3.1'
+  AND event.strategy_version = '3.1.0-contract3'
+  AND event.rule_contract_version = '3.1.0'
   AND (? IS NULL OR receipt.ticker_id = ?)
 ORDER BY receipt.received_at DESC, event.rowid DESC
 LIMIT 1

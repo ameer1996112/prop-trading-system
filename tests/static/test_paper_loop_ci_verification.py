@@ -21,5 +21,8 @@ def test_phase0_ci_cannot_omit_the_paper_loop_proof() -> None:
         in makefile.split("verify-observation-core:", 1)[1].split("\n", 1)[0]
     )
     assert "- name: Verify paper-only schema-3.1 loop" in workflow
-    assert "run: make verify-paper-loop-core" in workflow
+    assert workflow.count("run: make verify-paper-loop-core") == 1
+    assert workflow.count("run: make verify-observation-remainder-core") == 1
+    remainder = makefile.split("verify-observation-remainder-core:", 1)[1].split("\n", 1)[0]
+    assert "verify-paper-loop-core" not in remainder
     assert "PAPER LOOP VERIFICATION PASSED — all actions remain PAPER_ONLY" in makefile

@@ -384,6 +384,10 @@ export function reviewedSettingsHashForTicker(
     : null;
 }
 
+export function paperIntentCreationEnabled(env: Env): boolean {
+  return env.PAPER_LEDGER_ENABLED === "true";
+}
+
 export async function paperConfigurationReadiness(
   env: Env,
   configuration: PaperConfiguration,
@@ -1036,6 +1040,7 @@ async function appendEntryV3ObservationAttempt(
   const potentialPaperPositions = preparedPaperIntents.size;
   const configurationUsable =
     !forceConfigurationUnavailable &&
+    paperIntentCreationEnabled(env) &&
     paperConfiguration !== null &&
     potentialPaperPositions > 0 &&
     (await paperConfigurationIsUsable(

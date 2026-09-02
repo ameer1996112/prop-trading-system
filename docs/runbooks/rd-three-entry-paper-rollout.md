@@ -207,11 +207,6 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
 8. Create one alert with condition **Any alert() function call**, the stable v3 observation webhook,
    and no separately composed message body.
 
-Before enabling Pine emission for an exact ticker, query
-`GET /api/v1/rd-entry-readiness?ticker_id=<exact-ticker-id>` with paper-admin authorization. Require
-`can_create_paper_intent=true` and an empty `blockers` array. This is a readiness gate, not a reason
-to change a remote binding or alert during local verification.
-
 Every `alert()` call automatically serializes the exact outer
 `{"credential":...,"payload":...}` Worker envelope. Do not paste a message template into the
 TradingView alert dialog. The 35,000-character producer limit applies to that complete envelope,
@@ -258,6 +253,14 @@ fields, and resulting row IDs:
 Stop immediately on a different result. Disable v3 Pine emission and keep the paper kill switch
 engaged until the mismatch is reviewed; do not “fix” smoke data in D1. Enable Pine emission only
 after the DIR_CLOSE/replay effective-value gate and the remaining smoke sequence pass.
+
+Only after a fresh exact-ticker schema-3.1 DIR_CLOSE receipt exists, query
+`GET /api/v1/rd-entry-readiness?ticker_id=<exact-ticker-id>` with paper-admin authorization.
+Immediately before enabling real Pine emission, require `state=READY`,
+`can_create_paper_intent=true`, and an empty `blockers` array. The canonical receipt must report
+the exact `3.1` / `3.1.0-contract3` / `3.1.0` tuple and matched reviewed detector/settings
+identities. Re-engage the paper kill switch immediately on any mismatch; do not alter D1 data,
+bindings, alerts, or secrets as a workaround.
 
 ## 8. Acceptance
 

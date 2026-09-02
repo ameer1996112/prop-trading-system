@@ -9,7 +9,7 @@ DETECT_SECRETS_EXCLUDE := (^|/)(\.git|\.worktrees|\.venv|\.mypy_cache|\.pytest_c
 .PHONY: help bootstrap bootstrap-paper-loop format format-check lint typecheck backend-tests frontend-checks \
 	edge-checks \
 	verify-generated verify-evidence frozen-spec-check contract-v3-check secret-scan boundary-check container-check \
-	verify-observation verify-observation-core verify-paper-loop verify-paper-loop-core verify-phase0
+	verify-observation verify-observation-core verify-observation-remainder-core verify-paper-loop verify-paper-loop-core verify-phase0
 
 help:
 	@echo "make bootstrap       Install exactly locked Python and Node dependencies"
@@ -99,6 +99,12 @@ verify-observation: bootstrap verify-observation-core
 
 verify-observation-core: format-check lint typecheck backend-tests edge-checks verify-paper-loop-core verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check
 	@echo "OBSERVATION VERIFICATION PASSED — ingress records metadata and no execution surface exists"
+
+# CI runs the paper-loop proof explicitly, then this target runs the remaining
+# Phase 0 checks. Keep verify-observation-core above dependent on the proof so
+# the full local verification can never omit it.
+verify-observation-remainder-core: format-check lint typecheck backend-tests edge-checks verify-generated verify-evidence frozen-spec-check secret-scan boundary-check container-check
+	@echo "OBSERVATION REMAINDER VERIFICATION PASSED — paper loop is verified separately in CI"
 
 verify-paper-loop: bootstrap-paper-loop verify-paper-loop-core
 

@@ -2240,7 +2240,9 @@ describe("observation edge Worker", () => {
       RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
       RD_ENTRY_PAPER_RISK_BPS: "100",
       RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
-      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:EURUSD": "b".repeat(64),
+      }),
     });
 
     const denied = await handleRequest(
@@ -2286,8 +2288,9 @@ describe("observation edge Worker", () => {
       execution: "DISABLED",
       requested_ticker_id: "OANDA:EURUSD",
       required_migrations_available: true,
-      settings_mode: "LEGACY_SINGLE",
+      settings_mode: "TICKER_MAP",
       reviewed_settings_found_for_ticker: true,
+      canonical_ticker_settings_ready: true,
       can_create_paper_intent: true,
       blockers: [],
       latest_policy_action: "PAPER_ELIGIBLE",
@@ -2298,6 +2301,13 @@ describe("observation edge Worker", () => {
       risk_bps: 100,
       detector_identity_configured: true,
       kill_switch_enabled: false,
+      latest_v3_tuple: {
+        schema_version: "3.1",
+        strategy_version: "3.1.0-contract3",
+        rule_contract_version: "3.1.0",
+      },
+      latest_v3_detector_identity_matches: true,
+      latest_v3_settings_identity_matches: true,
     });
     expect(report).toMatchObject({
       accepted_version_tuples: expect.arrayContaining([
@@ -2322,6 +2332,122 @@ describe("observation edge Worker", () => {
     expect(new TextEncoder().encode(JSON.stringify(report)).byteLength).toBeLessThan(
       16_384,
     );
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(new Set(report.blockers as string[]).size).toBe(
+      (report.blockers as string[]).length,
+    );
+    expect(await rdEntryReadiness(env, "OANDA:GBPUSD")).toMatchObject({
+      requested_ticker_id: "OANDA:GBPUSD",
+      latest_v3_event_id: null,
+      latest_policy_action: null,
+    });
+  });
+
+  it("blocks readiness when the latest canonical receipt no longer matches reviewed identities", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const acceptedEnv = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:EURUSD": "b".repeat(64),
+      }),
+    });
+    expect((await handleRequest(postBody(canonicalSchema31WorkerPayload()), acceptedEnv)).status).toBe(202);
+    const rotatedReviewEnv = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "c".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:EURUSD": "d".repeat(64),
+      }),
+    });
+    expect(await rdEntryReadiness(rotatedReviewEnv)).toMatchObject({
+      latest_v3_detector_identity_matches: false,
+      latest_v3_settings_identity_matches: false,
+      can_create_paper_intent: false,
+      blockers: expect.arrayContaining(["LATEST_RECEIPT_IDENTITY_MISMATCH"]),
+    });
+  });
+
+  it("does not let a legacy single settings hash satisfy canonical release readiness", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+    });
+    expect((await handleRequest(postBody(canonicalSchema31WorkerPayload()), env)).status).toBe(202);
+
+    expect(await rdEntryReadiness(env)).toMatchObject({
+      settings_mode: "LEGACY_SINGLE",
+      reviewed_settings_found_for_ticker: true,
+      canonical_ticker_settings_ready: false,
+      can_create_paper_intent: false,
+      blockers: expect.arrayContaining(["TICKER_SETTINGS_MAP_REQUIRED"]),
+    });
+  });
+
+  it("accepts legacy schema-3.0 ingress but excludes it from canonical release readiness", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:EURUSD": "b".repeat(64),
+      }),
+    });
+    expect((await handleRequest(postBody(entryV3WorkerPayload()), env)).status).toBe(202);
+
+    expect(await rdEntryReadiness(env)).toMatchObject({
+      latest_v3_event_id: null,
+      latest_v3_tuple: null,
+      can_create_paper_intent: false,
+      blockers: expect.arrayContaining(["V3_RECEIPT_MISSING"]),
+    });
+  });
+
+  it("never creates a paper intent when the paper ledger feature flag is disabled", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "false",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASHES_JSON: JSON.stringify({
+        "OANDA:EURUSD": "b".repeat(64),
+      }),
+    });
+    const response = await handleRequest(postBody(canonicalSchema31WorkerPayload()), env);
+    expect(response.status).toBe(202);
+    expect(await body(response)).toMatchObject({
+      execution: "PAPER_ONLY",
+      evaluations: [
+        {
+          action: "SHADOW_ONLY",
+          effective_action_reason: "PAPER_CONFIGURATION_UNAVAILABLE",
+        },
+      ],
+      paper_intent_ids: [],
+    });
+    expect(
+      database.sqlite.prepare("SELECT COUNT(*) AS count FROM paper_trade_intents").get(),
+    ).toEqual({ count: 0 });
   });
 
   it("fails closed when a configured paper risk exceeds the shared 500 bps limit", async () => {
@@ -2489,6 +2615,33 @@ describe("observation edge Worker", () => {
       kill_switch_enabled: true,
       blockers: expect.arrayContaining(["KILL_SWITCH_ENABLED"]),
     });
+  });
+
+  it("reports a missing paper kill-switch state distinctly and fails closed", async () => {
+    const database = new FakeD1();
+    installWorkerPaperAccount(database);
+    // The immutable production table is seeded with an enabled state. Remove
+    // that fixture only after dropping its test-local guard to model a damaged
+    // or pre-seed database and prove the readiness path still fails closed.
+    database.sqlite.exec(`
+      DROP TRIGGER paper_kill_switch_events_no_delete;
+      DELETE FROM paper_kill_switch_events;
+    `);
+    const env = await environment(database, {
+      PAPER_LEDGER_ENABLED: "true",
+      PAPER_LEDGER_ADMIN_CREDENTIAL_SHA256: await sha256(CREDENTIAL),
+      RD_ENTRY_PAPER_ACCOUNT_IDS: "paper-primary",
+      RD_ENTRY_PAPER_RISK_BPS: "50",
+      RD_ENTRY_V3_DETECTOR_CODE_HASH: "a".repeat(64),
+      RD_ENTRY_V3_SETTINGS_HASH: "b".repeat(64),
+    });
+    const report = await rdEntryReadiness(env);
+    expect(report).toMatchObject({
+      kill_switch_enabled: null,
+      can_create_paper_intent: false,
+      blockers: expect.arrayContaining(["KILL_SWITCH_STATE_MISSING"]),
+    });
+    expect(report.blockers).not.toContain("KILL_SWITCH_ENABLED");
   });
 
   it("detects missing migrations 0028 and 0029 from the actual D1 schema", async () => {
