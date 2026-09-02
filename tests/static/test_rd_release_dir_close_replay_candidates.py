@@ -23,22 +23,10 @@ def pine_function_body(name: str) -> str:
     raise AssertionError(f"Pine function not found: {name}")
 
 
-def test_replay_dir_close_candidate_recognizes_a_valid_rejection_without_liquidity_promotion() -> None:
-    candidate = pine_function_body("zoneHasVisualDirectCloseCandidate")
-
-    assert "zone.state == STATE_TAPPED" in candidate
-    assert "zone.stateBar == bar_index" in candidate
-    assert "zone.setupReason == REJECT_TARGET_TAP_WITHOUT_ELIGIBILITY" in candidate
-    assert "directionalCloseConfirmedForZone(zone)" in candidate
-    assert "not zoneWickInvalidThroughDistal(zone)" in candidate
-
-
-def test_replay_dir_close_candidate_is_visual_only_and_emits_once() -> None:
+def test_replay_candidates_require_the_contract_qualified_common_setup() -> None:
     pine = source()
-    drawing = pine_function_body("drawDirectCloseCandidate")
 
-    assert "bool directCloseCandidateEmitted" in pine
-    assert '" · PAPER CANDIDATE · DIR_CLOSE"' in drawing
-    assert "alert(" not in drawing
-    assert "not zone.directCloseCandidateEmitted and zoneHasVisualDirectCloseCandidate(zone)" in pine
-    assert "drawDirectCloseCandidate(zone)" in pine
+    assert "zoneHasVisualDirectCloseCandidate" not in pine
+    assert "drawDirectCloseCandidate" not in pine
+    assert "REJECT_TARGET_TAP_WITHOUT_ELIGIBILITY and" not in pine
+    assert "attempt.core.commonRulesPass" in pine
