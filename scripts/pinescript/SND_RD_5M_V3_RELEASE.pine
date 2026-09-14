@@ -2880,7 +2880,7 @@ signalEvidenceV1Envelope(string observation, RawZone zone) =>
 
 signalAdmissionV1IdentifierSafe(string value) =>
     int length = str.length(value)
-    length > 0 and length <= 160 and str.match(value, "^[ -~]+$") == value and not str.contains(value, "\\")
+    length > 0 and length <= 160 and str.match(value, "^[!-~]+$") == value and not str.contains(value, "\\")
 
 signalAdmissionV1CredentialSafe(string value) =>
     int length = str.length(value)

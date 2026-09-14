@@ -30,6 +30,15 @@ The operator status endpoint separately requires a protected operator digest and
 at most 50 unique valid registration identifiers, and no extra fields. Missing,
 malformed or unauthorized scope denies access. A caller's requested registration
 does not grant scope. Status is private, redacted and evidence-only.
+The closed status response is documented in `contracts/signal-admission-v1.md`.
+Inspect `stream.state` and `stream.reason` even when a receipt is ACCEPTED or a
+delivery is ACKNOWLEDGED. `attempt_associations` includes disputed attempt keys
+and NO_CANDIDATE evidence. Each list is capped at 50 in deterministic newest-first
+order; it is a bounded operational view, not exhaustive history or an atomic
+snapshot. Unknown generations return 404; existing empty generations return 200.
+Later receipt conflicts on a quarantined current generation preserve the original
+receipt while recording audit evidence and disputing associated reservations.
+Registration IDs reject all spaces; credential spaces remain significant.
 
 For a future separately authorized rollout, review and reconcile the complete
 existing migration history, including observation migrations

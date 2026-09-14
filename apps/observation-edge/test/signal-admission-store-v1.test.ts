@@ -27,6 +27,49 @@ it("returns an evidence-only durable admission", async () => {
     expect(await h.count("outbox")).toBe(1);
   } finally { await h.dispose(); }
 });
+it("retains subsequent conflict evidence on an already quarantined stream", async () => {
+  const f = await setup(); const { h } = f;
+  try {
+    const accepted = await admitSignal(h.db, f.transport, f.registration, f.now);
+    const original = await h.db.prepare("SELECT * FROM signal_admission_v1_attempts").first();
+    const delivery = await h.db.prepare("SELECT delivery_id,body,delivery_body_sha256 FROM signal_admission_v1_outbox").first();
+    const receipt = await h.db.prepare("SELECT * FROM signal_admission_v1_receipts").first();
+    await admitSignal(h.db, await sequence(f, 3), f.registration, f.now);
+    const changed = structuredClone(f.request); changed.evidence.observation.observed_at_epoch += 1;
+    const conflict = await parseAdmissionTransport(encode(changed));
+    const responses = await Promise.all([admitSignal(h.db, conflict, f.registration, f.now), admitSignal(h.db, conflict, f.registration, f.now)]);
+    for (const response of responses) expect(response).toMatchObject({code:"BODY_CONFLICT", receipt_id:accepted.receipt_id, stream_state:"QUARANTINED"});
+    expect(await h.db.prepare("SELECT * FROM signal_admission_v1_attempts").first()).toEqual({...original, disputed:1});
+    expect(await h.db.prepare("SELECT delivery_id,body,delivery_body_sha256 FROM signal_admission_v1_outbox").first()).toEqual(delivery);
+    expect(await h.db.prepare("SELECT * FROM signal_admission_v1_receipts WHERE sequence=1").first()).toEqual(receipt);
+    const next = {...f.registration, generation:2, revision:2};
+    await installGeneration(h.db, 1, next, "LOCAL_REVIEW_NEXT");
+    expect(await admitSignal(h.db, await parseAdmissionTransport(encode({...f.request,generation:2})), next, f.now)).toMatchObject({code:"ATTEMPT_CONFLICT"});
+  } finally { await h.dispose(); }
+});
+it.each([0,1,2,3,4])("rolls back quarantined receipt conflict at write %s", async afterWrite => {
+  const f = await setup(); const { h } = f;
+  try {
+    await admitSignal(h.db, f.transport, f.registration, f.now);
+    await admitSignal(h.db, await sequence(f, 3), f.registration, f.now);
+    const audits = await h.count("audit");
+    h.faults.afterWrite = afterWrite;
+    await expect(admitSignal(h.db, {...f.transport,bodySha256:"f".repeat(64)}, f.registration, f.now)).rejects.toBeInstanceOf(AdmissionUnavailableError);
+    expect(await h.count("audit")).toBe(audits);
+    expect(await h.db.prepare("SELECT disputed FROM signal_admission_v1_attempts").first("disputed")).toBe(0);
+    expect(await h.db.prepare("SELECT state,reason FROM signal_admission_v1_streams").first()).toEqual({state:"QUARANTINED",reason:"SEQUENCE_GAP"});
+  } finally { await h.dispose(); }
+});
+it("fences quarantined conflict against generation retirement", async () => {
+  const f = await setup(); const { h } = f;
+  try {
+    await admitSignal(h.db, f.transport, f.registration, f.now);
+    await admitSignal(h.db, await sequence(f, 3), f.registration, f.now);
+    h.faults.beforeBatch = () => installGeneration(h.db, 1, {...f.registration,generation:2,revision:2}, "LOCAL_REVIEW_RACE");
+    expect(await admitSignal(h.db, {...f.transport,bodySha256:"f".repeat(64)}, f.registration, f.now)).toMatchObject({code:"STREAM_BLOCKED",stream_state:"RETIRED"});
+    expect(await h.db.prepare("SELECT disputed FROM signal_admission_v1_attempts").first("disputed")).toBe(0);
+  } finally { await h.dispose(); }
+});
 it.each([0,1,2,3,4,5,6])("rolls back all writes after persistence boundary %s", async afterWrite => {
   const f = await setup(); const { h } = f;
   try {

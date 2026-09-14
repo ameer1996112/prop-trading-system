@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { dispatchSignalAdmission } from "../src/signal-admission-outbox-v1";
 import { admitSignal, recheckSignalDelivery } from "../src/signal-admission-store-v1";
 import { parseAdmissionTransport } from "../src/signal-admission-wire-v1";
@@ -11,6 +11,29 @@ const ack = (body: string, duplicate = false) => {
   const delivery = JSON.parse(body);
   return Response.json({ schema_version: "TradeOpsSignalDeliveryAckV1", authority: "EVIDENCE_ONLY", execution_allowed: false, delivery_id: delivery.delivery_id, delivery_body_sha256: delivery.delivery_body_sha256, status: duplicate ? "DUPLICATE" : "STORED" }, { status: duplicate ? 200 : 201 });
 };
+it("keeps the claim before six seconds and fences a valid acknowledgment after the deadline", async () => {
+  const h = await createAdmissionDb({queuedAt:100,expiresAt:200});
+  let resolveResponse!: (response:Response)=>void;
+  let entered!:()=>void; const started = new Promise<void>(resolve=>{entered=resolve;});
+  let sent = "";
+  try {
+    const dispatch = dispatchSignalAdmission(h.db, body => {
+      vi.useFakeTimers({toFake:["setTimeout","clearTimeout"]});
+      sent = body; entered();
+      return new Promise<Response>(resolve=>{resolveResponse=resolve;});
+    },()=>100);
+    await started;
+    await vi.advanceTimersByTimeAsync(5999);
+    expect(await h.db.prepare("SELECT status FROM signal_admission_v1_outbox").first("status")).toBe("CLAIMED");
+    await vi.advanceTimersByTimeAsync(1);
+    vi.useRealTimers();
+    expect(await dispatch).toBe("RETRY");
+    const before = await h.db.prepare("SELECT * FROM signal_admission_v1_outbox").first();
+    resolveResponse(ack(sent));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(await h.db.prepare("SELECT * FROM signal_admission_v1_outbox").first()).toEqual(before);
+  } finally { vi.useRealTimers(); await h.dispose(); }
+});
 it("retries immutable bytes after a lost receiver acknowledgment", async () => {
   const h = await createAdmissionDb({ queuedAt: 100, expiresAt: 200 });
   try {

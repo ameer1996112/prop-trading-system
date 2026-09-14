@@ -121,13 +121,23 @@ export async function handleSignalAdmissionStatus(request: Request, env: SignalA
   if (!scope || !await operatorAuthenticated(request, env.SIGNAL_ADMISSION_OPERATOR_SECRET_SHA256)) return failure("FORBIDDEN", 403);
   if (!scope.has(target.registrationId)) return failure("FORBIDDEN", 403);
   try {
+    const stream = await env.DB.prepare(`SELECT state,reason,next_sequence FROM signal_admission_v1_streams
+      WHERE registration_id=? AND generation=?`).bind(target.registrationId, target.generation).first();
+    if (!stream) return failure("NOT_FOUND", 404);
     const receipts = (await env.DB.prepare(`SELECT sequence,receipt_id,outcome,code,admitted_at FROM signal_admission_v1_receipts
       WHERE registration_id=? AND generation=? ORDER BY sequence DESC LIMIT 50`).bind(target.registrationId, target.generation).all()).results;
     const deliveries = (await env.DB.prepare(`SELECT r.sequence,o.delivery_id,o.receipt_id,o.status,o.delivery_attempts,o.last_dispatch_at_epoch,o.failure_reason
       FROM signal_admission_v1_outbox o JOIN signal_admission_v1_receipts r ON r.receipt_id=o.receipt_id
       WHERE o.registration_id=? AND o.generation=? ORDER BY r.sequence DESC,o.delivery_id LIMIT 50`).bind(target.registrationId, target.generation).all()).results;
+    const associations = (await env.DB.prepare(`SELECT r.sequence,re.receipt_id,re.evidence_id,re.attempt_key,a.disputed
+      FROM signal_admission_v1_receipts r JOIN signal_admission_v1_receipt_evidence re ON re.receipt_id=r.receipt_id
+      JOIN signal_admission_v1_attempts a ON a.namespace=re.namespace AND a.attempt_key=re.attempt_key
+      WHERE r.registration_id=? AND r.generation=?
+      ORDER BY r.sequence DESC,re.attempt_key,re.evidence_id LIMIT 50`).bind(target.registrationId, target.generation)
+      .all<{sequence:number;receipt_id:string;evidence_id:string;attempt_key:string;disputed:number}>()).results
+      .map(row => ({...row, disputed:row.disputed === 1}));
     return json({ schema_version: "TradeOpsSignalAdmissionStatusV1", ...safety, registration_id: target.registrationId,
-      generation: target.generation, receipts, delivery_summaries: deliveries }, 200);
+      generation: target.generation, stream, receipts, attempt_associations: associations, delivery_summaries: deliveries }, 200);
   } catch { return failure("STORAGE_UNAVAILABLE", 503); }
 }
 

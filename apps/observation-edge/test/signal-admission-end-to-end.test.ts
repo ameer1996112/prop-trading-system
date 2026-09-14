@@ -11,15 +11,14 @@ import { fixture, encode } from "./support/signal-admission-fixture-v1";
 
 const safety = { authority: "EVIDENCE_ONLY", execution_allowed: false } as const;
 
-// Some source vectors request EDGE_DERIVED identities. Compare every semantic
-// field independently while allowing only those documented identity rewrites.
-function semanticObservation(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(semanticObservation);
+// Mask only positions explicitly requesting derivation in this input vector.
+// Supplied identities (including nulls and unmarked list entries) compare exactly.
+function semanticObservation(value: unknown, source: unknown): unknown {
+  if (typeof source === "string" && (source === "EDGE_DERIVED" || /^EDGE_DERIVED:(BOC|DIR_CLOSE|HTF_FLIP)$/u.test(source))) return source;
+  if (Array.isArray(value)) return value.map((entry, i) => semanticObservation(entry, Array.isArray(source) ? source[i] : undefined));
   if (value === null || typeof value !== "object") return value;
-  const derived = new Set(["candidate_id", "evidence_id", "payload_sha256", "selection_id",
-    "candidate_ids_considered", "canonical_candidate_id", "canonical_evidence_id"]);
-  return Object.fromEntries(Object.entries(value).filter(([key]) => !derived.has(key))
-    .map(([key, entry]) => [key, semanticObservation(entry)]));
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key,
+    semanticObservation(entry, source !== null && typeof source === "object" ? (source as Record<string, unknown>)[key] : undefined)]));
 }
 
 async function createAdmissionIntegration(caseId = "strict_long_boc_only") {
@@ -113,7 +112,7 @@ describe("signal admission across isolated observation and execution D1", () => 
       const delivered = JSON.parse(row!.body);
       expect(delivered).toMatchObject(safety);
       expect(delivered.evidence).toMatchObject({ ...safety, selected: { candidate: { model, direction } } });
-      expect(semanticObservation(delivered.evidence.source_observation)).toEqual(semanticObservation(h.f.input.observation));
+      expect(semanticObservation(delivered.evidence.source_observation, h.f.input.observation)).toEqual(h.f.input.observation);
       const storedEvidence = await h.observation.db.prepare("SELECT body FROM signal_admission_v1_evidence").first<string>("body");
       expect(delivered.evidence).toEqual(JSON.parse(storedEvidence!));
       expect(row!.body).not.toContain(h.f.request.credential);

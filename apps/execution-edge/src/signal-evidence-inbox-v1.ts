@@ -30,12 +30,80 @@ const candle = object({ open_epoch: counter, close_epoch: counter, open_ticks: p
 const binding = object({ schema_version: choice('TradeOpsSignalEvidenceBindingV1'), producer_namespace: identifier, ticker_id: identifier, feed: innerId, symbol: innerId, tick_size: tickSize, detector_code_hash: digest, settings_hash: digest });
 const formation = object({ setup_id: innerId, origin_epoch: positive, confirmation_epoch: positive, direction, variant: choice('STANDARD', 'ACCURACY'), origin_open_ticks: positive, origin_high_ticks: positive, origin_low_ticks: positive, origin_close_ticks: positive, zone_top_ticks: positive, zone_bottom_ticks: positive, formation_source_id: sourceId });
 const candidate = object({ candidate_id: innerId, setup_id: innerId, model: models, state: choice('MATCHED', 'BLOCKED', 'REJECTED'), direction, event_anchor_epoch: counter, trigger_ordinal: counter, boc_tier: tier, reference_candle_open_epoch: nullable(counter), source_claim_ids: strings, observed_at_epoch: counter });
-const proof = object({ evidence_id: innerId, candidate_id: innerId, observed_trigger_epoch: nullable(counter), trigger_sequence: counter, observed_trigger_ticks: nullable(positive), htf_context_minutes: list(choice(15, 30, 60), 3), fidelity, proof_plane: plane, replayability, coverage_start_epoch: counter, coverage_end_epoch: counter, ambiguity_codes: list(choice('SHADOW_SAME_CHILD_BAR_ORDER', 'SHADOW_MISSING_INTRABAR_COVERAGE', 'SHADOW_REALTIME_ONLY_NOT_REPLAYABLE'), 3), boc_tier: tier, reference_candle_open_epoch: nullable(counter), reference_candle_open_ticks: nullable(positive), reference_candle_high_ticks: nullable(positive), reference_candle_low_ticks: nullable(positive), reference_candle_close_ticks: nullable(positive), htf_open_ticks: nullable(positive), contact_candle: nullable(candle), recross_candle: nullable(candle), coverage_gap_detected: nullable(boolean), full_lifecycle_ordered: nullable(boolean), destination_seen_before_contact: nullable(boolean), passed_rule_ids: strings, failed_rule_ids: strings, source_claim_ids: strings, payload_sha256: innerId, observed_at_epoch: counter });
+const proof = object({
+  evidence_id: innerId,
+  candidate_id: innerId,
+  observed_trigger_epoch: nullable(counter),
+  trigger_sequence: counter,
+  observed_trigger_ticks: nullable(positive),
+  htf_context_minutes: list(choice(15, 30, 60), 3),
+  fidelity,
+  proof_plane: plane,
+  replayability,
+  coverage_start_epoch: counter,
+  coverage_end_epoch: counter,
+  ambiguity_codes: list(choice(
+    'SHADOW_SAME_CHILD_BAR_ORDER',
+    'SHADOW_MISSING_INTRABAR_COVERAGE',
+    'SHADOW_REALTIME_ONLY_NOT_REPLAYABLE',
+  ), 3),
+  boc_tier: tier,
+  reference_candle_open_epoch: nullable(counter),
+  reference_candle_open_ticks: nullable(positive),
+  reference_candle_high_ticks: nullable(positive),
+  reference_candle_low_ticks: nullable(positive),
+  reference_candle_close_ticks: nullable(positive),
+  htf_open_ticks: nullable(positive),
+  contact_candle: nullable(candle),
+  recross_candle: nullable(candle),
+  coverage_gap_detected: nullable(boolean),
+  full_lifecycle_ordered: nullable(boolean),
+  destination_seen_before_contact: nullable(boolean),
+  passed_rule_ids: strings,
+  failed_rule_ids: strings,
+  source_claim_ids: strings,
+  payload_sha256: innerId,
+  observed_at_epoch: counter
+});
 const selection = object({ selection_id: innerId, setup_id: innerId, policy_version: choice('rd-entry-arbitration-v3'), revision: counter, candidate_ids_considered: strings, canonical_candidate_id: nullable(innerId), canonical_evidence_id: nullable(innerId), canonical_model: nullable(models), reason: choice('ONLY_EXACT_TRIGGER', 'EARLIEST_EXACT_TRIGGER', 'FALLBACK_TO_CONFIRMED_CLOSE', 'CO_TRIGGER_SAME_EVENT', 'CO_TRIGGER_PRICE_CONFLICT', 'NO_EXACT_CANDIDATE', 'SETUP_INVALIDATED', 'NO_CANDIDATE'), fidelity: nullable(fidelity), action: choice('OBSERVE', 'PAPER_ELIGIBLE', 'SHADOW_ONLY', 'NONE'), co_triggered_models: list(models, 3), evaluated_at_epoch: counter });
 const evaluation = object({ candidates: list(candidate, 20000), evidence: list(proof, 20000), selection });
 const setup = object({ setup_id: innerId, direction, zone_top_ticks: positive, zone_bottom_ticks: positive, zone_engaged_epoch: nullable(counter), invalidated_before_entry: boolean, common_fidelity: fidelity, liquidity_cohort: choice('ONE_CANDLE', 'TWO_PLUS_CANDLES'), one_candle_enabled: boolean, common_rule_results: list(object({ rule_id: innerId, passed: boolean }), 20000) });
 const bundle = object({ setup, candidates: list(candidate, 20000), evidence: list(proof, 20000), selection_proposal: selection, trade_plan: nullable(object({ direction, entry_ticks: positive, stop_ticks: positive, target_ticks: positive })) });
-const observation = object({ schema_version: choice('3.1'), strategy_id: identifier, strategy_version: choice('3.1.0-contract3'), rule_contract_version: choice('3.1.0'), execution_mode: choice('PAPER_ONLY'), producer_instance_id: identifier, producer_sequence: positive, event_id: innerId, is_realtime: choice(true), symbol: innerId, ticker_id: identifier, feed: innerId, timeframe: choice('5'), tick_size: text(64, /^(?:0\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\.[0-9]+)?)$/u), detector_code_hash: digest, settings_hash: digest, observed_at_epoch: counter, market_event: object({ epoch: counter, sequence: counter, tick_price_ticks: nullable(positive), barstate_isconfirmed: boolean, confirmed_bar: nullable(candle) }), exit_events: list(object({ event_id: innerId, setup_id: innerId, exit_reason: innerId, epoch: counter, sequence: counter, price_ticks: positive }), 0), setups: list(bundle, 20000) });
+const observation = object({
+  schema_version: choice('3.1'),
+  strategy_id: identifier,
+  strategy_version: choice('3.1.0-contract3'),
+  rule_contract_version: choice('3.1.0'),
+  execution_mode: choice('PAPER_ONLY'),
+  producer_instance_id: identifier,
+  producer_sequence: positive,
+  event_id: innerId,
+  is_realtime: choice(true),
+  symbol: innerId,
+  ticker_id: identifier,
+  feed: innerId,
+  timeframe: choice('5'),
+  tick_size: text(64, /^(?:0\.[0-9]*[1-9][0-9]*|[1-9][0-9]*(?:\.[0-9]+)?)$/u),
+  detector_code_hash: digest,
+  settings_hash: digest,
+  observed_at_epoch: counter,
+  market_event: object({
+    epoch: counter,
+    sequence: counter,
+    tick_price_ticks: nullable(positive),
+    barstate_isconfirmed: boolean,
+    confirmed_bar: nullable(candle),
+  }),
+  exit_events: list(object({
+    event_id: innerId,
+    setup_id: innerId,
+    exit_reason: innerId,
+    epoch: counter,
+    sequence: counter,
+    price_ticks: positive,
+  }), 0),
+  setups: list(bundle, 20000),
+});
 const entry = object({ schema_version: choice('TradeOpsSignalEvidenceV1'), ...safety, status: choice('SELECTED'), attempt_key: digest, formation_body_sha256: digest, evidence_id: digest, evidence_body_sha256: digest, formation, reviewed_binding: binding, source_observation: observation, edge_evaluation: evaluation, selected: object({ candidate, evidence: proof }) });
 const delivery = object({ schema_version: choice('TradeOpsSignalDeliveryV1'), ...safety, delivery_id: digest, delivery_body_sha256: digest, receipt_id: digest, registration_id: identifier, generation: positive, attempt_key: digest, evidence_id: digest, evidence_body_sha256: digest, admitted_at_epoch: counter, expires_at_epoch: counter, evidence: entry });
 export type SignalDeliveryV1 = ReturnType<typeof delivery>;

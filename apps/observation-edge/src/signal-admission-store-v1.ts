@@ -130,7 +130,9 @@ export async function admitSignal(db: D1Database, t: Transport, r: Registration,
       if (decision.kind === "DUPLICATE") return response(decision.receipt.outcome, decision.receipt.code, decision.receipt.id, true, decision.streamState);
       if (decision.kind === "BLOCKED" || r.revision !== s.registration.revision || r.generation !== s.registration.generation
         || registrationJson(r) !== registrationJson(s.registration)) return response("REJECTED", "STREAM_BLOCKED", null, false, s.state);
-      if (s.state !== "ACTIVE") return response("REJECTED", decision.kind === "QUARANTINE" ? decision.code : "STREAM_BLOCKED", null, false, s.state);
+      const quarantinedConflict = s.state === "QUARANTINED" && decision.kind === "QUARANTINE"
+        && decision.code === "BODY_CONFLICT" && s.existingReceipt !== null;
+      if (s.state !== "ACTIVE" && !quarantinedConflict) return response("REJECTED", "STREAM_BLOCKED", null, false, s.state);
       const statements: D1PreparedStatement[] = [];
       const tokens: string[] = [];
       const sql = (query: string, ...values: (string | number | null)[]) => db.prepare(query).bind(...values);
@@ -138,7 +140,7 @@ export async function admitSignal(db: D1Database, t: Transport, r: Registration,
         const token = crypto.randomUUID(); tokens.push(token);
         statements.push(sql(`INSERT INTO ${P}guards(token,ok) SELECT ?,CASE WHEN ${condition} THEN 1 ELSE 0 END`, token, ...values));
       };
-      guard(`EXISTS(SELECT 1 FROM ${P}streams s JOIN ${P}registrations r USING(registration_id) WHERE s.registration_id=? AND s.generation=? AND s.revision=? AND s.registry_revision=? AND s.next_sequence=? AND s.state='ACTIVE' AND r.revision=? AND r.active_generation=s.generation AND r.enabled=1 AND r.namespace=? AND r.registration_json=?)`, t.registrationId, t.generation, s.casRevision, r.revision, s.nextSequence, r.revision, s.namespace, registrationJson(r));
+      guard(`EXISTS(SELECT 1 FROM ${P}streams s JOIN ${P}registrations r USING(registration_id) WHERE s.registration_id=? AND s.generation=? AND s.revision=? AND s.registry_revision=? AND s.next_sequence=? AND s.state=? AND r.revision=? AND r.active_generation=s.generation AND r.enabled=1 AND r.namespace=? AND r.registration_json=?)`, t.registrationId, t.generation, s.casRevision, r.revision, s.nextSequence, s.state, r.revision, s.namespace, registrationJson(r));
       const receiptId = await hash({ schema_version: "TradeOpsSignalReceiptIdentityV1", registration_id: t.registrationId, generation: t.generation, sequence: t.sequence });
       guard(s.existingReceipt
         ? `EXISTS(SELECT 1 FROM ${P}receipts WHERE registration_id=? AND generation=? AND sequence=? AND body_sha256=?)`

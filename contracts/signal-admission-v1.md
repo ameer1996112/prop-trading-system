@@ -7,9 +7,9 @@ position sizing, commands, orders, or execution.
 
 `TradeOpsSignalAdmissionRequestV1` is a closed JSON object with exactly
 `schema_version`, `credential`, `registration_id`, `generation`, and `evidence`.
-The credential is printable ASCII (1–1024 characters) and is never trimmed.
-Registration identifiers are printable ASCII excluding backslash (1–160
-characters). Generation and the evidence observation's `producer_sequence` are
+The credential is ASCII 0x20–0x7e (1–1024 characters), including spaces, and is never trimmed.
+Registration identifiers are ASCII 0x21–0x7e excluding backslash (1–160
+characters); leading, trailing and embedded spaces are rejected. Generation and the evidence observation's `producer_sequence` are
 canonical positive safe-integer tokens. All numeric tokens in evidence are
 canonical integer tokens: fractions, exponents, negative zero, and unsafe
 integers are rejected before conversion.
@@ -51,6 +51,33 @@ fixed-length constant-time comparison of the SHA-256 credential digest. Missing,
 disabled, expired, malformed, and wrong-credential registrations fail closed.
 
 ## Admission result and delivery
+
+The private `TradeOpsSignalAdmissionStatusV1` success response has exactly
+`schema_version`, `authority`, `execution_allowed`, `registration_id`,
+`generation`, `stream`, `receipts`, `attempt_associations`, and `delivery_summaries`.
+Safety values remain `EVIDENCE_ONLY` and `false`. Operator authentication and
+registration scope are checked before storage lookup. An unknown explicit
+generation returns 404; an existing empty stream returns 200 with empty lists.
+All responses are private, redacted and `no-store`.
+
+`stream` has exactly `state`, `reason` (nullable), and `next_sequence`.
+`receipts` entries have exactly `sequence`, `receipt_id`, `outcome`, `code`
+(nullable), and `admitted_at`. `attempt_associations` entries have exactly
+`sequence`, `receipt_id`, `evidence_id`, `attempt_key`, and boolean `disputed`.
+Associations include retained NO_CANDIDATE evidence. `delivery_summaries`
+entries have exactly `sequence`, `delivery_id`, `receipt_id`, `status`,
+`delivery_attempts`, `last_dispatch_at_epoch` (nullable), and `failure_reason`
+(nullable). Each list is independently capped at 50, ordered by descending
+receipt sequence. Association ties use ascending attempt key then evidence ID;
+delivery ties use ascending delivery ID. No request bodies or credentials are
+returned. A historical ACCEPTED receipt or ACKNOWLEDGED delivery does not override
+the current stream state or dispute status. The bounded lists are not exhaustive
+history and the separate reads are not an atomic snapshot during concurrent writes.
+
+Receipt body conflicts on the current QUARANTINED generation still append audit
+evidence and dispute the original receipt's associated attempts atomically.
+They preserve the original receipt/reservation/delivery identity and leave
+quarantine sticky. Generation retirement fences this transaction.
 
 `TradeOpsSignalAdmissionResponseV1` has exactly `schema_version`, `authority`,
 `execution_allowed`, `receipt_id`, `outcome`, `code`, `duplicate`, `stream_state`.

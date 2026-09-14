@@ -24,7 +24,21 @@ def body(source: str, name: str) -> str:
     return match[1]
 
 
-def evaluate_concat(function_body: str, values: dict[str, object]) -> str:
+def pine_json_string(source: str, value: str) -> str:
+    """Execute and pin the actual Pine replacement operations, in authored order."""
+    escape = body(source, "jsonEscape")
+    operations = re.findall(
+        r'str\.replace_all\((?:value|escaped), ("(?:\\.|[^"\\])*"), ("(?:\\.|[^"\\])*")\)', escape
+    )
+    decoded = [(json.loads(old), json.loads(new)) for old, new in operations]
+    assert decoded == [("\\", "\\\\"), ('"', '\\"'), ("\n", "\\n"), ("\t", "\\t")]
+    assert body(source, "jsonString").strip() == r'"\"" + jsonEscape(value) + "\""'
+    for old, new in decoded:
+        value = value.replace(old, new)
+    return '"' + value + '"'
+
+
+def evaluate_concat(source: str, function_body: str, values: dict[str, object]) -> str:
     expression = "".join(line.strip() for line in function_body.splitlines())
     parts = re.split(r"\s*\+\s*", expression)
     output: list[str] = []
@@ -32,7 +46,7 @@ def evaluate_concat(function_body: str, values: dict[str, object]) -> str:
         if part.startswith('"'):
             output.append(json.loads(part))
         elif match := re.fullmatch(r"jsonString\((\w+)\)", part):
-            output.append(json.dumps(values[match.group(1)], separators=(",", ":")))
+            output.append(pine_json_string(source, str(values[match.group(1)])))
         elif match := re.fullmatch(r"str\.tostring\((\w+)\)", part):
             output.append(str(values[match.group(1)]))
         else:
@@ -74,6 +88,7 @@ def test_transport_is_separately_disabled(source: str) -> None:
 
 def test_outer_envelope_serializes_inner_as_object_and_escapes_strings(source: str) -> None:
     serialized = evaluate_concat(
+        source,
         body(source, "signalAdmissionV1Envelope"),
         {
             "credential": 'secret "quoted" \\ value',
@@ -104,14 +119,17 @@ def test_transport_validation_covers_frozen_bounds_without_trimming(source: str)
     assert "trim" not in credential.lower()
     identifier = body(source, "signalAdmissionV1IdentifierSafe")
     assert "length > 0 and length <= 160" in identifier
-    assert 'str.match(value, "^[ -~]+$") == value' in identifier
+    assert 'str.match(value, "^[!-~]+$") == value' in identifier
     assert 'not str.contains(value, "\\\\")' in identifier
 
 
 @pytest.mark.parametrize(
     ("credential", "registration_id", "generation", "accepted"),
     [
-        (" local fixture secret ", "desk one", 1, True),
+        (" local fixture secret ", "desk-one", 1, True),
+        ("secret", "desk one", 1, False),
+        ("secret", " desk", 1, False),
+        ("secret", "desk ", 1, False),
         ('quote"and\\slash', 'registration"id', 9_007_199_254_740_991, True),
         ("secret", "registration", 0, False),
         ("secret", "registration", 9_007_199_254_740_992, False),
@@ -155,7 +173,7 @@ def test_invalid_transport_is_redacted_and_cannot_fall_back(source: str) -> None
     assert emit.count("alert(transportEnvelope, alert.freq_all)") == 1
 
 
-def test_inner_and_outer_oversize_reject_before_single_sequence_commit(source: str) -> None:
+def test_source_guards_oversize_before_single_sequence_commit(source: str) -> None:
     emit = body(source, "emitSignalEvidenceV1ForAttempt")
     inner = emit.index("str.length(envelope) >= SIGNAL_EVIDENCE_V1_MAX_PAYLOAD_CHARS")
     frozen_inner = emit.index(

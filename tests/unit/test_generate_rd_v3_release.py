@@ -16,7 +16,7 @@ RELEASE = ROOT / "scripts/pinescript/SND_RD_5M_V3_RELEASE.pine"
 # Integration baseline: main's reviewed visual/replay fixes plus the independent
 # evidence emitter and its opt-in admission wrapper. The evidence reversal guard
 # separately restores main exactly.
-PROTECTED_REGION_SHA256 = "f1820734fa26392ac7be7ac6499e4e68ce1096c4cf4408050b0802aee8705a42"
+PROTECTED_REGION_SHA256 = "4c68d3110c9fc2f582b5f011b9698cd515edfeec25dbd1d4682d8a45ec4df7be"
 
 
 @pytest.mark.parametrize(

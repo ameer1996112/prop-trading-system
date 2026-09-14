@@ -36,13 +36,30 @@ async function send(sender: SignalDeliverySender, claim: DeliveryClaim): Promise
     return await Promise.race([
       (async () => {
         const response = await sender(claim.body);
-        if (deadline.signal.aborted) { void response.body?.cancel().catch(() => {}); return "RETRY" as const; }
-        if (response.redirected || (response.status >= 300 && response.status < 400)) { void response.body?.cancel().catch(() => {}); return "FAILED_TERMINAL" as const; }
-        if (response.status === 408 || response.status === 429 || response.status >= 500) { void response.body?.cancel().catch(() => {}); return "RETRY" as const; }
-        if (response.status !== 200 && response.status !== 201) { void response.body?.cancel().catch(() => {}); return "FAILED_TERMINAL" as const; }
+        if (deadline.signal.aborted) {
+          void response.body?.cancel().catch(() => {});
+          return "RETRY" as const;
+        }
+        if (response.redirected || (response.status >= 300 && response.status < 400)) {
+          void response.body?.cancel().catch(() => {});
+          return "FAILED_TERMINAL" as const;
+        }
+        if (response.status === 408 || response.status === 429 || response.status >= 500) {
+          void response.body?.cancel().catch(() => {});
+          return "RETRY" as const;
+        }
+        if (response.status !== 200 && response.status !== 201) {
+          void response.body?.cancel().catch(() => {});
+          return "FAILED_TERMINAL" as const;
+        }
         return await acknowledgment(response, claim, deadline.signal) ? "ACKNOWLEDGED" as const : "FAILED_TERMINAL" as const;
       })(),
-      new Promise<"RETRY">(resolve => { timer = setTimeout(() => { resolve("RETRY"); deadline.abort(); }, 6000); }),
+      new Promise<"RETRY">(resolve => {
+        timer = setTimeout(() => {
+          resolve("RETRY");
+          deadline.abort();
+        }, 6000);
+      }),
     ]);
   } catch { return "RETRY"; } finally { clearTimeout(timer); }
 }
