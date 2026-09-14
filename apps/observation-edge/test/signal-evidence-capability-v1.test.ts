@@ -9,6 +9,7 @@ type SourceSet = ReadonlyMap<string, string>;
 const repositoryRoot = resolve(dirname(new URL(import.meta.url).pathname), "../../..");
 const bridge = "apps/observation-edge/src/signal-evidence-v1.ts";
 const identity = "apps/observation-edge/src/signal-evidence-identity-v1.ts";
+const decision = "apps/observation-edge/src/signal-admission-decision-v1.ts";
 const evidenceModules = new Set([bridge, identity]);
 const sourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"]);
 const excludedDirectories = new Set([".git", ".superpowers", "node_modules", "test", "tests", "docs", "dist"]);
@@ -74,7 +75,8 @@ function capabilityViolations(sources: SourceSet): string[] {
   for (const [file, source] of sources) {
     for (const specifier of importedSpecifiers(file, source)) {
       const target = resolveLocalImport(file, specifier, sources);
-      if (target !== null && evidenceModules.has(target) && file !== bridge) {
+      // Reviewed pure admission consumer only; no route or execution consumer.
+      if (target !== null && evidenceModules.has(target) && file !== bridge && !(file === decision && target === bridge)) {
         violations.push(`${file} imports evidence module ${target}`);
       }
       if (file === bridge && target !== null && !allowedBridgeDependencies.has(target)) {
@@ -128,7 +130,7 @@ describe("signal evidence capability boundary", () => {
     ]);
   });
 
-  it("enumerates production imports and keeps the evidence modules unconsumed and capability-free", () => {
+  it("enumerates production imports with only the reviewed pure admission consumer", () => {
     const sources = productionSources(repositoryRoot);
     expect(sources.has(bridge)).toBe(true);
     expect(sources.has(identity)).toBe(true);
