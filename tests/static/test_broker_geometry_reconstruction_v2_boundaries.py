@@ -6,10 +6,31 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 EXECUTION_EDGE = ROOT / "apps" / "execution-edge"
 EXECUTION_WRANGLER = EXECUTION_EDGE / "wrangler.jsonc"
 OBSERVATION_WRANGLER = ROOT / "apps" / "observation-edge" / "wrangler.jsonc"
+
+
+def _assert_focused_test_passed(output: str) -> None:
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", output)
+    assert re.search(r"Tests\s+1 passed\b", plain_output) is not None, output
+
+
+@pytest.mark.parametrize("colored", [False, True])
+def test_focused_summary_accepts_plain_and_colored_output(colored: bool) -> None:
+    output = "Tests 1 passed"
+    if colored:
+        output = "\x1b[2m Tests \x1b[22m \x1b[1m\x1b[32m1 passed\x1b[39m"
+    _assert_focused_test_passed(output)
+
+
+@pytest.mark.parametrize("output", ["Tests 1 failed", "Tests 0 passed", "Tests 2 passed"])
+def test_focused_summary_rejects_wrong_results(output: str) -> None:
+    with pytest.raises(AssertionError):
+        _assert_focused_test_passed(output)
 
 
 def test_public_reconstruction_artifact_executes_through_focused_vitest() -> None:
@@ -32,7 +53,7 @@ def test_public_reconstruction_artifact_executes_through_focused_vitest() -> Non
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Task 5 boundary executes the public reconstruction artifact" in result.stdout
-    assert re.search(r"Tests\s+1 passed", result.stdout) is not None, result.stdout
+    _assert_focused_test_passed(result.stdout)
 
 
 def test_checked_in_runtime_defaults_remain_false_and_dry_run() -> None:
