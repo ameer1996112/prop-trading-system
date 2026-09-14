@@ -10,6 +10,64 @@ export class AdmissionUnavailableError extends Error {
   constructor() { super("signal admission unavailable"); this.name = "AdmissionUnavailableError"; }
 }
 const P = "signal_admission_v1_";
+export type DeliveryStatus = "CLAIMED" | "ACKNOWLEDGED" | "RETRY" | "EXPIRED" | "FAILED_TERMINAL" | "QUARANTINED";
+export type DeliveryClaim = {
+  delivery_id: string; delivery_body_sha256: string; body: string; delivery_attempts: number;
+} & ({ status: "CLAIMED"; token: string } | { status: Exclude<DeliveryStatus, "CLAIMED">; token: null });
+// Every predicate binds the attempt to its namespace and immutable reservation.
+const deliverable = `EXISTS (SELECT 1 FROM ${P}registrations r JOIN ${P}streams s ON s.registration_id=r.registration_id
+  JOIN ${P}attempts a ON a.namespace=r.namespace
+  WHERE r.registration_id=o.registration_id AND r.namespace=o.namespace AND r.enabled=1
+  AND r.active_generation=o.generation AND s.generation=o.generation AND s.state='ACTIVE'
+  AND s.registry_revision=r.revision AND a.attempt_key=o.attempt_key AND a.disputed=0 AND a.evidence_id=o.evidence_id)`;
+function dispatchTime(now: number): void {
+  if (!Number.isSafeInteger(now) || now < 0 || now > Number.MAX_SAFE_INTEGER - 30) throw new AdmissionUnavailableError();
+}
+const deliveryReturning = "delivery_id,delivery_body_sha256,body,status,delivery_attempts,claim_token AS token";
+export async function claimSignalDelivery(db: D1Database, now: number): Promise<DeliveryClaim | null> {
+  dispatchTime(now);
+  const state = `CASE WHEN NOT (${deliverable}) THEN 'QUARANTINED' WHEN o.expires_at_epoch<=?1 THEN 'EXPIRED'
+    WHEN ?1<COALESCE(o.last_dispatch_at_epoch,o.admitted_at_epoch) THEN 'FAILED_TERMINAL'
+    WHEN o.delivery_attempts>=5 THEN 'FAILED_TERMINAL' ELSE 'CLAIMED' END`;
+  return db.prepare(`UPDATE ${P}outbox AS o SET status=${state},
+    claim_token=CASE WHEN (${state})='CLAIMED' THEN ?2 ELSE NULL END,
+    lease_until_epoch=CASE WHEN (${state})='CLAIMED' THEN ?1+30 ELSE NULL END,
+    delivery_attempts=delivery_attempts+CASE WHEN (${state})='CLAIMED' THEN 1 ELSE 0 END,
+    failure_reason=CASE WHEN ?1<COALESCE(last_dispatch_at_epoch,admitted_at_epoch) THEN 'CLOCK_REGRESSION'
+      WHEN delivery_attempts>=5 THEN 'ATTEMPTS_EXHAUSTED' ELSE NULL END,
+    last_dispatch_at_epoch=MAX(?1,COALESCE(last_dispatch_at_epoch,admitted_at_epoch))
+    WHERE delivery_id=(SELECT o.delivery_id FROM ${P}outbox o WHERE o.status IN ('PENDING','RETRY','CLAIMED')
+      AND ((o.status IN ('PENDING','RETRY') AND o.next_attempt_at_epoch<=?1)
+        OR (o.status='CLAIMED' AND o.lease_until_epoch<=?1) OR o.expires_at_epoch<=?1
+        OR NOT (${deliverable}) OR ?1<COALESCE(o.last_dispatch_at_epoch,o.admitted_at_epoch))
+      ORDER BY o.next_attempt_at_epoch,o.delivery_id LIMIT 1)
+    RETURNING ${deliveryReturning}`).bind(now, crypto.randomUUID()).first<DeliveryClaim>();
+}
+// Recheck and finalization share the same SQL fence; a stale token cannot mutate a newer claim.
+export async function settleSignalDelivery(db: D1Database, token: string, requested: "CLAIMED" | "ACKNOWLEDGED" | "RETRY" | "FAILED_TERMINAL", now: number): Promise<DeliveryStatus | null> {
+  dispatchTime(now);
+  const state = `CASE WHEN NOT (${deliverable}) THEN 'QUARANTINED' WHEN o.expires_at_epoch<=?1 THEN 'EXPIRED'
+    WHEN ?1<o.last_dispatch_at_epoch THEN 'FAILED_TERMINAL'
+    WHEN ?3='RETRY' AND o.delivery_attempts>=5 THEN 'FAILED_TERMINAL' ELSE ?3 END`;
+  const row = await db.prepare(`UPDATE ${P}outbox AS o SET status=${state},
+    claim_token=CASE WHEN (${state})='CLAIMED' THEN claim_token ELSE NULL END,
+    lease_until_epoch=CASE WHEN (${state})='CLAIMED' THEN lease_until_epoch ELSE NULL END,
+    next_attempt_at_epoch=CASE WHEN (${state})='RETRY' THEN ?1+(1 << delivery_attempts) ELSE next_attempt_at_epoch END,
+    failure_reason=CASE WHEN ?1<last_dispatch_at_epoch THEN 'CLOCK_REGRESSION'
+      WHEN ?3='RETRY' AND delivery_attempts>=5 THEN 'ATTEMPTS_EXHAUSTED'
+      WHEN ?3='FAILED_TERMINAL' THEN 'DELIVERY_FAILED' ELSE failure_reason END,
+    last_dispatch_at_epoch=MAX(?1,last_dispatch_at_epoch)
+    WHERE o.status='CLAIMED' AND o.claim_token=?2 AND
+      (o.lease_until_epoch>?1 OR o.expires_at_epoch<=?1 OR NOT (${deliverable}) OR ?1<o.last_dispatch_at_epoch)
+    RETURNING status`).bind(now, token, requested).first<{ status: DeliveryStatus }>();
+  return row?.status ?? null;
+}
+export async function recheckSignalDelivery(db: D1Database, token: string, now: number): Promise<boolean> {
+  return await settleSignalDelivery(db, token, "CLAIMED", now) === "CLAIMED";
+}
+export async function finalizeSignalDelivery(db: D1Database, token: string, status: "ACKNOWLEDGED" | "RETRY" | "FAILED_TERMINAL", now: number): Promise<boolean> {
+  return await settleSignalDelivery(db, token, status, now) === status;
+}
 const safety = { authority: "EVIDENCE_ONLY", execution_allowed: false } as const;
 const encoder = new TextEncoder();
 function canonical(value: unknown): string {

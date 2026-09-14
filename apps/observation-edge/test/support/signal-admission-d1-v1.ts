@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
-import { installGeneration } from "../../src/signal-admission-store-v1";
+import { admitSignal, claimSignalDelivery, finalizeSignalDelivery, installGeneration } from "../../src/signal-admission-store-v1";
+import { fixture } from "./signal-admission-fixture-v1";
 import type { Registration } from "../../src/signal-admission-registration-v1";
 type Statement = { sql: string; values: unknown[] };
 const script = `export default { async fetch(request,env) {
@@ -25,7 +26,7 @@ function migrationStatements(source: string): Statement[] {
   if (pending.trim() || depth !== 0 || statements.length === 0) throw new Error("unparsed migration");
   return statements;
 }
-export async function createAdmissionDb() {
+export async function createAdmissionDb(queued?: { queuedAt: number; expiresAt: number }) {
   const runtime = new Miniflare({ modules: true, script, compatibilityDate: "2026-07-23", d1Databases: ["DB"], cf: false });
   const handles = new WeakMap<object, Statement>();
   const faults: { afterWrite: number; afterCommit: boolean; beforeBatch?: () => Promise<void> } = { afterWrite: -1, afterCommit: false };
@@ -73,7 +74,16 @@ export async function createAdmissionDb() {
       await transport({ statements: migrationStatements(await readFile(new URL(file, directory), "utf8")) });
     }
     await transport({ schema: "CREATE TABLE local_admission_fault(n INTEGER CHECK(n>0));" });
+    if (queued) {
+      const f = await fixture();
+      const registration = { ...f.registration, freshness: { max_event_age_seconds: 100_000, max_observation_age_seconds: 100_000, future_skew_seconds: 100_000, max_queue_age_seconds: queued.expiresAt - queued.queuedAt } };
+      await installGeneration(db, 0, registration, "LOCAL_TEST_QUEUE");
+      const result = await admitSignal(db, f.transport, registration, queued.queuedAt);
+      if (result.outcome !== "ACCEPTED") throw new Error("local queue admission failed");
+    }
     return { db, faults, metrics, dispose: () => runtime.dispose(),
+      claim: (now: number) => claimSignalDelivery(db, now),
+      finalize: (token: string, status: "ACKNOWLEDGED" | "RETRY" | "FAILED_TERMINAL", now: number) => finalizeSignalDelivery(db, token, status, now),
       provision: (r: Registration) => installGeneration(db, 0, r, "LOCAL_TEST_PROVISION"),
       count: async (table: string) => { if (!tables.has(table)) throw new Error("unknown table"); return await db.prepare(`SELECT count(*) AS n FROM signal_admission_v1_${table}`).first<number>("n"); },
     };
