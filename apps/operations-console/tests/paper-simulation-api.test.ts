@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  PaperAuthorizationError,
   loadPaperReadiness,
   loadPaperSimulationSummary,
   setPaperReadinessKillSwitch,
@@ -129,6 +130,22 @@ afterEach(() => {
 });
 
 describe("loadPaperSimulationSummary", () => {
+  it.each([loadPaperSimulationSummary, loadPaperReadiness])("uses a shared authorization error without changing the message", async (load) => {
+    const fetchMock = vi.fn().mockImplementation(async () => response({}, 401));
+    vi.stubGlobal("fetch", fetchMock);
+    let failure: unknown;
+    try {
+      await load("operator-secret");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(PaperAuthorizationError);
+    expect(failure).toMatchObject({
+      name: "PaperAuthorizationError",
+      message: "Paper operator credential was rejected.",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("loads protected account and intent projections without retaining auth in data", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(summary())));
 

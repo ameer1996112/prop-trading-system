@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadEntryDecisions } from "../src/lib/entry-decisions";
+import { PaperAuthorizationError } from "../src/lib/api";
+import { loadEntryDecisions, loadEntryDecisionsStrict } from "../src/lib/entry-decisions";
 
 const payload = {
   schema_version: "1.0",
@@ -305,6 +306,89 @@ function reportWithSingleFailedCandidate(
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("loadEntryDecisionsStrict", () => {
+  it("returns the existing strict projection using the protected bounded query", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(payload)));
+    vi.stubGlobal("fetch", fetchMock);
+    const strict = await loadEntryDecisionsStrict("operator-secret");
+    expect(strict).toEqual(await loadEntryDecisions("operator-secret"));
+    expect(strict.state).toBe("READY");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/rd-entry-decisions?limit=50",
+      expect.objectContaining({ headers: { Accept: "application/json", Authorization: "Bearer operator-secret" } }),
+    );
+    expect(fetchMock.mock.calls.every((call) => {
+      const request = call[1] as RequestInit;
+      return (request.method ?? "GET") === "GET" && request.body === undefined;
+    })).toBe(true);
+  });
+
+  it("throws typed authorization errors while the legacy loader retains its ERROR fallback", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response("operator-secret", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(loadEntryDecisionsStrict("operator-secret")).rejects.toBeInstanceOf(PaperAuthorizationError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(loadEntryDecisions("operator-secret")).resolves.toEqual({
+      state: "ERROR", items: [], message: "Entry decisions are unavailable or malformed.",
+    });
+  });
+
+  it.each([403, 404, 429, 500, 503])("throws a fixed safe error for HTTP %s", async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("operator-secret", { status }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(loadEntryDecisionsStrict("operator-secret")).rejects.toThrow("Entry decisions are unavailable or malformed.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["", "x".repeat(1_025)])("rejects invalid credential length before a network request", async (credential) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(loadEntryDecisionsStrict(credential)).rejects.toThrow("Paper operator credential is invalid.");
+    await expect(loadEntryDecisions(credential)).resolves.toMatchObject({ state: "ERROR", items: [] });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves malformed-report rejection and the legacy fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(JSON.stringify({ ...payload, count: 2 }))));
+    await expect(loadEntryDecisionsStrict("x")).rejects.toThrow();
+    await expect(loadEntryDecisions("x")).resolves.toMatchObject({ state: "ERROR", items: [] });
+  });
+
+  it("retains strict JSON validation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response('{"mode":"PAPER_ONLY","mode":"PAPER_ONLY"}')));
+    await expect(loadEntryDecisionsStrict("x")).rejects.toThrow("strict canonical-profile JSON");
+  });
+
+  it("propagates caller cancellation while the legacy API keeps its fallback", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const reason = new DOMException("Aborted", "AbortError");
+    controller.abort(reason);
+    await expect(loadEntryDecisionsStrict("x", controller.signal)).rejects.toBe(reason);
+    await expect(loadEntryDecisions("x", controller.signal)).resolves.toMatchObject({ state: "ERROR", items: [] });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves caller cancellation after response headers without retrying", async () => {
+    const controller = new AbortController();
+    let markBodyStarted!: () => void;
+    const bodyStarted = new Promise<void>((resolve) => { markBodyStarted = resolve; });
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(new ReadableStream({
+      start(stream) {
+        init?.signal?.addEventListener("abort", () => stream.error(init.signal?.reason), { once: true });
+        markBodyStarted();
+      },
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+    const rejected = expect(loadEntryDecisionsStrict("x", controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    await bodyStarted;
+    controller.abort();
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("loadEntryDecisions", () => {

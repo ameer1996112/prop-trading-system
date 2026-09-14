@@ -163,6 +163,13 @@ export type PaperReadinessKillSwitchResult = {
 
 class InvalidApiPayload extends Error {}
 
+export class PaperAuthorizationError extends Error {
+  constructor() {
+    super("Paper operator credential was rejected.");
+    this.name = "PaperAuthorizationError";
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -405,6 +412,43 @@ function receiptFallback(
   };
 }
 
+function receiptSnapshot(report: ReturnType<typeof parseObservationReceipts>): ObservationReceiptsSnapshot {
+  if (!report.ingressEnabled) {
+    return {
+      state: "BLOCKED",
+      ingressEnabled: false,
+      count: report.count,
+      items: report.items,
+      message: "Ingress is disabled. Historical observations remain inspection-only.",
+    };
+  }
+  if (report.items.length === 0) {
+    return {
+      state: "EMPTY",
+      ingressEnabled: true,
+      count: 0,
+      items: [],
+      message: "Ingress is open, but no observation receipts have been recorded.",
+    };
+  }
+  return {
+    state: "RECEIVED",
+    ingressEnabled: true,
+    count: report.count,
+    items: report.items,
+    message: "Metadata-only observations returned by the paper LAB API.",
+  };
+}
+
+/** TradeOps treats every non-200 receipt response as a failed read, never fresh data. */
+export async function loadTradeOpsObservationReceipts(
+  signal?: AbortSignal,
+): Promise<ObservationReceiptsSnapshot> {
+  const response = await fetchBounded("/api/v1/observation-receipts?limit=50", signal);
+  if (response.status !== 200) throw new Error("unexpected receipt response status");
+  return receiptSnapshot(parseObservationReceipts(await parseStrictResponse(response)));
+}
+
 export async function loadObservationReceipts(
   signal?: AbortSignal,
 ): Promise<ObservationReceiptsSnapshot> {
@@ -418,32 +462,7 @@ export async function loadObservationReceipts(
     }
     if (response.status !== 200) throw new Error("unexpected receipt response status");
 
-    const report = parseObservationReceipts(await parseStrictResponse(response));
-    if (!report.ingressEnabled) {
-      return {
-        state: "BLOCKED",
-        ingressEnabled: false,
-        count: report.count,
-        items: report.items,
-        message: "Ingress is disabled. Historical observations remain inspection-only.",
-      };
-    }
-    if (report.items.length === 0) {
-      return {
-        state: "EMPTY",
-        ingressEnabled: true,
-        count: 0,
-        items: [],
-        message: "Ingress is open, but no observation receipts have been recorded.",
-      };
-    }
-    return {
-      state: "RECEIVED",
-      ingressEnabled: true,
-      count: report.count,
-      items: report.items,
-      message: "Metadata-only observations returned by the paper LAB API.",
-    };
+    return receiptSnapshot(parseObservationReceipts(await parseStrictResponse(response)));
   } catch {
     return receiptFallback(
       "ERROR",
@@ -665,7 +684,7 @@ export async function loadPaperSimulationSummary(
     { Authorization: `Bearer ${credential}` },
   );
   if (response.status === 401) {
-    throw new Error("Paper operator credential was rejected.");
+    throw new PaperAuthorizationError();
   }
   if (response.status !== 200) {
     throw new Error("Paper simulator is unavailable.");
@@ -918,7 +937,7 @@ export async function loadPaperReadiness(
     Authorization: `Bearer ${credential}`,
   });
   if (response.status === 401) {
-    throw new Error("Paper operator credential was rejected.");
+    throw new PaperAuthorizationError();
   }
   if (response.status !== 200) {
     throw new Error("Paper readiness is unavailable.");

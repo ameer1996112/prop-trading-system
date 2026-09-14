@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadApiHealth, loadObservationReceipts } from "../src/lib/api";
+import { loadApiHealth, loadObservationReceipts, loadTradeOpsObservationReceipts } from "../src/lib/api";
 
 const digest = "a".repeat(64);
 
@@ -210,5 +210,19 @@ describe("loadObservationReceipts", () => {
 
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     await expect(loadObservationReceipts()).resolves.toMatchObject({ state: "ERROR" });
+  });
+});
+
+describe("loadTradeOpsObservationReceipts", () => {
+  it("accepts only validated 200 reports while retaining a valid blocked report", async () => {
+    mockReceiptApi({ detail: "disabled" }, 503);
+    await expect(loadTradeOpsObservationReceipts()).rejects.toThrow("unexpected receipt response status");
+
+    mockReceiptApi(report([receipt()], { ingress_enabled: false }));
+    await expect(loadTradeOpsObservationReceipts()).resolves.toMatchObject({
+      state: "BLOCKED",
+      ingressEnabled: false,
+      count: 1,
+    });
   });
 });
