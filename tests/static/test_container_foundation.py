@@ -72,3 +72,18 @@ def test_container_smoke_uses_a_docker_visible_macos_cache_for_file_secrets() ->
 
     assert '"$(uname -s)" = "Darwin"' in smoke
     assert "Library/Caches/prop-trading-container-smoke" in smoke
+
+
+def test_container_smoke_checks_current_dashboard_read_only_boundaries() -> None:
+    smoke = Path("scripts/container_smoke.sh").read_text()
+    dashboard = Path(
+        "apps/operations-console/src/features/tradeops/TradeOpsDashboard.tsx"
+    ).read_text()
+    for marker in (
+        "Paper operations · read-only.",
+        "Broker connection, fills, and equity are unavailable.",
+    ):
+        assert marker in dashboard
+        assert f"grep -q '{marker}'" in smoke
+    assert "grep -q 'PAPER LAB'" not in smoke
+    assert "grep -q 'NO EXECUTION'" not in smoke

@@ -82,8 +82,8 @@ readiness_status=$(curl --silent --show-error --max-time 3 \
 test "$readiness_status" = "503"
 grep -q '"ready":false' "$temporary_root/readiness.json"
 grep -q '"status":"BLOCKED"' "$temporary_root/readiness.json"
-grep -q 'PAPER LAB' "$temporary_root/console.html"
-grep -q 'NO EXECUTION' "$temporary_root/console.html"
+grep -q 'Paper operations · read-only.' "$temporary_root/console.html"
+grep -q 'Broker connection, fills, and equity are unavailable.' "$temporary_root/console.html"
 
 observation_envelope=$(printf '%s' \
   '{"credential":"'"$observation_value"'","payload":{"schema_version":"1.0","strategy_id":"rd_liquidity_sd_5m_v1","strategy_version":"1.0.0-phase1","producer_instance_id":"container-smoke","sequence":0,"idempotency_key":"container-smoke:0","symbol":"XAUUSD","ticker_id":"OANDA:XAUUSD","feed":"OANDA","timeframe":"5","timezone":"Etc/UTC","bar_open_epoch":1710000000,"bar_close_epoch":1710000300,"detector_code_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","settings_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","kind":"snapshot","last_confirmed_bar_close_epoch":1710000300,"active_setups":[]}}')
