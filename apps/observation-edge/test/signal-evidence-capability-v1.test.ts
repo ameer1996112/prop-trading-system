@@ -177,8 +177,7 @@ describe("signal evidence capability boundary", () => {
     ]));
   });
   it("rejects unreviewed edges and external capabilities in every reviewed dependency", () => {
-    const sources = productionSources(repositoryRoot);
-    for (const file of reviewedDependencies.keys()) sources.set(file, sources.get(file)! + '\nimport "node:fs";');
+    const sources = new Map([...reviewedDependencies.keys()].map(file => [file, 'import "node:fs";']));
     const violations = capabilityViolations(sources);
     for (const file of reviewedDependencies.keys()) expect(violations).toContain(`${file} imports external capability node:fs`);
     sources.set(decision, sources.get(decision)! + '\nimport "./signal-admission-outbox-v1";');
