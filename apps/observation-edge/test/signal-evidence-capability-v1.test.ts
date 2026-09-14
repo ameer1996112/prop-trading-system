@@ -10,6 +10,8 @@ const repositoryRoot = resolve(dirname(new URL(import.meta.url).pathname), "../.
 const bridge = "apps/observation-edge/src/signal-evidence-v1.ts";
 const identity = "apps/observation-edge/src/signal-evidence-identity-v1.ts";
 const decision = "apps/observation-edge/src/signal-admission-decision-v1.ts";
+const route = "apps/observation-edge/src/signal-admission-route-v1.ts";
+const store = "apps/observation-edge/src/signal-admission-store-v1.ts";
 const evidenceModules = new Set([bridge, identity]);
 const sourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"]);
 const excludedDirectories = new Set([".git", ".superpowers", "node_modules", "test", "tests", "docs", "dist"]);
@@ -117,9 +119,13 @@ describe("signal evidence capability boundary", () => {
       [bridge, 'import "node:fs/promises"; import "node:cluster"; import "./missing-bridge-adapter"; import "./signal-evidence-identity-v1";'],
       [identity, 'import "node:readline"; import "node:perf_hooks"; import "./missing-identity-store"; import "./rd-entry-policy";'],
       ["apps/observation-edge/src/routes/execute.ts", 'export { validateSignalEvidenceV1 } from "../signal-evidence-v1";'],
+      ["apps/observation-edge/src/order.ts", 'import "./signal-evidence-v1";'],
+      ["apps/observation-edge/src/coordinator.ts", 'import "./signal-evidence-identity-v1";'],
       ["apps/observation-edge/src/rd-entry-policy.ts", "export {};"],
     ]);
     expect(capabilityViolations(synthetic)).toEqual([
+      `apps/observation-edge/src/coordinator.ts imports evidence module ${identity}`,
+      `apps/observation-edge/src/order.ts imports evidence module ${bridge}`,
       `apps/observation-edge/src/routes/execute.ts imports evidence module ${bridge}`,
       `${identity} imports external capability node:perf_hooks`,
       `${identity} imports external capability node:readline`,
@@ -135,6 +141,12 @@ describe("signal evidence capability boundary", () => {
     expect(sources.has(bridge)).toBe(true);
     expect(sources.has(identity)).toBe(true);
     expect(capabilityViolations(sources)).toEqual([]);
+  });
+
+  it("allows only the reviewed route to store to decision integration chain", () => {
+    const sources = productionSources(repositoryRoot);
+    expect(importedSpecifiers(route, sources.get(route)!)).toContain("./signal-admission-store-v1");
+    expect(importedSpecifiers(store, sources.get(store)!)).toContain("./signal-admission-decision-v1");
   });
 });
 

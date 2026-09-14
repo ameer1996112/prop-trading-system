@@ -701,4 +701,12 @@ export interface Env {
   readonly TRADINGVIEW_PAPER_AUTOMATION_CREDENTIAL_SHA256?: string;
   readonly TRADINGVIEW_OBSERVATION_INGRESS_ENABLED?: string;
   readonly TRADINGVIEW_OBSERVATION_MAX_BODY_BYTES?: string;
+  readonly SIGNAL_ADMISSION_ENABLED?: "false" | "true";
+  readonly SIGNAL_ADMISSION_DISPATCH_ENABLED?: "false" | "true";
+  readonly SIGNAL_ADMISSION_STATUS_ENABLED?: "false" | "true";
+  readonly SIGNAL_EVIDENCE_INBOX_ENABLED?: "false" | "true";
+  readonly SIGNAL_EVIDENCE_RECEIVER?: Fetcher;
+  readonly SIGNAL_DELIVERY_SECRET?: string;
+  readonly SIGNAL_ADMISSION_OPERATOR_SECRET_SHA256?: string;
+  readonly SIGNAL_ADMISSION_OPERATOR_SCOPE_JSON?: string;
 }
