@@ -2,7 +2,14 @@
 set -eu
 
 repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-temporary_root_parent=${CONTAINER_SMOKE_TMPDIR:-$repository_root}
+if [ -n "${CONTAINER_SMOKE_TMPDIR:-}" ]; then
+  temporary_root_parent=$CONTAINER_SMOKE_TMPDIR
+elif [ "$(uname -s)" = "Darwin" ]; then
+  temporary_root_parent="${HOME}/Library/Caches/prop-trading-container-smoke"
+else
+  temporary_root_parent=$repository_root
+fi
+mkdir -p "$temporary_root_parent"
 temporary_root=$(mktemp -d "$temporary_root_parent/phase0-container-smoke.XXXXXX")
 # Docker Desktop/Colima receives host bind mounts, so resolve macOS's /var
 # symlink before exporting this path through Compose.

@@ -17,14 +17,16 @@ Record the reviewed commit and local build artifacts before approval:
 - console source: `apps/operations-console`;
 - console static artifact: `apps/operations-console/out`;
 - TradingView producer: `scripts/pinescript/SND_RD_5M_V3_RELEASE.pine` (schema 3.1);
-- historical rollback artifact: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine` (schema
-  3.0; do not use for a new alert);
+- authoring source: `scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine` (schema 3.1);
+- historical schema-3.0 LAB: the same path at Git revision
+  `528ad8f33324b9a254f74e1988367caf6d3a7cad`, not the current working file;
 - D1 migrations: `0024_observation_entries_v3.sql`,
-  `0025_observation_entry_v3_decision_order.sql`, and
+  `0025_observation_entry_v3_decision_order.sql`,
   `0026_observation_entry_v3_attempt_order.sql`,
   `0027_observation_entry_v3_paper_fallback_shadow.sql`,
-  `0028_observation_entry_v3_liquidity_cohorts.sql`, and
-  `0029_observation_entry_v3_one_candle_reason.sql`.
+  `0028_observation_entry_v3_liquidity_cohorts.sql`,
+  `0029_observation_entry_v3_one_candle_reason.sql`, and
+  `0030_observation_remote_schema_compatibility.sql`.
 
 The required runtime binding names are listed below without values. The five names marked
 **secret binding** are also listed under `secrets.required` in `wrangler.jsonc`, but that field is
@@ -41,6 +43,10 @@ The five secret names must never appear under plaintext `vars`:
 - `RD_ENTRY_V3_DETECTOR_CODE_HASH` (**secret binding**)
 - `RD_ENTRY_V3_SETTINGS_HASH` (**secret binding**, legacy single-profile fallback)
 - `RD_ENTRY_V3_SETTINGS_HASHES_JSON` (**secret binding**, preferred exact-ticker map)
+- `RD_EXECUTION_PROPOSAL_V1_REVIEWED_IDENTITIES_JSON`
+- `RD_EXECUTION_CANDIDATE_EMISSION_ENABLED` (must remain `false`)
+- `RD_EXECUTION_CANDIDATE_DISPATCH_ENABLED` (must remain `false`)
+- `RD_EXECUTION_RECEIVER_MANIFEST_SHA256` (must remain `INERT_NOT_CONFIGURED`)
 - `NEXT_PUBLIC_API_BASE_URL` (only when the console is built for a different API origin)
 
 Never record a raw ingress or paper-admin credential in Git, shell history, command output, D1, a
@@ -71,21 +77,39 @@ Build the two production artifacts again and retain their output paths:
 
 Do not continue if the working tree differs from the reviewed commit.
 
-## 2. Apply D1 migrations through 0029
+Candidate emission and dispatch are independent controls and both remain disabled. The receiver
+manifest is inert. This release exposes receipt-only observation ingress: it does not accept
+execution-proposal payloads, add a public dispatcher or receiver route, or add any account or
+broker execution surface.
 
-After explicit deployment approval, apply every pending migration through
-`0027_observation_entry_v3_paper_fallback_shadow.sql`,
-`0028_observation_entry_v3_liquidity_cohorts.sql`, and
-`0029_observation_entry_v3_one_candle_reason.sql`:
+## 2. Reconcile D1 migrations through 0030
+
+After explicit deployment approval, inspect pending migrations. The remote D1 database has a
+historical proposal-table lineage that this receipt-only release must preserve. Do not recreate,
+rename, drop, alter, or manually mark those tables. The only permitted new migration is the
+no-schema-change compatibility ledger marker
+`0030_observation_remote_schema_compatibility.sql`:
 
 ```sh
 (cd apps/observation-edge && npm run db:migrate:remote)
 ```
 
 The migration output must show that `0024_observation_entries_v3.sql`,
-`0025_observation_entry_v3_decision_order.sql`, and
-`0026_observation_entry_v3_attempt_order.sql` are already applied or were applied successfully.
-Do not delete, rename, or roll back any of these migrations.
+`0025_observation_entry_v3_decision_order.sql`,
+`0026_observation_entry_v3_attempt_order.sql`,
+`0027_observation_entry_v3_paper_fallback_shadow.sql`,
+`0028_observation_entry_v3_liquidity_cohorts.sql`,
+`0029_observation_entry_v3_one_candle_reason.sql`, and
+`0030_observation_remote_schema_compatibility.sql` are already applied or were applied
+successfully. Stop if any proposal-table-creating migration is reported as pending; reconcile the
+Worker source first rather than mutating the remote proposal schema. Do not delete, rename, roll
+back, or manually edit the migration ledger for any of these migrations.
+
+If Cloudflare reports that an older Durable Object class is still depended on by the current
+Worker, retain that exact class name only as an inert compatibility shell: its `wake` response is
+disabled, its fetch response is `503 OUTBOX_DISABLED`, and its alarm clears itself. Do not add a
+binding, public route, cron, outbox wake-up, candidate dispatch, or delete-class migration as part
+of this receipt-only release.
 
 ## 3. Review and bind detector/settings identities
 
@@ -106,10 +130,38 @@ jq -S -c . /absolute/path/to/reviewed-settings.json | shasum -a 256
 Two reviewers must compare the digests to the exact source and profile. Keep the paper kill switch
 engaged and contract-v3 Pine emission disabled throughout binding verification.
 
-For a multi-pair rollout, create one owner-only canonical settings profile per exact ticker ID and
-compute each digest separately. Create an owner-only JSON file outside the repository with the
-reviewed secret bindings. Do not put any value on a command line or in shell history. The preferred
-multi-pair file has this exact shape, with the placeholders replaced locally:
+The one-candle detector is opt-in and fail-closed. Review these two profiles independently:
+
+```text
+STRICT:
+  Enable one-candle liquidity = false
+  liquidity cohort = TWO_PLUS_CANDLES
+
+EXPERIMENT:
+  Enable one-candle liquidity = true
+  liquidity cohort = ONE_CANDLE or TWO_PLUS_CANDLES
+  one-candle economic action = SHADOW_ONLY
+```
+
+The experiment flag does not authorize paper or live trading. For `ONE_CANDLE`, canonical edge
+arbitration records `policy_action = SHADOW_ONLY` when a candidate can be observed and
+`policy_action = NONE` when the setup is invalidated or candidate-less. The persisted and API
+effective `action` is always `SHADOW_ONLY` with
+`effective_action_reason = ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`. Policy action is audit evidence;
+effective action is the economic authorization boundary. No one-candle result can create a paper
+intent, actionable Pine marker/alert, broker order, or live execution.
+
+For each exact ticker ID, preserve distinct owner-reviewed canonical settings JSON and SHA-256
+digests for `STRICT` and `EXPERIMENT`; never reuse one profile's settings hash for the other.
+Include a profile identifier in the reviewer-owned record even though only the digest is sent.
+Runtime supports only one `ticker_id` to reviewed-settings-hash binding, so only one profile may be
+active for a ticker at a time. Do not run simultaneous `STRICT` and `EXPERIMENT` alerts for the
+same ticker. Separate tickers may use different active profiles. For a multi-pair rollout, retain
+both reviewed profile digests for every approved ticker outside runtime, then bind only the one
+currently active digest for each ticker. Create an owner-only JSON file outside the repository
+with the reviewed secret bindings. Do not put any value on a command line or in shell history. The
+preferred multi-pair file has this exact shape, with each placeholder replaced locally by the
+single active profile hash for that ticker:
 
 ```json
 {
@@ -193,8 +245,8 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
 ## 6. Install the TradingView producer
 
 1. Open a supported Forex chart at the five-minute timeframe.
-2. Add `SND_RD_5M_V3_RELEASE.pine` to Pine Editor. Do not create a new alert from the historical
-   `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` rollback artifact.
+2. Add `SND_RD_5M_V3_RELEASE.pine` to Pine Editor. Current LAB is the authoring source;
+   do not create a new alert from the historical schema-3.0 LAB in Git history.
 3. Save, compile, and add it to the chart.
 4. Enter the dedicated contract-v3 ingress credential only in
    **Contract-v3 ingress credential**. Use the approved printable token format
@@ -204,17 +256,26 @@ contract range before disengaging the paper kill switch or enabling v3 Pine emis
 6. Keep diagnostics and legacy setup export disabled.
 7. Keep **Emit contract-v3 entry events** disabled until the signed DIR_CLOSE and replay gate in
    step 7 passes.
-8. Create one alert with condition **Any alert() function call**, the stable v3 observation webhook,
-   and no separately composed message body.
+8. Select the ticker's one active reviewed profile exactly. For `STRICT`, leave
+   **Enable one-candle liquidity** off. For `EXPERIMENT`, turn it on. Confirm that the ticker's
+   runtime settings-hash binding is the digest for that selected profile.
+9. Create one alert for the ticker's active profile with condition **Any alert() function call**,
+   the stable v3 observation webhook, and no separately composed message body. Never keep strict
+   and experiment alerts active simultaneously for the same ticker.
 
 Every `alert()` call automatically serializes the exact outer
 `{"credential":...,"payload":...}` Worker envelope. Do not paste a message template into the
 TradingView alert dialog. The 35,000-character producer limit applies to that complete envelope,
 including the safely serialized credential, and an oversized envelope is not sent.
 
-TradingView stores a snapshot of the script and inputs in the alert. Recreate the alert after any
-source or setting change. Pine compile, add-to-chart, and live-tick behavior are manual release
-checks and must be recorded as pending until an operator actually completes them.
+TradingView stores a snapshot of the script and all inputs in the alert. To switch one ticker from
+`STRICT` to `EXPERIMENT` or back: disable and delete its old alert; update that ticker's runtime
+reviewed-hash binding to the new profile hash; recreate the alert with matching saved source and
+inputs; then verify its stored receipt. Toggling **Enable one-candle liquidity**, changing its
+reviewed settings hash, or making any other source or input change does not update an existing
+alert. Pine compile, add-to-chart, input-snapshot review, alert recreation, and live-tick behavior
+are manual release checks and must be recorded as pending until an operator actually completes
+them.
 
 ## 7. Signed smoke sequence
 
@@ -262,17 +323,81 @@ the exact `3.1` / `3.1.0-contract3` / `3.1.0` tuple and matched reviewed detecto
 identities. Re-engage the paper kill switch immediately on any mismatch; do not alter D1 data,
 bindings, alerts, or secrets as a workaround.
 
-## 8. Acceptance
+## 8. One-candle experiment evidence
+
+The cohort metrics route is authenticated with the paper-admin bearer credential:
+
+```text
+GET /api/v1/rd-entry-cohort-metrics
+Authorization: Bearer <paper-admin credential>
+```
+
+Never place the credential in a URL, saved command, screenshot, or report. The response groups
+outcomes by liquidity cohort, flag value, entry model, symbol, and feed. For each group:
+
+```text
+resolved = wins + losses
+win rate = wins / (wins + losses)
+trades = resolved + ambiguous + open
+```
+
+Open and ambiguous outcomes are excluded from the win-rate denominator. Always review and report
+the `resolved` count with the rate; `win_rate_bps` is `null` when `resolved` is zero. Do not compare
+rates without their resolved sample sizes.
+
+After deployment, update the saved Pine source and activate the `EXPERIMENT` profile only for
+explicitly approved markets. For each ticker being switched, disable/delete its old alert, replace
+that ticker's active reviewed-hash binding with the experiment profile hash, and recreate one alert
+from the matching saved source and input snapshot. Before claiming the experiment is collecting
+outcomes:
+
+1. Confirm TradingView shows a successful 2xx webhook delivery for the recreated experiment alert.
+2. Confirm the corresponding receipt is stored by the observation service.
+3. Inspect the accepted setup evidence and require the immutable fields:
+
+   ```json
+   {
+     "schema_version": "3.1",
+     "strategy_version": "3.1.0-contract3",
+     "rule_contract_version": "3.1.0",
+     "liquidity_cohort": "ONE_CANDLE",
+     "one_candle_enabled": true
+   }
+   ```
+
+4. Query authenticated `GET /api/v1/rd-entry-cohort-metrics` and require the first
+   `liquidity_cohort: "ONE_CANDLE"` row for that approved symbol.
+5. Confirm `ONE_CANDLE` was never effectively `PAPER_ELIGIBLE`. Candidate-bearing decisions have
+   canonical `policy_action = SHADOW_ONLY`; invalidated or candidate-less decisions have canonical
+   `policy_action = NONE`. Every persisted/API row must have effective `action = SHADOW_ONLY` and
+   `effective_action_reason = ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`. Confirm no paper intent,
+   actionable Pine marker/alert, broker order, or live execution surface exists.
+
+A delivered TradingView alert alone is insufficient. Until both stored 2xx receipt proof and the
+first `ONE_CANDLE` metrics row exist, report the experiment as **not yet collecting outcomes**.
+
+## 9. Acceptance
 
 The rollout is accepted only when all of the following are recorded:
 
 - local `make verify-observation` passed at the deployed commit;
-- D1 is migrated through 0029;
+- D1 is migrated through 0030;
+- candidate emission and dispatch remain disabled, the receiver manifest remains inert, and no
+  account or broker execution exists;
 - detector and settings digests match across source, edge, and Pine;
 - the paper account and risk configuration are reviewed;
 - Pine compiled, was added to the five-minute chart, and produced an actual realtime event;
 - all signed smoke outcomes match the sequence above;
-- the console shows all three models and one selected paper position at most; and
+- the console shows all three models and one selected paper position at most;
+- strict and experiment profiles have distinct reviewed hashes and input snapshots, with only one
+  profile active per ticker;
+- a stored 2xx experiment receipt and first `ONE_CANDLE` cohort-metrics row are recorded before
+  collection is claimed;
+- `ONE_CANDLE` is never effectively `PAPER_ELIGIBLE`; canonical `policy_action` is `SHADOW_ONLY`
+  for candidate-bearing observations and `NONE` for invalidated or candidate-less observations,
+  while persisted/API effective `action` is always `SHADOW_ONLY` with
+  `effective_action_reason = ONE_CANDLE_EXPERIMENT_NOT_PROMOTED`, and no paper intent or actionable
+  Pine marker/alert exists; and
 - broker/live execution remains disabled.
 
 ## Rollback
@@ -281,7 +406,7 @@ The rollout is accepted only when all of the following are recorded:
 2. Leave version 3 rows immutable.
 3. Redeploy the previous edge/console release if necessary.
 4. Do not delete migration 0024, migration 0025, migration 0026, migration 0027, migration 0028,
-   migration 0029, or historical paper intents.
+   migration 0029, migration 0030, or historical paper intents or shadow outcomes.
 
 Keep the reviewed hashes and failed smoke evidence for diagnosis. Rollback does not authorize
 editing or deleting audit facts.

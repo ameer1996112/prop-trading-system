@@ -63,18 +63,58 @@ def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None
     assert "observation_entry_v3_event_dispositions_no_delete" in migration
 
 
-def test_rd_rollout_tracks_every_edge_migration_through_0029() -> None:
+def test_rd_rollout_tracks_every_edge_migration_through_schema_reconciliation() -> None:
     migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
-    assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 30)]
+    assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 31)]
 
     runbook = Path("docs/runbooks/rd-three-entry-paper-rollout.md").read_text(encoding="utf-8")
-    assert "## 2. Apply D1 migrations through 0029" in runbook
-    for migration in (
-        "0024_observation_entries_v3.sql",
-        "0025_observation_entry_v3_decision_order.sql",
-        "0026_observation_entry_v3_attempt_order.sql",
-        "0027_observation_entry_v3_paper_fallback_shadow.sql",
-        "0028_observation_entry_v3_liquidity_cohorts.sql",
-        "0029_observation_entry_v3_one_candle_reason.sql",
+    assert "D1 is migrated through 0030;" in runbook
+    for migration in migrations:
+        if int(migration.name[:4]) >= 24:
+            assert migration.name in runbook
+    assert (
+        "Do not delete migration 0024, migration 0025, migration 0026, "
+        "migration 0027, migration 0028, migration 0029, migration 0030, "
+        "or historical paper intents or shadow outcomes."
+    ) in " ".join(runbook.split())
+    assert "D1 is migrated through 0029;" not in runbook
+
+
+def test_legacy_execution_proposal_fixture_is_strict_append_only_and_paper_only() -> None:
+    migration = Path(
+        "apps/observation-edge/test/fixtures/execution-proposal-v1-legacy.sql"
+    ).read_text(encoding="utf-8")
+    for table in (
+        "observation_execution_proposal_v1_events",
+        "observation_execution_proposal_v1_paper_results",
+        "observation_execution_producer_checkpoints",
+        "observation_execution_producer_incidents",
+        "observation_execution_candidate_v1_payloads",
+        "observation_execution_candidate_v1_deliveries",
     ):
-        assert migration in runbook
+        assert f"CREATE TABLE {table}" in migration
+        assert ") STRICT;" in migration
+    assert "execution_mode = 'PAPER_ONLY'" in migration
+    assert "entry_model = 'DIR_CLOSE'" in migration
+    assert "target_ticks = entry_ticks + 4 * risk_distance_ticks" in migration
+    assert "target_ticks = entry_ticks - 4 * risk_distance_ticks" in migration
+    assert "observation_execution_candidate_v1_deliveries_update_guard" in migration
+    for table in (
+        "observation_execution_proposal_v1_events",
+        "observation_execution_proposal_v1_paper_results",
+        "observation_execution_producer_checkpoints",
+        "observation_execution_producer_incidents",
+        "observation_execution_candidate_v1_payloads",
+    ):
+        assert f"{table}_no_update" in migration
+        assert f"{table}_no_delete" in migration
+
+
+def test_schema_reconciliation_migration_is_a_documented_no_op() -> None:
+    migration = Path(
+        "apps/observation-edge/migrations/0030_observation_remote_schema_compatibility.sql"
+    ).read_text(encoding="utf-8")
+    assert "REMOTE_SCHEMA_RECONCILIATION" in migration
+    assert "CREATE TABLE" not in migration
+    assert "CREATE INDEX" not in migration
+    assert "CREATE TRIGGER" not in migration

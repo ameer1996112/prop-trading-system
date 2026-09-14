@@ -1,0 +1,80 @@
+[
+  {
+    "name": "account-scale-0",
+    "kind": "account",
+    "currency_scale": 0,
+    "canonical": "{\"balance\":{\"reason\":null,\"value\":{\"scale\":0,\"value\":\"100\"}},\"equity\":{\"reason\":null,\"value\":{\"scale\":0,\"value\":\"100\"}},\"margin_free\":{\"reason\":null,\"value\":{\"scale\":0,\"value\":\"100\"}},\"margin_level\":{\"reason\":\"NOT_APPLICABLE\",\"value\":null},\"margin_used\":{\"reason\":null,\"value\":{\"scale\":0,\"value\":\"0\"}},\"observed_at_broker_msc\":1800000010000,\"observed_at_utc_seconds\":1800000010,\"status\":\"COMPLETE\"}",
+    "sha256": "796056599b0e1a3fd1a0505508e98e082a286fb1e67606db5524bcbc93b06943"
+  },
+  {
+    "name": "account-scale-2",
+    "kind": "account",
+    "currency_scale": 2,
+    "canonical": "{\"balance\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"equity\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"margin_free\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"margin_level\":{\"reason\":\"NOT_APPLICABLE\",\"value\":null},\"margin_used\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"0.00\"}},\"observed_at_broker_msc\":1800000010000,\"observed_at_utc_seconds\":1800000010,\"status\":\"COMPLETE\"}",
+    "sha256": "c3be3bb76952fc2e04836a60a3de3a3453c11e3d1e8e9145829c3c64dd1e2cbe"
+  },
+  {
+    "name": "account-scale-8",
+    "kind": "account",
+    "currency_scale": 8,
+    "canonical": "{\"balance\":{\"reason\":null,\"value\":{\"scale\":8,\"value\":\"100.00000000\"}},\"equity\":{\"reason\":null,\"value\":{\"scale\":8,\"value\":\"100.00000000\"}},\"margin_free\":{\"reason\":null,\"value\":{\"scale\":8,\"value\":\"100.00000000\"}},\"margin_level\":{\"reason\":\"NOT_APPLICABLE\",\"value\":null},\"margin_used\":{\"reason\":null,\"value\":{\"scale\":8,\"value\":\"0.00000000\"}},\"observed_at_broker_msc\":1800000010000,\"observed_at_utc_seconds\":1800000010,\"status\":\"COMPLETE\"}",
+    "sha256": "229f95ca8a8213e6fff31009d28a330a697ed5b861801213df2255c2a9cd7e76"
+  },
+  {
+    "name": "account-failed",
+    "kind": "account",
+    "currency_scale": 2,
+    "canonical": "{\"balance\":{\"reason\":\"READ_FAILED\",\"value\":null},\"equity\":{\"reason\":\"READ_FAILED\",\"value\":null},\"margin_free\":{\"reason\":\"READ_FAILED\",\"value\":null},\"margin_level\":{\"reason\":\"READ_FAILED\",\"value\":null},\"margin_used\":{\"reason\":\"READ_FAILED\",\"value\":null},\"observed_at_broker_msc\":1800000010000,\"observed_at_utc_seconds\":1800000010,\"status\":\"CAPTURE_FAILED\"}",
+    "sha256": "1014f57d47b36ee4baa415d28c70822c42437ae9bc63a46e6979cff7be318ef8"
+  },
+  {
+    "name": "exposure-cross-symbol",
+    "kind": "exposure",
+    "currency_scale": 2,
+    "canonical": "{\"observed_at_broker_msc\":1800000010000,\"observed_at_utc_seconds\":1800000010,\"order_count\":1,\"orders\":[{\"price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"10.00000\"}},\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"state\":\"REQUEST_MODIFY\",\"stop_limit_price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"9.90000\"}},\"symbol\":\"UNLISTED\",\"ticket\":\"9223372036854775809\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"type\":\"SELL_STOP_LIMIT\",\"volume_current\":{\"scale\":2,\"value\":\"0.10\"},\"volume_initial\":{\"scale\":2,\"value\":\"0.20\"}}],\"position_count\":1,\"positions\":[{\"current_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.220\"}},\"entry_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.120\"}},\"floating_profit\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"1.00\"}},\"position_id\":\"9223372036854775808\",\"side\":\"BUY\",\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"swap\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.01\"}},\"symbol\":\"XAUUSD.测试\",\"ticket\":\"18446744073709551615\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"volume\":{\"scale\":2,\"value\":\"0.10\"}}],\"status\":\"COMPLETE\"}",
+    "sha256": "b71f8c97cfe7883a99044baea58afa82a6c3e6fa428c711f4abb252c1ad4a775"
+  },
+  {
+    "name": "exposure-limit",
+    "kind": "exposure",
+    "currency_scale": 2,
+    "canonical": "{\"observed_at_broker_msc\":1800000010000,\"observed_at_utc_seconds\":1800000010,\"order_count\":0,\"orders\":[],\"position_count\":129,\"positions\":[],\"status\":\"LIMIT_EXCEEDED\"}",
+    "sha256": "4d5850dd4e5348f69a5427b85bde74ebe58c0387ced858d63fa9d6448bfc6c65"
+  },
+  {
+    "name": "deal-inout-unsigned",
+    "kind": "deal",
+    "currency_scale": 2,
+    "canonical": "{\"broker_time_msc\":1800000005000,\"commission\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.20\"}},\"deal_id\":\"18446744073709551615\",\"entry\":\"INOUT\",\"fee\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.05\"}},\"kind\":\"DEAL\",\"order_id\":\"9223372036854775809\",\"position_id\":\"9223372036854775808\",\"previous_record_sha256\":null,\"price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"1.10000\"}},\"profit\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"10.00\"}},\"protection_source\":\"BROKER_DEAL\",\"reason\":\"EXPERT\",\"reversal_split\":null,\"revision\":1,\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"swap\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.05\"}},\"symbol\":\"EURUSD.a\",\"tp\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"1.20000\"}},\"type\":\"BUY\",\"volume\":{\"scale\":2,\"value\":\"0.10\"}}",
+    "sha256": "e64f152523896da8b02ec1be7c016b1e5769dc0b7bbca659cb8d54df67ce4f32"
+  },
+  {
+    "name": "deal-canceled",
+    "kind": "deal",
+    "currency_scale": 2,
+    "canonical": "{\"broker_time_msc\":1800000005000,\"commission\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.20\"}},\"deal_id\":\"17\",\"entry\":\"OUT\",\"fee\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.05\"}},\"kind\":\"DEAL\",\"order_id\":\"9223372036854775809\",\"position_id\":\"9223372036854775808\",\"previous_record_sha256\":null,\"price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"1.10000\"}},\"profit\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"10.00\"}},\"protection_source\":\"BROKER_DEAL\",\"reason\":\"CLIENT\",\"reversal_split\":null,\"revision\":1,\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"swap\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.05\"}},\"symbol\":\"EURUSD.a\",\"tp\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"1.20000\"}},\"type\":\"SELL_CANCELED\",\"volume\":{\"scale\":2,\"value\":\"0.10\"}}",
+    "sha256": "68e1b5526a792a22c466cb062a9a9170a8bbd3d2a31e3a592b81b32195a74eee"
+  },
+  {
+    "name": "deal-standalone-cost",
+    "kind": "deal",
+    "currency_scale": 2,
+    "canonical": "{\"broker_time_msc\":1800000005000,\"commission\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"0.00\"}},\"deal_id\":\"18\",\"entry\":\"NONE\",\"fee\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"0.00\"}},\"kind\":\"DEAL\",\"order_id\":null,\"position_id\":null,\"previous_record_sha256\":null,\"price\":{\"reason\":\"NOT_APPLICABLE\",\"value\":null},\"profit\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-5.00\"}},\"protection_source\":\"UNAVAILABLE\",\"reason\":\"UNKNOWN\",\"reversal_split\":null,\"revision\":1,\"sl\":{\"reason\":\"UNAVAILABLE\",\"value\":null},\"swap\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"0.00\"}},\"symbol\":null,\"tp\":{\"reason\":\"UNAVAILABLE\",\"value\":null},\"type\":\"COMMISSION_DAILY\",\"volume\":null}",
+    "sha256": "bdb6f47e09b196a17fa23426e5ef454c0e98461585715a997d76a4e054044fe6"
+  },
+  {
+    "name": "protection",
+    "kind": "protection",
+    "currency_scale": 2,
+    "canonical": "{\"kind\":\"PROTECTION_OBSERVATION\",\"observed_at_broker_msc\":1800000010000,\"position_id\":\"9223372036854775808\",\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"source\":\"POLL\",\"symbol\":\"XAUUSD.测试\",\"ticket\":\"18446744073709551615\",\"tp\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2050.000\"}}}",
+    "sha256": "d6eca42361837d56fe9bae712e284d30fe9ec741968acb6b16a2d8d626ac87ee"
+  },
+  {
+    "name": "registration",
+    "checkpoint": {"schema":"capture.v1","canonical":"5:TCAP1,251:synthetic-account~synthetic-install~synthetic-tracking~0~aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb~eefe4a344505adb4aaf7fe607b8000c51bd000cbaeaaabc8297f9e7a7bf0d40e,64:519daabec27a753e45f37d9e8dff443cf0d657982444ad7137d57ea9347e1c45,13:1800000000000,10:1800000000,1:2,1:0,13:1800000000000,13:1800000000000,13:1800000000000,13:1800000000000,1:0,1:0,1:-,1:0,10:1800000000,13:1800000000123,10:1800000000,1:0,1:0,410:{\"balance\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"equity\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"margin_free\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"margin_level\":{\"reason\":\"NOT_APPLICABLE\",\"value\":null},\"margin_used\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"0.00\"}},\"observed_at_broker_msc\":1800000000123,\"observed_at_utc_seconds\":1800000000,\"status\":\"COMPLETE\"},8:COMPLETE,10:1800000000,13:1800000000123,1:1,1:1,1052:{\"observed_at_broker_msc\":1800000000123,\"observed_at_utc_seconds\":1800000000,\"order_count\":1,\"orders\":[{\"price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"10.00000\"}},\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"state\":\"REQUEST_MODIFY\",\"stop_limit_price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"9.90000\"}},\"symbol\":\"UNLISTED\",\"ticket\":\"9223372036854775809\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"type\":\"SELL_STOP_LIMIT\",\"volume_current\":{\"scale\":2,\"value\":\"0.10\"},\"volume_initial\":{\"scale\":2,\"value\":\"0.20\"}}],\"position_count\":1,\"positions\":[{\"current_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.220\"}},\"entry_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.120\"}},\"floating_profit\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"1.00\"}},\"position_id\":\"9223372036854775808\",\"side\":\"BUY\",\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"swap\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.01\"}},\"symbol\":\"XAUUSD.测试\",\"ticket\":\"18446744073709551615\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"volume\":{\"scale\":2,\"value\":\"0.10\"}}],\"status\":\"COMPLETE\"},1:0,1:0,1:1,19:9223372036854775808,64:94cf66daa2293276d0eae5de72d7d9d41044674406595e4cface5ce8d4044dbe,1:0,","sha256":"cca714485780ec2db7e16cdfbad7f5c451c16dce2cefec1d8ec823b79abece2b","fields":["TCAP1","synthetic-account~synthetic-install~synthetic-tracking~0~aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa~bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb~eefe4a344505adb4aaf7fe607b8000c51bd000cbaeaaabc8297f9e7a7bf0d40e","519daabec27a753e45f37d9e8dff443cf0d657982444ad7137d57ea9347e1c45","1800000000000","1800000000","2","0","1800000000000","1800000000000","1800000000000","1800000000000","0","0","-","0","1800000000","1800000000123","1800000000","0","0","{\"balance\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"equity\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"margin_free\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"100.00\"}},\"margin_level\":{\"reason\":\"NOT_APPLICABLE\",\"value\":null},\"margin_used\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"0.00\"}},\"observed_at_broker_msc\":1800000000123,\"observed_at_utc_seconds\":1800000000,\"status\":\"COMPLETE\"}","COMPLETE","1800000000","1800000000123","1","1","{\"observed_at_broker_msc\":1800000000123,\"observed_at_utc_seconds\":1800000000,\"order_count\":1,\"orders\":[{\"price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"10.00000\"}},\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"state\":\"REQUEST_MODIFY\",\"stop_limit_price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"9.90000\"}},\"symbol\":\"UNLISTED\",\"ticket\":\"9223372036854775809\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"type\":\"SELL_STOP_LIMIT\",\"volume_current\":{\"scale\":2,\"value\":\"0.10\"},\"volume_initial\":{\"scale\":2,\"value\":\"0.20\"}}],\"position_count\":1,\"positions\":[{\"current_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.220\"}},\"entry_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.120\"}},\"floating_profit\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"1.00\"}},\"position_id\":\"9223372036854775808\",\"side\":\"BUY\",\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"swap\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.01\"}},\"symbol\":\"XAUUSD.测试\",\"ticket\":\"18446744073709551615\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"volume\":{\"scale\":2,\"value\":\"0.10\"}}],\"status\":\"COMPLETE\"}","0","0","1","9223372036854775808","94cf66daa2293276d0eae5de72d7d9d41044674406595e4cface5ce8d4044dbe","0"]},
+    "kind": "registration",
+    "currency_scale": 2,
+    "canonical": "{\"baseline\":{\"observed_at_broker_msc\":1800000000123,\"observed_at_utc_seconds\":1800000000,\"order_count\":1,\"orders\":[{\"price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"10.00000\"}},\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"state\":\"REQUEST_MODIFY\",\"stop_limit_price\":{\"reason\":null,\"value\":{\"scale\":5,\"value\":\"9.90000\"}},\"symbol\":\"UNLISTED\",\"ticket\":\"9223372036854775809\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"type\":\"SELL_STOP_LIMIT\",\"volume_current\":{\"scale\":2,\"value\":\"0.10\"},\"volume_initial\":{\"scale\":2,\"value\":\"0.20\"}}],\"position_count\":1,\"positions\":[{\"current_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.220\"}},\"entry_price\":{\"reason\":null,\"value\":{\"scale\":3,\"value\":\"2024.120\"}},\"floating_profit\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"1.00\"}},\"position_id\":\"9223372036854775808\",\"side\":\"BUY\",\"sl\":{\"reason\":\"NOT_SET\",\"value\":null},\"swap\":{\"reason\":null,\"value\":{\"scale\":2,\"value\":\"-0.01\"}},\"symbol\":\"XAUUSD.测试\",\"ticket\":\"18446744073709551615\",\"tp\":{\"reason\":\"NOT_SET\",\"value\":null},\"volume\":{\"scale\":2,\"value\":\"0.10\"}}],\"status\":\"COMPLETE\"},\"boundary\":{\"account_fingerprint_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"excluded_boundary_deal_ids\":[\"18446744073709551615\",\"2\"],\"initialized_at_utc_seconds\":1800000000,\"started_at_broker_msc\":1800000000000,\"tracking_id\":\"synthetic-tracking\"},\"display\":{\"account_mode\":\"DEMO\",\"company\":\"Synthetic \\\"Broker\\\" 测试\",\"currency\":\"USD\",\"currency_scale\":2,\"login_last4\":\"0007\",\"margin_mode\":\"RETAIL_HEDGING\",\"server\":\"Synthetic-Demo\"}}",
+    "sha256": "519daabec27a753e45f37d9e8dff443cf0d657982444ad7137d57ea9347e1c45"
+  }
+]

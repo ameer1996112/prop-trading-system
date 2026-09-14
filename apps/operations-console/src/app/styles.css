@@ -1044,6 +1044,174 @@ h1 {
   padding: 19px;
 }
 
+.liquidity-cohort-panel {
+  margin-top: 14px;
+  padding: 20px;
+  border: 1px solid var(--line-bright);
+  background:
+    linear-gradient(135deg, rgba(130, 167, 144, 0.05), transparent 40%),
+    var(--ink-raised);
+}
+
+.liquidity-cohort-panel > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.liquidity-cohort-panel > header span {
+  color: var(--oxide);
+  font-size: 0.59rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.liquidity-cohort-panel > header h3 {
+  margin: 7px 0 0;
+  font-family: var(--display);
+  font-size: clamp(1.65rem, 3vw, 2.35rem);
+  font-weight: 400;
+}
+
+.liquidity-cohort-panel > header p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--paper-muted);
+  font-size: 0.65rem;
+  line-height: 1.55;
+  text-align: right;
+}
+
+.liquidity-cohort-state {
+  margin: 15px 0 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  background: rgba(10, 13, 11, 0.56);
+  color: var(--paper-muted);
+  font-size: 0.64rem;
+  line-height: 1.5;
+}
+
+.liquidity-cohort-state-error {
+  border-color: color-mix(in srgb, var(--red) 58%, var(--line));
+  background: color-mix(in srgb, var(--red) 8%, var(--ink-raised));
+  color: var(--red);
+}
+
+.liquidity-cohort-state-neutral,
+.liquidity-cohort-state-loading {
+  border-color: var(--line);
+  color: var(--paper-muted);
+}
+
+.liquidity-cohort-table-wrap {
+  max-width: 100%;
+  margin-top: 15px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border: 1px solid var(--line);
+}
+
+.liquidity-cohort-table-wrap table {
+  width: 100%;
+  min-width: 850px;
+  border-collapse: collapse;
+  font-size: 0.63rem;
+  line-height: 1.4;
+}
+
+.liquidity-cohort-table-wrap caption {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+  color: var(--paper-muted);
+  text-align: left;
+}
+
+.liquidity-cohort-table-wrap th,
+.liquidity-cohort-table-wrap td {
+  padding: 9px 11px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.liquidity-cohort-table-wrap th:last-child,
+.liquidity-cohort-table-wrap td:last-child {
+  border-right: 0;
+}
+
+.liquidity-cohort-table-wrap tbody:last-child tr:last-child > * {
+  border-bottom: 0;
+}
+
+.liquidity-cohort-table-wrap thead th {
+  background: #0b100c;
+  color: var(--paper-muted);
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.liquidity-cohort-group {
+  background: var(--ink-soft);
+  color: var(--oxide);
+  font-size: 0.57rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.liquidity-cohort-table-wrap th[scope="row"] {
+  color: var(--paper);
+  font-weight: 700;
+}
+
+.liquidity-cohort-setting {
+  display: inline-block;
+  padding: 4px 6px;
+  border: 1px solid var(--line-bright);
+  color: var(--paper-muted);
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+}
+
+.liquidity-cohort-setting-enabled {
+  border-color: var(--oxide-deep);
+  color: var(--oxide);
+}
+
+.liquidity-cohort-setting-strict {
+  color: var(--paper);
+}
+
+.liquidity-cohort-table-wrap .liquidity-cohort-number {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.liquidity-cohort-rate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.liquidity-cohort-rate strong {
+  color: var(--paper);
+  font-size: 0.65rem;
+}
+
+.liquidity-cohort-resolved {
+  display: block;
+  color: var(--paper-muted);
+  font-size: 0.54rem;
+}
+
 .entry-decision-panel {
   margin: 34px 0;
   padding: 24px;
@@ -1541,6 +1709,21 @@ h1 {
 
   .readiness-control {
     grid-column: auto;
+  }
+
+  .liquidity-cohort-panel {
+    padding: 15px;
+  }
+
+  .liquidity-cohort-panel > header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .liquidity-cohort-panel > header p {
+    max-width: none;
+    text-align: left;
   }
 
   .readiness-account-metrics {

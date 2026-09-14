@@ -1,0 +1,39 @@
+{
+  "name": "prop-trading-execution-edge",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-23",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "CANDIDATE_INBOX_ENABLED": "false",
+    "AGENT_SYNC_ENABLED": "false",
+    "EXECUTION_AUTHORITY_ENABLED": "false",
+    "EXECUTION_MODE_CEILING": "DRY_RUN",
+    "ROUTING_MANIFEST_SHA256": "INERT_NOT_CONFIGURED"
+  },
+  "d1_databases": [
+    {
+      "binding": "EXECUTION_DB",
+      "database_name": "prop-trading-execution-edge-inert",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CANDIDATE_INBOX",
+        "class_name": "CandidateInbox"
+      },
+      {
+        "name": "ACCOUNT_COORDINATOR",
+        "class_name": "AccountCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CandidateInbox", "AccountCoordinator"]
+    }
+  ]
+}

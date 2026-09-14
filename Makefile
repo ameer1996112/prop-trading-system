@@ -59,6 +59,7 @@ edge-checks: frontend-checks
 	cd $(EDGE) && npm run build
 
 verify-generated: contract-v3-check
+	$(PYTHON) scripts/generate_rd_v3_release.py --check
 	$(PYTHON) scripts/build_phase0_evidence.py --output evidence/phase0/evidence-registry.json --check
 	$(PYTHON) scripts/build_golden_vectors.py --output contracts/vectors/canonical-json-v1.json --check
 	$(PYTHON) scripts/build_rd_entry_oracle_vectors.py \
@@ -87,7 +88,8 @@ secret-scan:
 	@set -eu; scan_file=$$(mktemp); trap 'rm -f "$$scan_file"' EXIT HUP INT TERM; \
 		uv run detect-secrets scan --all-files --exclude-files '$(DETECT_SECRETS_EXCLUDE)' . > "$$scan_file"; \
 		$(PYTHON) scripts/assert_secret_baseline.py --baseline .secrets.baseline < "$$scan_file"
-	$(PYTHON) scripts/check_lockfile_credentials.py uv.lock $(CONSOLE)/package-lock.json $(EDGE)/package-lock.json
+	$(PYTHON) scripts/check_lockfile_credentials.py uv.lock $(CONSOLE)/package-lock.json $(EDGE)/package-lock.json \
+		apps/execution-edge/package-lock.json apps/agent-health-console/package-lock.json
 
 boundary-check:
 	$(PYTHON) scripts/static_boundary_check.py --root .

@@ -1,0 +1,129 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+import { canonicalStringify, sha256Hex } from "../src/canonical";
+
+const repositoryRoot = join(import.meta.dirname, "../../..");
+const agentRoot = join(repositoryRoot, "mt5/TradeOpsAgent");
+
+function source(relativePath: string): string {
+  const path = join(agentRoot, relativePath);
+  expect(existsSync(path), `${relativePath} must exist`).toBe(true);
+  return readFileSync(path, "utf8");
+}
+
+function withoutDigest(value: Record<string, unknown>, digestKey: string): Record<string, unknown> {
+  const copy = { ...value };
+  delete copy[digestKey];
+  return copy;
+}
+
+describe("MT5 dry-run heartbeat agent source", () => {
+  it("ships a TypeScript-verifiable, redacted canonical request/response fixture pair", async () => {
+    const fixture = JSON.parse(source("fixtures/agent-sync-v1.json")) as {
+      request: Record<string, unknown>;
+      response: Record<string, unknown>;
+    };
+
+    expect(fixture.request.schema_version).toBe("AgentSyncRequestV1");
+    expect(fixture.request.events).toEqual([]);
+    expect(fixture.request.broker_bar_evidence).toEqual([]);
+    expect(fixture.request.body_sha256).toBe(await sha256Hex(canonicalStringify(withoutDigest(fixture.request, "body_sha256"))));
+
+    expect(fixture.response.schema_version).toBe("AgentSyncResponseV1");
+    expect(fixture.response.mode).toBe("DRY_RUN");
+    expect(fixture.response.command).toBeNull();
+    expect(fixture.response.response_body_sha256).toBe(await sha256Hex(canonicalStringify(withoutDigest(fixture.response, "response_body_sha256"))));
+  });
+
+  it("has a timer-only, reentrancy-guarded dry-run lifecycle", () => {
+    const ea = source("TradeOpsAgent.mq5");
+    expect(ea).toContain('input string InpProfile = "DRY_RUN";');
+    expect(ea).toContain("EventSetTimer(15)");
+    expect(ea).toContain("EventKillTimer()");
+    expect(ea).toContain("if(g_timer_busy)");
+    expect(ea).toContain("TradeOpsLoadSyncState");
+    expect(ea.indexOf("TradeOpsLoadSyncState")).toBeLessThan(ea.indexOf("EventSetTimer(15)"));
+    expect(ea).toContain("TradeOpsPostHeartbeat");
+    expect(ea.match(/TradeOpsPostHeartbeat/g)).toHaveLength(1);
+    expect(ea).not.toContain("OnTradeTransaction");
+    expect(ea).not.toContain("OnTick");
+  });
+
+  it("keeps local configuration uncompiled and rejects unsafe server responses", () => {
+    const config = source("Include/TradeOpsConfig.mqh");
+    const sync = source("Include/TradeOpsSync.mqh");
+    const canonical = source("Include/TradeOpsCanonicalJson.mqh");
+    const readme = source("README.md");
+
+    expect(config).toContain("TradeOpsAgent\\\\local\\\\config.ini");
+    expect(config).not.toContain("TradeOpsAgent.local.mqh");
+    expect(sync).toContain("WebRequest");
+    expect(sync.match(/\bWebRequest\b/g)).toHaveLength(1);
+    expect(sync).toContain("long now=(long)TimeGMT();");
+    expect(sync).not.toContain("long now=(long)TimeLocal();");
+    expect(sync).toContain("1500");
+    expect(sync).toContain("SYNC_HTTP_");
+    expect(sync).toContain("SYNC_WAITING_");
+    expect(sync).toContain("SYNC_REJECTED");
+    expect(sync).toContain("TradeOpsSaveSyncState");
+    expect(sync).toContain("TradeOpsAgent\\\\journal\\\\sync-state.ini");
+    expect(sync).toContain("pending_payload");
+    expect(sync).toContain("FileMove");
+    expect(sync).toContain("server_sequence");
+    expect(sync).toContain("acknowledged!=0");
+    expect(sync).toContain("advanced_state.last_acknowledged_server_sequence=server_sequence");
+    expect(sync).toContain("StringToCharArray(state.pending_payload");
+    expect(sync.indexOf("TradeOpsSaveSyncState(pending_state)")).toBeLessThan(sync.indexOf("WebRequest"));
+    expect(canonical).toContain("TradeOpsSha256Hex");
+    expect(canonical).toContain("CryptEncode(CRYPT_HASH_SHA256,bytes,key,digest)");
+    expect(canonical).toContain("StringFormat(\"%I64d\",value)");
+    expect(canonical).not.toContain("LongToString");
+    expect(canonical).toContain("StringSubstr(response,cursor,StringLen(sequence_prefix))");
+    expect(canonical).toContain("StringGetCharacter(response,cursor)!=34");
+    expect(sync).not.toContain("LongToString");
+    expect(canonical).toContain("acknowledged_event_sequence");
+    expect(canonical).toContain('mode\\\":\\\"DRY_RUN');
+    expect(canonical).toContain('command\\\":null');
+    expect(readme).toContain("Do not attach");
+    expect(readme).toContain("fifteen seconds");
+    expect(readme).not.toContain("every five seconds");
+    expect(readme).toContain("Algo Trading disabled");
+    expect(readme).toContain("DLL imports disabled");
+    expect(readme).toContain("JOURNAL_REJECTED");
+  });
+
+  it("rebuilds only a Worker-confirmed stale heartbeat while retaining its sequence state", () => {
+    const sync = source("Include/TradeOpsSync.mqh");
+
+    expect(sync).toContain("AGENT_SYNC_TIMESTAMP_INVALID");
+    expect(sync).toContain("TradeOpsSyncState refreshed_state=state;");
+    expect(sync).toContain('refreshed_state.pending_payload="";');
+    expect(sync).toContain("TradeOpsSaveSyncState(refreshed_state)");
+    expect(sync).toContain('status="SYNC_STALE_PAYLOAD_RESET";');
+
+    const resetStart = sync.indexOf("TradeOpsSyncState refreshed_state=state;");
+    const resetEnd = sync.indexOf('status="SYNC_STALE_PAYLOAD_RESET";', resetStart);
+    expect(sync.slice(resetStart, resetEnd)).not.toContain("request_sequence++");
+    expect(sync.slice(resetStart, resetEnd)).not.toContain("last_acknowledged_server_sequence=");
+  });
+
+  it("includes a pure MQL self-test source", () => {
+    const selfTest = source("Scripts/TradeOpsAgentSelfTest.mq5");
+    expect(selfTest).toContain("TradeOpsCanonicalObject2");
+    expect(selfTest).toContain("TradeOpsResponseIsSafe");
+    expect(selfTest).not.toContain("WebRequest");
+  });
+
+  it("ships a Windows-only private-config writer that preserves one key per line", () => {
+    const writerPath = join(repositoryRoot, "scripts/write-mt5-dry-run-config.ps1");
+    expect(existsSync(writerPath), "Windows config writer must exist").toBe(true);
+    const writer = readFileSync(writerPath, "utf8");
+    expect(writer).toContain("Set-Content -LiteralPath $taskConfigPath -Value $taskLines -Encoding ascii");
+    expect(writer).toContain("endpoint=https://prop-trading-execution-edge-dry-run.ameer-1996112.workers.dev/api/v1/agent/sync");
+    expect(writer).toContain("profile=DRY_RUN");
+    expect(writer).toContain("bearer=$taskBearer");
+    expect(writer).not.toContain("AGENT_SYNC_SHARED_SECRET_SHA256=");
+  });
+});

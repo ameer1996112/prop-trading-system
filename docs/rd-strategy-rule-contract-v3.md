@@ -2,13 +2,12 @@
 
 Contract v3 is the reviewed, paper-only RD 5-minute entry contract. Its machine-readable source is
 [`config/phase0/rd-strategy-rule-contract-v3.json`](../config/phase0/rd-strategy-rule-contract-v3.json).
-The contract identity is `rd-5m-video-contract-v3`, the current contract version is `3.1.0`, the
-canonical producer version is `3.1.0-contract3`, and the arbitration policy is
-`rd-entry-arbitration-v3`. The current producer is
-[`SND_RD_5M_V3_RELEASE.pine`](../scripts/pinescript/SND_RD_5M_V3_RELEASE.pine). The separately
-named `SND_RD_5M_V3_THREE_ENTRY_LAB.pine` remains an immutable schema-3.0 rollback artifact. The
-edge accepts both versions for historical audit continuity; new alerts use only the release
-producer.
+The contract identity is `rd-5m-video-contract-v3`, the contract version is `3.1.0`,
+the producer version is `3.1.0-contract3`, and the arbitration policy is
+`rd-entry-arbitration-v3`. Current RELEASE is generated from the current LAB authoring source.
+Historical schema-3.0 LAB source is retained in Git history, not in the current LAB file.
+The edge retains both wire versions for audit continuity. New alerts require separate release
+acceptance; the new evidence emitter remains disabled by default.
 
 ## Closed entry-model set
 
@@ -23,6 +22,14 @@ Version 3 evaluates exactly three canonical entry models:
 First touch remains `ZONE_ENGAGED`, not an entry. Version 2
 `LEGACY_BREAK_CANDLE` and `LEGACY_REJECTION_RESPECT` records remain readable but are not valid
 version 3 producer values.
+
+## Zone invalidation clarification
+
+An ordinary wick may enter a zone and records engagement. A later confirmed five-minute bar whose
+wick crosses the zone's distal boundary invalidates the zone and prevents any new entry candidate:
+`low < bottom` for demand and `high > top` for supply. Merely touching the distal boundary is not a
+breach. The inherited close rule remains stricter at the proximal boundary: a confirmed close
+inside or through the zone also invalidates it.
 
 ## BOC eligibility split
 

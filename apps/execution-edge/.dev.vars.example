@@ -1,0 +1,3 @@
+# Local-only DRY_RUN override. The checked-in Worker configuration stays disabled.
+AGENT_SYNC_ENABLED=true
+# Add AGENT_SYNC_SHARED_SECRET_SHA256 only to your copied .dev.vars file.

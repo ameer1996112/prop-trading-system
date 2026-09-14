@@ -25,6 +25,8 @@ const string BOC_DISCRETIONARY_CONTEXT_UNQUANTIFIED = "BOC_DISCRETIONARY_CONTEXT
 const string AMBIGUOUS_SAME_BAR_EXIT = "AMBIGUOUS_SAME_BAR_EXIT"
 const int ENTRY_MAX_PAYLOAD_CHARS = 35000
 const int ENTRY_MAX_ATTEMPTS = 120
+const int SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER = 9007199254740991
+const int SIGNAL_EVIDENCE_V1_MAX_PAYLOAD_CHARS = 35000
 const int EXECUTION_PROPOSAL_V1_MAX_PAYLOAD_CHARS = 35000
 const int EXECUTION_PROPOSAL_V1_SETUP_ID_MAX_CHARS = 120
 const int EXECUTION_PROPOSAL_V1_PRODUCER_ID_MAX_CHARS = 160
@@ -114,6 +116,11 @@ setupExportProducerTag = input.string("tradingview", "Producer tag", group = "Au
 setupExportDetectorHash = input.string("unverified", "Detector code hash", group = "Automation", tooltip = "Version-control or artifact digest supplied by the operator.")
 setupExportSettingsHash = input.string("unverified", "Settings hash", group = "Automation", tooltip = "Digest of the locked TradingView input profile supplied by the operator.")
 emitEntryV3Events = input.bool(false, "Emit contract-v3 entry events", group = "Automation")
+// Enable only in an isolated future alert configuration. Any alert function call
+// includes every enabled emitter: enabling this beside an existing stream will
+// mix schemas. This switch does not create an alert or admit a producer generation.
+emitSignalEvidenceV1 = input.bool(false, "Emit signal evidence v1", group = "Signal evidence", tooltip = "Evidence only. Requires an isolated future Any alert function call configuration; other enabled emitters mix schemas. Native Pine acceptance remains pending.")
+signalEvidenceV1ProducerTag = input.string("", "Evidence producer tag", group = "Signal evidence", tooltip = "Required unique tag for this isolated stream. Printable ASCII without whitespace. Invalid or oversized identifiers are rejected, never truncated.")
 entryV3Credential = input.string("", "Contract-v3 ingress credential", group = "Automation", display = display.none)
 detectorCodeHash = input.string("", "Reviewed detector SHA-256", group = "Automation")
 settingsHash = input.string("", "Reviewed settings SHA-256", group = "Automation")
@@ -2104,6 +2111,8 @@ emitSetupExportIncremental(array<string> transitions, int sequence) =>
 varip EntryAttempt[] entryAttempts = array.new<EntryAttempt>()
 varip map<int, int> entryAttemptIndexes = map.new<int, int>()
 varip int[] entrySequenceState = array.new<int>(1, 0)
+varip int[] signalEvidenceV1SequenceState = array.new<int>(1, 0)
+varip int signalEvidenceV1ProducerStartedAt = timenow
 var array<int> executionProposalV1SequenceState = array.new<int>(1, 0)
 varip int entryProducerStartedAt = timenow
 var int executionProposalV1ProducerStartedAt = timenow
@@ -2745,9 +2754,8 @@ entryMarketEventPayload(EntryAttempt attempt, bool exitFollowup) =>
      "\"barstate_isconfirmed\":" + str.tostring(confirmedSelected) + "," +
      "\"confirmed_bar\":" + confirmed + "}"
 
-entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool exitFollowup) =>
-    int producerSequence = nextEntrySequence()
-    string eventId = entryProducerInstanceId + ":" + str.tostring(producerSequence)
+entryPayloadForStream(EntryAttempt attempt, RawZone zone, string exitEvents, bool exitFollowup, string producerInstanceId, int producerSequence) =>
+    string eventId = producerInstanceId + ":" + str.tostring(producerSequence)
     bool reviewedPromotion = attempt.core.commonRulesPass and reviewedProducerHashesValid()
     string detectorHash = reviewedPromotion ? detectorCodeHash : "UNREVIEWED"
     string settingsHashValue = reviewedPromotion ? settingsHash : "UNREVIEWED"
@@ -2757,7 +2765,7 @@ entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool exitFol
      "\"strategy_version\":" + jsonString(ENTRY_STRATEGY_VERSION) + "," +
      "\"rule_contract_version\":" + jsonString(ENTRY_RULE_CONTRACT_VERSION) + "," +
      "\"execution_mode\":" + jsonString(ENTRY_EXECUTION_MODE) + "," +
-     "\"producer_instance_id\":" + jsonString(entryProducerInstanceId) + "," +
+     "\"producer_instance_id\":" + jsonString(producerInstanceId) + "," +
      "\"producer_sequence\":" + str.tostring(producerSequence) + "," +
      "\"event_id\":" + jsonString(eventId) + "," +
      "\"is_realtime\":" + str.tostring(barstate.isrealtime) + "," +
@@ -2772,6 +2780,10 @@ entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool exitFol
      "\"market_event\":" + entryMarketEventPayload(attempt, exitFollowup) + "," +
      "\"exit_events\":" + exitEvents + "," +
      "\"setups\":[" + entrySetupBundlePayload(attempt, zone) + "]}"
+
+entryPayload(EntryAttempt attempt, RawZone zone, string exitEvents, bool exitFollowup) =>
+    int producerSequence = nextEntrySequence()
+    entryPayloadForStream(attempt, zone, exitEvents, exitFollowup, entryProducerInstanceId, producerSequence)
 
 emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitEvents, bool exitFollowup) =>
     bool emitted = false
@@ -2790,6 +2802,108 @@ emitEntryPayload(EntryAttempt attempt, RawZone zone, bool intrabar, string exitE
             emitted := true
     else if emitEntryV3Events and str.length(entryV3Credential) > 0
         log.error("ENTRY_V3_CREDENTIAL_UNSAFE")
+    emitted
+
+signalEvidenceV1IdentifierSafe(string value, int maximumLength) =>
+    int length = str.length(value)
+    length > 0 and length <= maximumLength and str.match(value, "^[!-~]+$") == value
+
+signalEvidenceV1StreamIdentifierSafe(string value) =>
+    // The inner V3 wire identifier grammar additionally excludes backslashes.
+    signalEvidenceV1IdentifierSafe(value, 256) and not str.contains(value, "\\")
+
+signalEvidenceV1ProducerInstanceId() =>
+    "signal-evidence-v1:" + signalEvidenceV1ProducerTag + ":" + str.tostring(signalEvidenceV1ProducerStartedAt)
+
+signalEvidenceV1SourceValid(EntryAttempt attempt) =>
+    string tickSize = str.tostring(syminfo.mintick, format.mintick)
+    bool tickValid = str.length(tickSize) > 0 and str.length(tickSize) <= 64 and str.match(tickSize, "^(0|[1-9][0-9]*)(\\.[0-9]+)?$") == tickSize and math.sign(syminfo.mintick) == 1 and math.sign(syminfo.mintick - str.tonumber(tickSize)) == 0
+    isFiveMinute and attempt.core.commonRulesPass and reviewedProducerHashesValid() and tickValid and not na(attempt.core.engagementEpoch) and attempt.core.engagementEpoch > 0 and attempt.core.engagementEpoch <= SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER
+
+signalEvidenceV1EpochSeconds(int epochMilliseconds) =>
+    bool exact = not na(epochMilliseconds) and epochMilliseconds > 0 and epochMilliseconds <= SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER and epochMilliseconds % 1000 == 0
+    exact ? int(epochMilliseconds / 1000) : na
+
+signalEvidenceV1PriceTicks(float price) =>
+    int result = na
+    if not na(price) and math.sign(price) == 1 and math.sign(syminfo.mintick) == 1
+        float roundedTicks = math.round(price / syminfo.mintick)
+        if not na(roundedTicks) and roundedTicks >= 1 and roundedTicks <= SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER
+            int ticks = priceTicks(price)
+            // Pine float comparisons round operands to nine fractional digits.
+            // Compare the sign of the difference to reject even sub-nanoprice
+            // off-tick values; formatting alone must never repair source facts.
+            float roundTripPrice = str.tonumber(str.tostring(ticks * syminfo.mintick, format.mintick))
+            result := not na(roundTripPrice) and math.sign(price - roundTripPrice) == 0 ? ticks : na
+    result
+
+signalEvidenceV1FormationValid(EntryAttempt attempt, RawZone zone) =>
+    int originEpoch = signalEvidenceV1EpochSeconds(zone.originTime)
+    int confirmationEpoch = signalEvidenceV1EpochSeconds(zone.confirmationTime)
+    int openTicks = signalEvidenceV1PriceTicks(zone.originOpen)
+    int highTicks = signalEvidenceV1PriceTicks(zone.originHigh)
+    int lowTicks = signalEvidenceV1PriceTicks(zone.originLow)
+    int closeTicks = signalEvidenceV1PriceTicks(zone.originClose)
+    int topTicks = signalEvidenceV1PriceTicks(zone.top)
+    int bottomTicks = signalEvidenceV1PriceTicks(zone.bottom)
+    bool epochsValid = not na(originEpoch) and not na(confirmationEpoch) and originEpoch % 300 == 0 and confirmationEpoch % 300 == 0 and originEpoch < confirmationEpoch and confirmationEpoch <= attempt.core.engagementEpoch
+    bool pricesValid = not na(openTicks) and not na(highTicks) and not na(lowTicks) and not na(closeTicks) and not na(topTicks) and not na(bottomTicks)
+    bool candleValid = pricesValid and lowTicks < highTicks and lowTicks <= openTicks and openTicks <= highTicks and lowTicks <= closeTicks and closeTicks <= highTicks and (zone.demand ? openTicks > closeTicks : closeTicks > openTicks)
+    bool standard = zone.geometry == GEOMETRY_STANDARD
+    bool accuracy = zone.geometry == GEOMETRY_ACCURACY
+    int expectedTop = standard or not zone.demand ? highTicks : math.max(openTicks, closeTicks)
+    int expectedBottom = standard or zone.demand ? lowTicks : math.min(openTicks, closeTicks)
+    bool geometryValid = (standard or accuracy) and topTicks > bottomTicks and topTicks == expectedTop and bottomTicks == expectedBottom and topTicks == attempt.core.zoneTopTicks and bottomTicks == attempt.core.zoneBottomTicks
+    epochsValid and candleValid and geometryValid and zone.demand == attempt.core.demand and entrySetupId(zone) == attempt.core.setupId and signalEvidenceV1IdentifierSafe(zone.formationId, 1024) and signalEvidenceV1IdentifierSafe(attempt.core.setupId, 256)
+
+signalEvidenceV1FormationPayload(RawZone zone) =>
+    "{" +
+     "\"setup_id\":" + jsonString(entrySetupId(zone)) + "," +
+     "\"origin_epoch\":" + str.tostring(signalEvidenceV1EpochSeconds(zone.originTime)) + "," +
+     "\"confirmation_epoch\":" + str.tostring(signalEvidenceV1EpochSeconds(zone.confirmationTime)) + "," +
+     "\"direction\":" + jsonString(zone.demand ? "LONG" : "SHORT") + "," +
+     "\"variant\":" + jsonString(zone.geometry) + "," +
+     "\"origin_open_ticks\":" + str.tostring(signalEvidenceV1PriceTicks(zone.originOpen)) + "," +
+     "\"origin_high_ticks\":" + str.tostring(signalEvidenceV1PriceTicks(zone.originHigh)) + "," +
+     "\"origin_low_ticks\":" + str.tostring(signalEvidenceV1PriceTicks(zone.originLow)) + "," +
+     "\"origin_close_ticks\":" + str.tostring(signalEvidenceV1PriceTicks(zone.originClose)) + "," +
+     "\"formation_source_id\":" + jsonString(zone.formationId) + "}"
+
+signalEvidenceV1Envelope(string observation, RawZone zone) =>
+    "{\"schema_version\":\"TradeOpsSignalEvidenceInputV1\",\"observation\":" + observation + ",\"formations\":[" + signalEvidenceV1FormationPayload(zone) + "]}"
+
+emitSignalEvidenceV1ForAttempt(EntryAttempt attempt, RawZone zone) =>
+    bool emitted = false
+    if emitSignalEvidenceV1 and barstate.isrealtime
+        int currentSequence = array.get(signalEvidenceV1SequenceState, 0)
+        if na(currentSequence) or currentSequence < 0 or currentSequence >= SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER
+            log.error("SIGNAL_EVIDENCE_V1_SEQUENCE_INVALID")
+        else
+            int proposedSequence = currentSequence + 1
+            string producerInstanceId = signalEvidenceV1ProducerInstanceId()
+            string eventId = producerInstanceId + ":" + str.tostring(proposedSequence)
+            bool identityValid = signalEvidenceV1StreamIdentifierSafe(signalEvidenceV1ProducerTag) and signalEvidenceV1StreamIdentifierSafe(producerInstanceId) and signalEvidenceV1StreamIdentifierSafe(eventId) and signalEvidenceV1ProducerStartedAt > 0 and signalEvidenceV1ProducerStartedAt <= SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER
+            // The legacy builder sanitizes source labels. Evidence must reject
+            // labels it would change, preserving the separately reviewed binding.
+            bool sourceValid = signalEvidenceV1IdentifierSafe(syminfo.ticker, 256) and signalEvidenceV1IdentifierSafe(syminfo.tickerid, 256) and signalEvidenceV1IdentifierSafe(syminfo.prefix, 256) and syminfo.ticker == setupContractIdentifier(syminfo.ticker) and syminfo.tickerid == setupContractIdentifier(syminfo.tickerid) and syminfo.prefix == setupContractIdentifier(syminfo.prefix)
+            if not identityValid or not sourceValid
+                log.error("SIGNAL_EVIDENCE_V1_IDENTIFIER_INVALID")
+            else if not signalEvidenceV1SourceValid(attempt)
+                log.error("SIGNAL_EVIDENCE_V1_SOURCE_INVALID")
+            else if not signalEvidenceV1FormationValid(attempt, zone)
+                log.error("SIGNAL_EVIDENCE_V1_FORMATION_INVALID")
+            else
+                string observation = entryPayloadForStream(attempt, zone, "[]", false, producerInstanceId, proposedSequence)
+                string envelope = signalEvidenceV1Envelope(observation, zone)
+                // Every dynamic identifier is ASCII; JSON escaping only expands
+                // it to ASCII, so character length bounds UTF-8 bytes here.
+                if str.length(envelope) >= SIGNAL_EVIDENCE_V1_MAX_PAYLOAD_CHARS
+                    log.error("SIGNAL_EVIDENCE_V1_ENVELOPE_TOO_LARGE")
+                else
+                    alert(envelope, alert.freq_all)
+                    array.set(signalEvidenceV1SequenceState, 0, proposedSequence)
+                    // Local alert invocation only, never network acknowledgement.
+                    emitted := true
     emitted
 
 executionProposalV1ProducerInstanceId() =>
@@ -3862,6 +3976,7 @@ if isFiveMinute and validationReady and entryZoneCount > 0
                         drawTechnicalCandidate(attempt)
                 bool intrabarCandidate = barstate.isrealtime and not closeTriggered
                 emitEntryPayload(attempt, zone, intrabarCandidate, "[]", false)
+                emitSignalEvidenceV1ForAttempt(attempt, zone)
             if bundleReady
                 [exitEmitted, actionableExit, exitReason, exitTicks] = monitorAttemptExit(attempt, zone)
                 actionablePaperExitThisUpdate := actionablePaperExitThisUpdate or actionableExit
