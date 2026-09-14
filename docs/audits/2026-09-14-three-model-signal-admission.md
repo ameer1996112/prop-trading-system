@@ -1,5 +1,70 @@
 # Three-model signal admission local implementation audit
 
+## Final review fix wave — 2026-09-14
+
+Measured source revision: `b55f6f3`, following production fix `b574822` from
+reviewed base `7b1abec`. The final observation run measured `b55f6f3` directly.
+The other full checks measured `b574822`; the only intervening change replaced
+an adversarial import-test fixture with bounded synthetic sources. Production,
+Python, execution tests and all boundary-check inputs were identical. This
+section supersedes the historical Task 8 verification below for current results.
+
+All four Important findings and grouped cleanup were addressed. Current
+quarantined streams retain subsequent BODY_CONFLICT audit/dispute evidence under
+the same CAS fence, with immutable receipt and reservation identity and sticky
+quarantine. Live D1 regressions cover concurrent conflicts, all five rollback
+write boundaries, and generation retirement races. Private status now exposes
+stream state/reason and retained attempt associations, distinguishes unknown
+from empty generations, checks operator scope before lookup, and caps each
+deterministically ordered list at 50. The exact fields and non-atomic snapshot
+limitation are documented in the contract and recovery runbook.
+
+Pine registration IDs now reject spaces and match ASCII 0x21–0x7e excluding
+backslash; credential spaces remain significant. RELEASE was regenerated and
+the existing protected-region integrity oracle updated. The Python harness pins
+and executes the authored escape replacements; native Pine acceptance remains
+pending. Import guards enforce each reviewed dependency edge, including the
+transitive pure dependencies, store/outbox links and independent receiver.
+Existing forbidden checks and the narrow receiver PAPER_ONLY AST exception
+remain. E2E assertions mask only explicitly EDGE_DERIVED input positions, so
+supplied identities compare directly. Receiver schemas and outbox classification
+were expanded for readability. A real-D1 fake-timer test checks the 5,999/6,000 ms
+deadline and proves a late valid ACK cannot mutate the settled durable row.
+The accidentally tracked task-1 report was removed from the Git index and remains
+locally available; other plans and reports were untouched.
+
+| Final command | Result |
+| --- | --- |
+| Observation Worker suite | PASS: 32 files, 1,014 tests; 25.90 s |
+| Execution Worker suite | PASS: 42 files, 781 tests; 57.54 s |
+| Python suite | PASS: 875 tests; 42.46 s |
+| Both Worker typechecks | PASS |
+| Ruff check / format check | PASS / 104 files already formatted |
+| Pine generator check | PASS |
+| Static boundary / MT5 dry-run boundary | PASS / PASS |
+| Lockfile credentials | PASS: 5 lockfiles, 0 credential URLs |
+| Secret scan | Expected pending gate: exit 2, 62 new findings, 1 stale entry |
+| Diff whitespace | PASS |
+
+The first complete observation run had 1 timeout and 1,013 passing tests. The new
+adversarial graph test repeatedly parsed the full production tree and exceeded
+its unchanged 5-second limit under parallel suite load. The final test fixture
+uses small synthetic modules; the separate real production scan is retained.
+The affected full Worker suite was rerun successfully. Initial RED regressions
+were 9 Worker failures / 49 passes and 8 Pine failures / 32 passes. Intermediate
+fixture corrections and complete verification output are retained locally at
+`.superpowers/sdd/2026-09-14-three-model-signal-admission/final-fix-report.md`.
+
+The 62 new/1 stale secret findings remain pending explicit baseline approval.
+The new integrity oracle replaces the earlier pending oracle without increasing
+the finding count. No baseline entry was accepted or removed. Native compiler,
+real escaping/Unicode/boundary/no-sequence tests, scoped final rereview and
+separately authorized external acceptance remain pending. No deployment,
+remote database, real credential, alert, MT5 installation, order, broker, trading,
+dependency upgrade, push or merge action occurred.
+
+## Historical Task 8 evidence
+
 Date: 2026-09-14. Production implementation baseline:
 `33eea13085408af867d6fa81c1ea3ba462bf79d9` on
 `codex/three-model-signal-admission`, isolated checkout
