@@ -13,6 +13,18 @@ const request = (credential = "local-test-credential") => JSON.stringify({
   }, formations: [] },
 });
 
+function requestWithCanonicalEvidenceSize(size: number): Uint8Array {
+  const evidence = { formations: [], observation: { producer_instance_id: "pine-evidence-v1",
+    producer_sequence: 7, strategy_id: "rd_liquidity_sd_5m_v1" }, padding: "",
+    schema_version: "TradeOpsSignalEvidenceInputV1" };
+  const emptySize = encode(JSON.stringify(evidence)).length;
+  evidence.padding = "x".repeat(size - emptySize);
+  expect(encode(JSON.stringify(evidence))).toHaveLength(size);
+  return encode(JSON.stringify({ schema_version: "TradeOpsSignalAdmissionRequestV1",
+    credential: "local-test-credential", registration_id: "registration-one",
+    generation: 2, evidence }));
+}
+
 describe("signal admission transport v1", () => {
   it("parses a closed credential-free transport identity", async () => {
     const parsed = await parseAdmissionTransport(encode(request()));
@@ -40,6 +52,11 @@ describe("signal admission transport v1", () => {
   it("rejects malformed UTF-8 and the outer cap", async () => {
     await expect(parseAdmissionTransport(new Uint8Array([0xc3, 0x28]))).rejects.toThrow();
     await expect(parseAdmissionTransport(new Uint8Array(278_529))).rejects.toThrow();
+  });
+
+  it("accepts exactly 262144 canonical evidence bytes and rejects 262145", async () => {
+    await expect(parseAdmissionTransport(requestWithCanonicalEvidenceSize(262_144))).resolves.toMatchObject({ sequence: 7 });
+    await expect(parseAdmissionTransport(requestWithCanonicalEvidenceSize(262_145))).rejects.toThrow();
   });
 
   it("makes credential rotation body-hash neutral and copies evidence", async () => {

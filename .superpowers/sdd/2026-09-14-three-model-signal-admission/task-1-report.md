@@ -60,3 +60,20 @@ credential-neutral identity, input ownership, and task-only scope. No account,
 order, deployment, credential provisioning, or old-checkout changes were made.
 No implementation concern remains. Downstream decoders must honor the documented
 source-vector references and explicit sequence-zero rejection cases.
+
+## Review round 1/5 fixes
+
+- Corrected tick-size canonicalization so trailing-zero rejection applies only
+  to fractional spellings. Canonical integer tick sizes `10` and `100` are now
+  accepted; `1.0` and `0.000010` remain rejected.
+- Added literal canonical inner evidence boundary coverage: exactly 262144 bytes
+  is accepted and 262145 bytes is rejected, with test construction accounting
+  for the complete canonical serialization.
+- RED: focused suite reported 2 failures out of 25, specifically integer tick
+  sizes `10` and `100` returning null. The new inner-boundary test passed against
+  the implementation and therefore documents existing correct boundary behavior.
+- GREEN: focused suite passed 25/25 tests (2 files), exit 0.
+- Typecheck: `npm --prefix apps/observation-edge run typecheck`, exit 0.
+- Self-review: confirmed decimal validation still rejects fractional trailing
+  zeros, integer strings remain positive canonical decimals, and both byte-limit
+  assertions measure serialized evidence rather than padding alone. No concern.

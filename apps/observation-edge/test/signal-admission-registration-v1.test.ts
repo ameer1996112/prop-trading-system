@@ -18,6 +18,10 @@ describe("signal admission registration v1", () => {
     expect(new TextDecoder().decode(value!.bindingBytes)).toBe('{"detector_code_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","feed":"OANDA","producer_namespace":"tradeops.signal-evidence","schema_version":"TradeOpsSignalEvidenceBindingV1","settings_hash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","symbol":"EURUSD","tick_size":"0.00001","ticker_id":"OANDA:EURUSD"}');
   });
 
+  it.each(["10", "100"])("accepts canonical integer tick size %s", async tickSize => {
+    expect(readRegistration(await registry({ reviewed_binding: { ...binding, tick_size: tickSize } }))).not.toBeNull();
+  });
+
   it("fails authentication without a registered producer", async () => {
     expect(await authenticateRegistration({} as Transport, null, 100)).toBe(false);
   });
@@ -29,6 +33,7 @@ describe("signal admission registration v1", () => {
     ["fractional revision", { revision: 1.5 }],
     ["invalid binding digest", { reviewed_binding: { ...binding, detector_code_hash: "0".repeat(64) } }],
     ["invalid binding tick size", { reviewed_binding: { ...binding, tick_size: "0.000010" } }],
+    ["fractional integer binding tick size", { reviewed_binding: { ...binding, tick_size: "1.0" } }],
   ])("rejects %s", async (_name, change) => expect(readRegistration(await registry(change))).toBeNull());
 
   it("rejects duplicate keys and invalid UTF-8", () => {

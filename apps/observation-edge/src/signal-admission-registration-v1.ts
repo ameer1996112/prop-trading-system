@@ -49,7 +49,8 @@ export function readRegistration(bytes: Uint8Array): Registration | null {
     if (binding.schema_version !== "TradeOpsSignalEvidenceBindingV1") throw new Error();
     for (const key of ["producer_namespace", "ticker_id", "feed", "symbol", "tick_size"] as const) text(binding[key]!);
     if (typeof binding.tick_size !== "string" || !DECIMAL.test(binding.tick_size)
-      || binding.tick_size.replace(/0+$/u, "").replace(/\.$/u, "") !== binding.tick_size) throw new Error();
+      || (binding.tick_size.includes(".")
+        && binding.tick_size.replace(/0+$/u, "").replace(/\.$/u, "") !== binding.tick_size)) throw new Error();
     for (const key of ["detector_code_hash", "settings_hash"] as const) if (typeof binding[key] !== "string" || !DIGEST.test(binding[key]) || /^0{64}$/u.test(binding[key])) throw new Error();
     const scopeKey = typeof value.scope_key === "string" ? value.scope_key : (() => { throw new Error(); })();
     const scope = record(parseStrictJson(new TextEncoder().encode(scopeKey))); exact(scope, SCOPE_KEYS);
