@@ -41,7 +41,8 @@ describe("signal admission route", () => {
       method: "POST", headers: { "content-type": "application/json" }, body: encode(request),
     }), { DB: h.db, SIGNAL_ADMISSION_ENABLED: "true" }, () => f.now);
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ schema_version: "TradeOpsSignalAdmissionErrorV1", ...safety, code: "AUTHENTICATION_FAILED" });
+    expect(await response.json()).toEqual({ schema_version: "TradeOpsSignalAdmissionResponseV1", ...safety,
+      receipt_id: null, outcome: "REJECTED", code: null, duplicate: false, stream_state: null });
     expect(await h.db.prepare("SELECT next_sequence FROM signal_admission_v1_streams").first<number>("next_sequence")).toBe(1);
     await h.dispose();
   });
@@ -63,6 +64,18 @@ describe("signal admission route", () => {
       method: "POST", headers: { "content-type": "application/json" }, body, duplex: "half",
     } as RequestInit), { DB: {} as D1Database, SIGNAL_ADMISSION_ENABLED: "true" }, () => 1);
     expect(response.status).toBe(413); expect(cancelled).toBe(true);
+  });
+
+  it("redacts interrupted request stream failures into the frozen response", async () => {
+    const body = new ReadableStream<Uint8Array>({ pull() { throw new Error("LOCAL_SENSITIVE_UPLOAD_FAILURE"); } });
+    const response = await handleSignalAdmission(new Request("https://fixture.invalid/api/v1/signal-evidence", {
+      method: "POST", headers: { "content-type": "application/json" }, body, duplex: "half",
+    } as RequestInit), { DB: {} as D1Database, SIGNAL_ADMISSION_ENABLED: "true" }, () => 1);
+    expect(response.status).toBe(400);
+    const text = await response.text();
+    expect(text).not.toContain("LOCAL_SENSITIVE_UPLOAD_FAILURE");
+    expect(JSON.parse(text)).toEqual({ schema_version: "TradeOpsSignalAdmissionResponseV1", ...safety,
+      receipt_id: null, outcome: "REJECTED", code: null, duplicate: false, stream_state: null });
   });
 });
 

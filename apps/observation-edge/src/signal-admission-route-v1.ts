@@ -25,8 +25,9 @@ const OUTER_MAX = 278_528;
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: noStore });
 }
-function failure(code: string, status: number): Response {
-  return json({ schema_version: "TradeOpsSignalAdmissionErrorV1", ...safety, code }, status);
+function failure(_redactedReason: string, status: number): Response {
+  return json({ schema_version: "TradeOpsSignalAdmissionResponseV1", ...safety,
+    receipt_id: null, outcome: "REJECTED", code: null, duplicate: false, stream_state: null }, status);
 }
 async function bytes(request: Request): Promise<Uint8Array | null> {
   const reader = request.body?.getReader();
@@ -59,7 +60,8 @@ export async function handleSignalAdmission(request: Request, env: SignalAdmissi
   if (env.SIGNAL_ADMISSION_ENABLED !== "true") return failure("NOT_FOUND", 404);
   if (request.method !== "POST") return failure("METHOD_NOT_ALLOWED", 405);
   if ((request.headers.get("content-type") ?? "").split(";", 1)[0]?.trim().toLowerCase() !== "application/json") return failure("INVALID_CONTENT_TYPE", 400);
-  const body = await bytes(request);
+  let body: Uint8Array | null;
+  try { body = await bytes(request); } catch { return failure("INVALID_REQUEST", 400); }
   if (body === null) return failure("BODY_TOO_LARGE", 413);
   let transport;
   try { transport = await parseAdmissionTransport(body); } catch { return failure("INVALID_REQUEST", 400); }
