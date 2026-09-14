@@ -101,6 +101,7 @@ import {
   EntryV2MessageTooLargeError,
   EntryV2ValidationError,
 } from "./rd-entry-wire";
+import { EntryV3ValidationError } from "./rd-entry-wire-v3";
 import { INSERT_MARKET_BAR_HEARTBEAT_SQL } from "./rd-entry-queries";
 import { RD_ENTRY_PROMOTION_BINDING } from "./generated/rd-entry-promotion-binding";
 import {
@@ -122,6 +123,7 @@ import {
   reviewedSettingsHashForTicker,
 } from "./rd-entry-store-v3";
 import {
+  LIST_ENTRY_V3_COHORT_METRICS_SQL,
   LIST_ENTRY_V3_DECISION_CANDIDATES_SQL,
   LIST_ENTRY_V3_DECISION_EVIDENCE_SQL,
   LIST_ENTRY_V3_DECISION_MEMBERS_SQL,
@@ -133,6 +135,10 @@ import {
   SELECT_LATEST_RD_ENTRY_V3_RECEIPT_SQL,
   SELECT_RD_ENTRY_V3_SELECTIONS_SCHEMA_SQL,
 } from "./rd-entry-queries-v3";
+import {
+  validateCohortMetricRow,
+  type LiquidityCohortMetricRow,
+} from "./rd-entry-cohort-metrics";
 import {
   validateEntryCandidateV3,
   validateEntryEvaluationV3,
@@ -1185,10 +1191,21 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
     );
   }
 
+  let parsedBody;
+  try {
+    parsedBody = parseStrictJson(body);
+  } catch {
+    return errorResponse(
+      422,
+      "INVALID_OBSERVATION",
+      "Observation envelope failed validation",
+    );
+  }
+
   let observation;
   try {
     observation = await validateObservationEnvelope(
-      parseStrictJson(body),
+      parsedBody,
       body,
       env.RD_ENTRY_V3_DETECTOR_CODE_HASH !== undefined &&
         env.RD_ENTRY_V3_SETTINGS_HASH !== undefined
@@ -1204,6 +1221,16 @@ async function postObservation(request: Request, env: Env): Promise<Response> {
         error.status,
         error.code,
         "Schema 2.0 observation body exceeds the compact wire limit",
+      );
+    }
+    if (error instanceof EntryV3ValidationError) {
+      const validationCode = /^ENTRY_V3_[A-Z0-9_]{1,96}$/u.test(error.message)
+        ? error.message
+        : "ENTRY_V3_INVALID";
+      return errorResponse(
+        422,
+        validationCode,
+        "Schema 3.x observation envelope failed validation",
       );
     }
     if (
@@ -3881,6 +3908,60 @@ async function listPaperSimulationSummary(
   }
 }
 
+interface StoredLiquidityCohortMetricRow {
+  readonly liquidity_cohort: unknown;
+  readonly one_candle_enabled: unknown;
+  readonly entry_model: unknown;
+  readonly symbol: unknown;
+  readonly feed: unknown;
+  readonly trades: unknown;
+  readonly wins: unknown;
+  readonly losses: unknown;
+  readonly resolved: unknown;
+  readonly win_rate_bps: unknown;
+  readonly ambiguous: unknown;
+  readonly open: unknown;
+}
+
+function cohortMetricView(
+  row: StoredLiquidityCohortMetricRow,
+): LiquidityCohortMetricRow {
+  if (row.one_candle_enabled !== 0 && row.one_candle_enabled !== 1) {
+    throw new StorageUnavailableError();
+  }
+  return validateCohortMetricRow({
+    ...row,
+    one_candle_enabled: row.one_candle_enabled === 1,
+  });
+}
+
+async function listEntryCohortMetrics(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const authorizationError = await requirePaperAuthorization(request, env);
+  if (authorizationError !== null) {
+    return authorizationError;
+  }
+  try {
+    const result = await env.DB
+      .prepare(LIST_ENTRY_V3_COHORT_METRICS_SQL)
+      .all<StoredLiquidityCohortMetricRow>();
+    const items = result.results.map(cohortMetricView);
+    return jsonResponse({
+      schema_version: "rd-entry-cohort-metrics/v1",
+      mode: "PAPER_SIMULATION_ONLY",
+      items,
+    });
+  } catch {
+    return errorResponse(
+      503,
+      "ENTRY_COHORT_METRICS_UNAVAILABLE",
+      "Entry cohort metrics storage is unavailable",
+    );
+  }
+}
+
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   if (url.pathname === "/health/live") {
@@ -3955,6 +4036,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
     }
     return getRdEntryReadiness(request, env);
+  }
+  if (url.pathname === "/api/v1/rd-entry-cohort-metrics") {
+    if (request.method !== "GET") {
+      return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
+    }
+    return listEntryCohortMetrics(request, env);
   }
   if (url.pathname === "/api/v1/paper-readiness") {
     if (request.method === "GET") {

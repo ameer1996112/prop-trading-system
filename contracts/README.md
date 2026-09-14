@@ -16,3 +16,11 @@ gate-specific verifier re-hashes it and validates an approval signature against 
 
 - [RD strategy rule contract v1 schema](schema/rd-strategy-rule-contract-v1.schema.json)
 - [RD strategy rule contract v2 schema](schema/rd-strategy-rule-contract-v2.schema.json)
+- [RD entry execution proposal v1 schema](schema/rd-entry-execution-proposal-v1.schema.json)
+- [Execution candidate v1 schema](schema/execution-candidate-v1.schema.json)
+- [RD entry execution proposal v1 vectors](vectors/rd-entry-execution-proposal-v1.json)
+
+The v1 proposal and candidate contracts are strict, account-free, and permanently
+`PAPER_ONLY`. Their runtime validator also enforces exact reviewed-identity binding,
+closed M5 candle geometry, `DIR_CLOSE`, `TWO_PLUS_CANDLES`, integer-tick arithmetic,
+and an exact 4R target before deriving canonical logical and body SHA-256 digests.

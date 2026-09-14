@@ -107,16 +107,16 @@ liquidity.
 
 | Symbol/profile | Source guidance | Fidelity | Current action |
 |---|---|---|---|
-| `GBPJPY`, 5m | approximately 7-8 pips; occasionally up to 10 | `CALIBRATED` | `SHADOW_ONLY` |
-| `EURUSD`, 5m | approximately 4-5 pips | `CALIBRATED` | `SHADOW_ONLY` |
-| `USDJPY`, 5m | shown example approximately 3 pips; 7 pips too far | `CALIBRATED` | `SHADOW_ONLY` |
-| Gold / `XAU*`, 5m | varies with volume and visual context | `DISCRETIONARY` | `SHADOW_ONLY` |
-| NAS100 / indices, 5m | varies with volume and visual context | `DISCRETIONARY` | `SHADOW_ONLY` |
-| Any unlisted symbol/feed | no approved profile | `UNRESOLVED` | `SHADOW_ONLY` |
+| All supported 5m profiles | reference indicator exposes `Bigger Structure Max Distance (% of move) = 30` | `CALIBRATED` | `SHADOW_ONLY` |
 
-An approved distance profile must define the feed, symbol, tick size, measurement endpoints,
-session, sample set, and positive/negative labeled charts. Until then, missing distance, zero
-distance, ATR fallback, and asset-class fallback all fail closed.
+The maximum zone-to-liquidity distance is 30% of the candidate's full zone-linked,
+pre-retracement impulse. For demand, the detector takes the highest high from zone confirmation
+through the candle before the liquidity swing; for supply it takes the lowest low across that same
+causal range. This broad extreme is used only for the distance denominator. The continuation-BOS
+level is the candidate's local opposite-candle-leg extreme: the leg high for demand and the leg low
+for supply. This deliberately keeps mixed-color candles in the broader distance measurement without
+requiring continuation price to break the entire originating move. Missing or zero impulse distance
+fails closed. ATR and fixed asset-class pip fallbacks do not qualify liquidity.
 
 ## Entry models
 

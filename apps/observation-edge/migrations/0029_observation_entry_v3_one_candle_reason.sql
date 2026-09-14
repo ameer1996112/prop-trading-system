@@ -4,6 +4,82 @@ PRAGMA defer_foreign_keys = ON;
 
 DROP TRIGGER observation_entry_v3_paper_links_authorization_guard;
 DROP TRIGGER observation_entry_v3_shadow_positions_authorization_guard;
+DROP TRIGGER observation_entry_v3_selection_members_no_update;
+DROP TRIGGER observation_entry_v3_selection_members_no_delete;
+DROP TRIGGER observation_entry_v3_parity_no_update;
+DROP TRIGGER observation_entry_v3_parity_no_delete;
+DROP TRIGGER observation_entry_v3_paper_links_no_update;
+DROP TRIGGER observation_entry_v3_paper_links_no_delete;
+
+-- Snapshot every table that directly references selections. These strict
+-- migration-local tables deliberately omit only the selections parent FK so
+-- the published child tables can be removed before rebuilding their parent.
+CREATE TABLE observation_entry_v3_selection_members_migration_backup (
+    selection_id TEXT NOT NULL,
+    object_kind TEXT NOT NULL CHECK (object_kind IN ('CANDIDATE', 'EVIDENCE')),
+    object_id TEXT NOT NULL,
+    PRIMARY KEY (selection_id, object_kind, object_id)
+) STRICT;
+
+INSERT INTO observation_entry_v3_selection_members_migration_backup
+SELECT selection_id, object_kind, object_id
+FROM observation_entry_v3_selection_members;
+
+CREATE TABLE observation_entry_v3_parity_migration_backup (
+    parity_id TEXT PRIMARY KEY NOT NULL,
+    event_id TEXT NOT NULL
+        REFERENCES observation_entry_v3_events(event_id) ON DELETE RESTRICT,
+    selection_id TEXT NOT NULL UNIQUE,
+    parity_status TEXT NOT NULL CHECK (
+        parity_status IN ('MATCH', 'MISMATCH', 'NOT_PROVIDED')
+    ),
+    mismatch_reason TEXT CHECK (
+        mismatch_reason IS NULL
+        OR mismatch_reason IN (
+            'CANDIDATE_IDENTITIES',
+            'EVIDENCE_IDENTITIES',
+            'SELECTED_CANDIDATE',
+            'REASON',
+            'ACTION',
+            'MULTIPLE'
+        )
+    ),
+    compared_at TEXT NOT NULL
+) STRICT;
+
+INSERT INTO observation_entry_v3_parity_migration_backup
+SELECT
+    parity_id, event_id, selection_id, parity_status, mismatch_reason,
+    compared_at
+FROM observation_entry_v3_parity;
+
+CREATE TABLE observation_entry_v3_paper_links_migration_backup (
+    setup_id TEXT NOT NULL,
+    attempt_kind TEXT NOT NULL CHECK (attempt_kind IN ('INITIAL', 'RE_ENTRY')),
+    selection_id TEXT NOT NULL UNIQUE,
+    intent_id TEXT NOT NULL UNIQUE
+        REFERENCES paper_trade_intents(intent_id) ON DELETE RESTRICT,
+    direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+    trigger_epoch INTEGER NOT NULL CHECK (trigger_epoch >= 0),
+    trigger_sequence INTEGER NOT NULL CHECK (trigger_sequence >= 0),
+    evaluated_at_epoch INTEGER NOT NULL CHECK (evaluated_at_epoch >= 0),
+    entry_ticks INTEGER NOT NULL,
+    stop_ticks INTEGER NOT NULL,
+    target_ticks INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (setup_id, attempt_kind)
+) STRICT;
+
+INSERT INTO observation_entry_v3_paper_links_migration_backup
+SELECT
+    setup_id, attempt_kind, selection_id, intent_id, direction, trigger_epoch,
+    trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
+    target_ticks, created_at
+FROM observation_entry_v3_paper_links;
+
+DROP TABLE observation_entry_v3_paper_links;
+DROP TABLE observation_entry_v3_parity;
+DROP TABLE observation_entry_v3_selection_members;
 
 CREATE TABLE observation_entry_v3_selections_one_candle_reason (
     selection_id TEXT PRIMARY KEY NOT NULL,
@@ -114,6 +190,80 @@ DROP TABLE observation_entry_v3_selections;
 ALTER TABLE observation_entry_v3_selections_one_candle_reason
     RENAME TO observation_entry_v3_selections;
 
+CREATE TABLE observation_entry_v3_selection_members (
+    selection_id TEXT NOT NULL
+        REFERENCES observation_entry_v3_selections(selection_id)
+        ON DELETE RESTRICT,
+    object_kind TEXT NOT NULL CHECK (object_kind IN ('CANDIDATE', 'EVIDENCE')),
+    object_id TEXT NOT NULL,
+    PRIMARY KEY (selection_id, object_kind, object_id)
+) STRICT;
+
+INSERT INTO observation_entry_v3_selection_members
+SELECT selection_id, object_kind, object_id
+FROM observation_entry_v3_selection_members_migration_backup;
+
+CREATE TABLE observation_entry_v3_parity (
+    parity_id TEXT PRIMARY KEY NOT NULL,
+    event_id TEXT NOT NULL,
+    selection_id TEXT NOT NULL UNIQUE
+        REFERENCES observation_entry_v3_selections(selection_id)
+        ON DELETE RESTRICT,
+    parity_status TEXT NOT NULL CHECK (
+        parity_status IN ('MATCH', 'MISMATCH', 'NOT_PROVIDED')
+    ),
+    mismatch_reason TEXT CHECK (
+        mismatch_reason IS NULL
+        OR mismatch_reason IN (
+            'CANDIDATE_IDENTITIES',
+            'EVIDENCE_IDENTITIES',
+            'SELECTED_CANDIDATE',
+            'REASON',
+            'ACTION',
+            'MULTIPLE'
+        )
+    ),
+    compared_at TEXT NOT NULL,
+    FOREIGN KEY (event_id)
+        REFERENCES observation_entry_v3_events(event_id) ON DELETE RESTRICT
+) STRICT;
+
+INSERT INTO observation_entry_v3_parity
+SELECT
+    parity_id, event_id, selection_id, parity_status, mismatch_reason,
+    compared_at
+FROM observation_entry_v3_parity_migration_backup;
+
+CREATE TABLE observation_entry_v3_paper_links (
+    setup_id TEXT NOT NULL,
+    attempt_kind TEXT NOT NULL CHECK (attempt_kind IN ('INITIAL', 'RE_ENTRY')),
+    selection_id TEXT NOT NULL UNIQUE
+        REFERENCES observation_entry_v3_selections(selection_id)
+        ON DELETE RESTRICT,
+    intent_id TEXT NOT NULL UNIQUE
+        REFERENCES paper_trade_intents(intent_id) ON DELETE RESTRICT,
+    direction TEXT NOT NULL CHECK (direction IN ('LONG', 'SHORT')),
+    trigger_epoch INTEGER NOT NULL CHECK (trigger_epoch >= 0),
+    trigger_sequence INTEGER NOT NULL CHECK (trigger_sequence >= 0),
+    evaluated_at_epoch INTEGER NOT NULL CHECK (evaluated_at_epoch >= 0),
+    entry_ticks INTEGER NOT NULL,
+    stop_ticks INTEGER NOT NULL,
+    target_ticks INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (setup_id, attempt_kind)
+) STRICT;
+
+INSERT INTO observation_entry_v3_paper_links
+SELECT
+    setup_id, attempt_kind, selection_id, intent_id, direction, trigger_epoch,
+    trigger_sequence, evaluated_at_epoch, entry_ticks, stop_ticks,
+    target_ticks, created_at
+FROM observation_entry_v3_paper_links_migration_backup;
+
+DROP TABLE observation_entry_v3_paper_links_migration_backup;
+DROP TABLE observation_entry_v3_parity_migration_backup;
+DROP TABLE observation_entry_v3_selection_members_migration_backup;
+
 CREATE INDEX idx_observation_entry_v3_selections_decision_order
     ON observation_entry_v3_selections(
         evaluated_at_epoch DESC,
@@ -131,6 +281,24 @@ BEFORE UPDATE ON observation_entry_v3_selections
 BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
 CREATE TRIGGER observation_entry_v3_selections_no_delete
 BEFORE DELETE ON observation_entry_v3_selections
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_selection_members_no_update
+BEFORE UPDATE ON observation_entry_v3_selection_members
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_selection_members_no_delete
+BEFORE DELETE ON observation_entry_v3_selection_members
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_parity_no_update
+BEFORE UPDATE ON observation_entry_v3_parity
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_parity_no_delete
+BEFORE DELETE ON observation_entry_v3_parity
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_paper_links_no_update
+BEFORE UPDATE ON observation_entry_v3_paper_links
+BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
+CREATE TRIGGER observation_entry_v3_paper_links_no_delete
+BEFORE DELETE ON observation_entry_v3_paper_links
 BEGIN SELECT RAISE(ABORT, 'append-only table'); END;
 CREATE TRIGGER observation_entry_v3_selections_liquidity_cohort_insert_guard
 BEFORE INSERT ON observation_entry_v3_selections

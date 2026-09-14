@@ -59,7 +59,7 @@ def test_release_declares_the_canonical_31_paper_only_identity() -> None:
 
 def test_release_serializers_exactly_match_edge_strict_object_keys() -> None:
     serializer_contracts = {
-        "entryPayload": "TOP_LEVEL_KEYS",
+        "entryPayloadForStream": "TOP_LEVEL_KEYS",
         "entryCandidatePayload": "CANDIDATE_KEYS",
         "entryEvidencePayload": "EVIDENCE_KEYS",
         "entrySelectionPayload": "SELECTION_KEYS",

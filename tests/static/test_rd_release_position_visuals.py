@@ -34,9 +34,17 @@ def test_visual_change_preserves_release_alert_surface() -> None:
 
     assert 'const string ENTRY_SCHEMA_VERSION = "3.1"' in pine
     assert 'const string ENTRY_EXECUTION_MODE = "PAPER_ONLY"' in pine
-    assert pine.count("alert(") == 3
-    assert pine.count("alert(envelope, alert.freq_all)") == 2
-    assert pine.count("alert(envelope, alert.freq_once_per_bar_close)") == 1
+    evidence = pine.split(
+        "emitSignalEvidenceV1ForAttempt(EntryAttempt attempt, RawZone zone) =>\n", 1
+    )[1].split("\nexecutionProposalV1ProducerInstanceId(", 1)[0]
+    assert "emitSignalEvidenceV1 = input.bool(false," in pine
+    assert "if emitSignalEvidenceV1 and barstate.isrealtime" in evidence
+    assert evidence.count("alert(") == 1
+    assert "alert(envelope, alert.freq_all)" in evidence
+    legacy = pine.replace(evidence, "")
+    assert legacy.count("alert(") == 3
+    assert legacy.count("alert(envelope, alert.freq_all)") == 2
+    assert legacy.count("alert(envelope, alert.freq_once_per_bar_close)") == 1
 
 
 def test_ingress_credentials_remain_hidden_from_tradingview_display() -> None:

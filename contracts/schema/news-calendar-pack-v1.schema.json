@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/news-calendar-pack-v1.schema.json",
+  "title": "NewsCalendarPackV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pack_version", "pack_sha256", "coverage_start_epoch", "coverage_end_epoch", "issuer_id", "issued_at_epoch", "events"],
+  "properties": {
+    "schema_version": {"const": "NewsCalendarPackV1"}, "pack_version": {"$ref": "#/$defs/identifier"}, "pack_sha256": {"$ref": "#/$defs/sha256"},
+    "coverage_start_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "coverage_end_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "issuer_id": {"$ref": "#/$defs/identifier"},
+    "issued_at_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "events": {"type": "array", "minItems": 0, "maxItems": 512, "items": {"$ref": "#/$defs/event"}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[!-\\[\\]-~]+$"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}, "nonnegativeSafeInteger": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "event": {"type": "object", "additionalProperties": false, "required": ["event_id", "currencies", "impact", "start_epoch", "end_epoch", "title"], "properties": {"event_id": {"$ref": "#/$defs/identifier"}, "currencies": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"enum": ["EUR", "GBP", "JPY", "USD"]}}, "impact": {"const": "HIGH"}, "start_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "end_epoch": {"$ref": "#/$defs/nonnegativeSafeInteger"}, "title": {"type": "string", "minLength": 1, "maxLength": 240}}}
+  },
+  "description": "Bounded operator-attested UTC high-impact news coverage pack."
+}

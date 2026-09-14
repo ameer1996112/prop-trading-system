@@ -1,4 +1,4 @@
-import { fetchBounded, parseStrictResponse } from "./api";
+import { fetchBounded, PaperAuthorizationError, parseStrictResponse } from "./api";
 
 export type EntryModel = "BOC" | "DIR_CLOSE" | "HTF_FLIP";
 export type EntryAction =
@@ -963,19 +963,29 @@ const ERROR_SNAPSHOT: EntryDecisionSnapshot = {
   message: "Entry decisions are unavailable or malformed.",
 };
 
+export async function loadEntryDecisionsStrict(
+  credential: string,
+  signal?: AbortSignal,
+): Promise<EntryDecisionSnapshot> {
+  if (credential.length < 1 || credential.length > 1_024) {
+    throw new Error("Paper operator credential is invalid.");
+  }
+  const response = await fetchBounded(
+    "/api/v1/rd-entry-decisions?limit=50",
+    signal,
+    { Authorization: `Bearer ${credential}` },
+  );
+  if (response.status === 401) throw new PaperAuthorizationError();
+  if (response.status !== 200) throw new Error(ERROR_SNAPSHOT.message);
+  return parseReport(await parseStrictResponse(response));
+}
+
 export async function loadEntryDecisions(
   credential: string,
   signal?: AbortSignal,
 ): Promise<EntryDecisionSnapshot> {
   try {
-    if (credential.length < 1 || credential.length > 1_024) return ERROR_SNAPSHOT;
-    const response = await fetchBounded(
-      "/api/v1/rd-entry-decisions?limit=50",
-      signal,
-      { Authorization: `Bearer ${credential}` },
-    );
-    if (response.status !== 200) return ERROR_SNAPSHOT;
-    return parseReport(await parseStrictResponse(response));
+    return await loadEntryDecisionsStrict(credential, signal);
   } catch {
     return ERROR_SNAPSHOT;
   }

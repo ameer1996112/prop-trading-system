@@ -1,0 +1,2153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.invalid/prop-trading/agent-sync-request-v1.schema.json",
+  "title": "AgentSyncRequestV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "installation_id",
+    "account_id",
+    "account_profile_sha256",
+    "safety_epoch",
+    "request_sequence",
+    "last_acknowledged_server_sequence",
+    "nonce",
+    "sent_at_epoch",
+    "body_sha256",
+    "account_snapshot",
+    "events",
+    "broker_bar_evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "AgentSyncRequestV1"
+    },
+    "installation_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "account_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "account_profile_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "safety_epoch": {
+      "$ref": "#/$defs/nonnegativeSafeInteger"
+    },
+    "request_sequence": {
+      "$ref": "#/$defs/positiveSafeInteger"
+    },
+    "last_acknowledged_server_sequence": {
+      "$ref": "#/$defs/nonnegativeSafeInteger"
+    },
+    "nonce": {
+      "$ref": "#/$defs/identifier"
+    },
+    "sent_at_epoch": {
+      "$ref": "#/$defs/nonnegativeSafeInteger"
+    },
+    "body_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "account_snapshot": {
+      "$ref": "#/$defs/accountSnapshot"
+    },
+    "events": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/agentEvent"
+      }
+    },
+    "broker_bar_evidence": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/brokerBarEvidence"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[!-\\[\\]-~]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "not": {
+        "const": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "nonnegativeSafeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "positiveSafeInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "safeInteger": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "heartbeatFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "terminal_connection_state",
+        "account_trade_permission",
+        "terminal_trade_permission",
+        "algo_trading_permission",
+        "broker_time_epoch",
+        "windows_time_epoch"
+      ],
+      "properties": {
+        "terminal_connection_state": {
+          "enum": [
+            "CONNECTED",
+            "DISCONNECTED",
+            "UNKNOWN"
+          ]
+        },
+        "account_trade_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "terminal_trade_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "algo_trading_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "broker_time_epoch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "windows_time_epoch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "terminalStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "terminal_build",
+        "ea_sha256",
+        "manifest_sha256",
+        "account_fingerprint_sha256",
+        "terminal_connection_state",
+        "account_trade_permission",
+        "terminal_trade_permission",
+        "algo_trading_permission"
+      ],
+      "properties": {
+        "terminal_build": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "ea_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "account_fingerprint_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "terminal_connection_state": {
+          "enum": [
+            "CONNECTED",
+            "DISCONNECTED",
+            "UNKNOWN"
+          ]
+        },
+        "account_trade_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "terminal_trade_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "algo_trading_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        }
+      }
+    },
+    "submitStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "lease_id",
+        "reservation_id",
+        "broker_request_id",
+        "state",
+        "requested_volume_steps",
+        "filled_volume_steps",
+        "residual_volume_steps",
+        "broker_order_tickets",
+        "acknowledgement_code"
+      ],
+      "properties": {
+        "command_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "lease_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "reservation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "broker_request_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "state": {
+          "enum": [
+            "JOURNALED",
+            "SENT",
+            "ACK_REJECTED",
+            "ACK_ACCEPTED",
+            "ACK_UNKNOWN"
+          ]
+        },
+        "requested_volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "filled_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "residual_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "broker_order_tickets": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/positiveSafeInteger"
+          }
+        },
+        "acknowledgement_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "orderStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order_ticket",
+        "attribution_state",
+        "command_id",
+        "broker_request_id",
+        "state",
+        "direction",
+        "broker_symbol",
+        "requested_volume_steps",
+        "filled_volume_steps",
+        "residual_volume_steps",
+        "entry_price_ticks",
+        "stop_ticks",
+        "target_ticks"
+      ],
+      "properties": {
+        "order_ticket": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "attribution_state": {
+          "enum": [
+            "ATTRIBUTED",
+            "UNATTRIBUTED",
+            "UNKNOWN"
+          ]
+        },
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "broker_request_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "DISCOVERED",
+            "PENDING",
+            "PARTIALLY_FILLED",
+            "FILLED",
+            "CANCELED",
+            "REJECTED",
+            "EXPIRED",
+            "UNKNOWN"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ]
+        },
+        "broker_symbol": {
+          "$ref": "#/$defs/identifier"
+        },
+        "requested_volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "filled_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "residual_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "entry_price_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stop_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "attribution_state": {
+              "const": "ATTRIBUTED"
+            },
+            "command_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "broker_request_id": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "properties": {
+            "attribution_state": {
+              "enum": [
+                "UNATTRIBUTED",
+                "UNKNOWN"
+              ]
+            },
+            "command_id": {
+              "type": "null"
+            },
+            "broker_request_id": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "dealStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deal_id",
+        "order_ticket",
+        "position_ticket",
+        "attribution_state",
+        "command_id",
+        "broker_request_id",
+        "role",
+        "direction",
+        "volume_steps",
+        "price_ticks",
+        "commission_minor_units"
+      ],
+      "properties": {
+        "deal_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "order_ticket": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/positiveSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "position_ticket": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/positiveSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attribution_state": {
+          "enum": [
+            "ATTRIBUTED",
+            "UNATTRIBUTED",
+            "UNKNOWN"
+          ]
+        },
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "broker_request_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "enum": [
+            "ENTRY",
+            "EXIT"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ]
+        },
+        "volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "price_ticks": {
+          "$ref": "#/$defs/safeInteger"
+        },
+        "commission_minor_units": {
+          "$ref": "#/$defs/safeInteger"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "attribution_state": {
+              "const": "ATTRIBUTED"
+            },
+            "command_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "broker_request_id": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "properties": {
+            "attribution_state": {
+              "enum": [
+                "UNATTRIBUTED",
+                "UNKNOWN"
+              ]
+            },
+            "command_id": {
+              "type": "null"
+            },
+            "broker_request_id": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "positionStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position_ticket",
+        "attribution_state",
+        "command_id",
+        "broker_request_id",
+        "state",
+        "direction",
+        "volume_steps",
+        "weighted_fill_price_ticks",
+        "deal_ids"
+      ],
+      "properties": {
+        "position_ticket": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/positiveSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attribution_state": {
+          "enum": [
+            "ATTRIBUTED",
+            "UNATTRIBUTED",
+            "UNKNOWN"
+          ]
+        },
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "broker_request_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "ABSENT",
+            "OPEN",
+            "PARTIAL",
+            "CLOSED"
+          ]
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "enum": [
+                "LONG",
+                "SHORT"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "weighted_fill_price_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deal_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "attribution_state": {
+                  "const": "ATTRIBUTED"
+                },
+                "command_id": {
+                  "$ref": "#/$defs/identifier"
+                },
+                "broker_request_id": {
+                  "$ref": "#/$defs/identifier"
+                }
+              }
+            },
+            {
+              "properties": {
+                "attribution_state": {
+                  "enum": [
+                    "UNATTRIBUTED",
+                    "UNKNOWN"
+                  ]
+                },
+                "command_id": {
+                  "type": "null"
+                },
+                "broker_request_id": {
+                  "type": "null"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "state": {
+              "const": "ABSENT"
+            },
+            "position_ticket": {
+              "type": "null"
+            },
+            "attribution_state": {
+              "enum": [
+                "UNATTRIBUTED",
+                "UNKNOWN"
+              ]
+            },
+            "command_id": {
+              "type": "null"
+            },
+            "broker_request_id": {
+              "type": "null"
+            },
+            "direction": {
+              "type": "null"
+            },
+            "volume_steps": {
+              "const": 0
+            },
+            "weighted_fill_price_ticks": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "state": {
+              "enum": [
+                "OPEN",
+                "PARTIAL"
+              ]
+            },
+            "position_ticket": {
+              "$ref": "#/$defs/positiveSafeInteger"
+            },
+            "direction": {
+              "enum": [
+                "LONG",
+                "SHORT"
+              ]
+            },
+            "volume_steps": {
+              "$ref": "#/$defs/positiveSafeInteger"
+            },
+            "weighted_fill_price_ticks": {
+              "$ref": "#/$defs/safeInteger"
+            }
+          }
+        },
+        {
+          "properties": {
+            "state": {
+              "const": "CLOSED"
+            },
+            "position_ticket": {
+              "$ref": "#/$defs/positiveSafeInteger"
+            },
+            "direction": {
+              "enum": [
+                "LONG",
+                "SHORT"
+              ]
+            },
+            "volume_steps": {
+              "const": 0
+            },
+            "weighted_fill_price_ticks": {
+              "$ref": "#/$defs/safeInteger"
+            }
+          }
+        }
+      ]
+    },
+    "protectionStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position_ticket",
+        "attribution_state",
+        "command_id",
+        "broker_request_id",
+        "state",
+        "protected_volume_steps",
+        "stop_ticks",
+        "target_ticks"
+      ],
+      "properties": {
+        "position_ticket": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "attribution_state": {
+          "enum": [
+            "ATTRIBUTED",
+            "UNATTRIBUTED",
+            "UNKNOWN"
+          ]
+        },
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "broker_request_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "REQUIRED",
+            "VERIFIED",
+            "MISSING_DEFINITE",
+            "UNKNOWN",
+            "BREACHED"
+          ]
+        },
+        "protected_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "stop_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "attribution_state": {
+                  "const": "ATTRIBUTED"
+                },
+                "command_id": {
+                  "$ref": "#/$defs/identifier"
+                },
+                "broker_request_id": {
+                  "$ref": "#/$defs/identifier"
+                }
+              }
+            },
+            {
+              "properties": {
+                "attribution_state": {
+                  "enum": [
+                    "UNATTRIBUTED",
+                    "UNKNOWN"
+                  ]
+                },
+                "command_id": {
+                  "type": "null"
+                },
+                "broker_request_id": {
+                  "type": "null"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "state": {
+              "const": "VERIFIED"
+            },
+            "stop_ticks": {
+              "$ref": "#/$defs/safeInteger"
+            },
+            "target_ticks": {
+              "$ref": "#/$defs/safeInteger"
+            }
+          }
+        },
+        {
+          "properties": {
+            "state": {
+              "enum": [
+                "REQUIRED",
+                "MISSING_DEFINITE",
+                "UNKNOWN",
+                "BREACHED"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "closeAttemptStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "close_attempt_id",
+        "position_ticket",
+        "attribution_state",
+        "command_id",
+        "broker_request_id",
+        "state",
+        "requested_volume_steps",
+        "filled_volume_steps",
+        "residual_volume_steps",
+        "deal_ids"
+      ],
+      "properties": {
+        "close_attempt_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "position_ticket": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "attribution_state": {
+          "enum": [
+            "ATTRIBUTED",
+            "UNATTRIBUTED",
+            "UNKNOWN"
+          ]
+        },
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "broker_request_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "JOURNALED",
+            "SENT",
+            "ACK_UNKNOWN",
+            "RECONCILED"
+          ]
+        },
+        "requested_volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "filled_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "residual_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "deal_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "attribution_state": {
+              "const": "ATTRIBUTED"
+            },
+            "command_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "broker_request_id": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "properties": {
+            "attribution_state": {
+              "enum": [
+                "UNATTRIBUTED",
+                "UNKNOWN"
+              ]
+            },
+            "command_id": {
+              "type": "null"
+            },
+            "broker_request_id": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "unattributedExposureStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exposure_id",
+        "exposure_kind",
+        "broker_ticket",
+        "broker_symbol",
+        "direction",
+        "volume_steps",
+        "price_ticks",
+        "pricing_state",
+        "modeled_loss_minor_units",
+        "protection_state",
+        "state"
+      ],
+      "properties": {
+        "exposure_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "exposure_kind": {
+          "enum": [
+            "ORDER",
+            "POSITION"
+          ]
+        },
+        "broker_ticket": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "broker_symbol": {
+          "$ref": "#/$defs/identifier"
+        },
+        "direction": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ]
+        },
+        "volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "price_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pricing_state": {
+          "enum": [
+            "PRICED",
+            "UNPRICED"
+          ]
+        },
+        "modeled_loss_minor_units": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protection_state": {
+          "enum": [
+            "REQUIRED",
+            "VERIFIED",
+            "MISSING_DEFINITE",
+            "UNKNOWN",
+            "BREACHED"
+          ]
+        },
+        "state": {
+          "enum": [
+            "DISCOVERED",
+            "ATTRIBUTED",
+            "CLOSED",
+            "UNKNOWN"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "pricing_state": {
+              "const": "PRICED"
+            },
+            "price_ticks": {
+              "$ref": "#/$defs/safeInteger"
+            },
+            "modeled_loss_minor_units": {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            }
+          }
+        },
+        {
+          "properties": {
+            "pricing_state": {
+              "const": "UNPRICED"
+            },
+            "price_ticks": {
+              "type": "null"
+            },
+            "modeled_loss_minor_units": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "reconciliationStateFact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "watermark",
+        "previous_watermark",
+        "state",
+        "reconciliation_sha256",
+        "history_from_epoch",
+        "history_to_epoch",
+        "sweep_number",
+        "consecutive_stable_sweeps",
+        "order_tickets",
+        "deal_ids",
+        "position_tickets",
+        "unattributed_exposure_ids"
+      ],
+      "properties": {
+        "watermark": {
+          "$ref": "#/$defs/identifier"
+        },
+        "previous_watermark": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "STABLE",
+            "UNSTABLE",
+            "GAP",
+            "UNKNOWN"
+          ]
+        },
+        "reconciliation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "history_from_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "history_to_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "sweep_number": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "consecutive_stable_sweeps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "order_tickets": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/positiveSafeInteger"
+          }
+        },
+        "deal_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "position_tickets": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/positiveSafeInteger"
+          }
+        },
+        "unattributed_exposure_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      }
+    },
+    "agentEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "event_id",
+        "installation_id",
+        "account_id",
+        "account_profile_sha256",
+        "safety_epoch",
+        "sequence",
+        "observed_at_epoch",
+        "kind",
+        "body_sha256",
+        "fact"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "AgentEventV1"
+        },
+        "event_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "installation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "account_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "account_profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "safety_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "sequence": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "observed_at_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "kind": {
+          "enum": [
+            "HEARTBEAT",
+            "TERMINAL_STATE",
+            "SUBMIT_STATE",
+            "ORDER_STATE",
+            "DEAL_STATE",
+            "POSITION_STATE",
+            "PROTECTION_STATE",
+            "CLOSE_ATTEMPT_STATE",
+            "UNATTRIBUTED_EXPOSURE_STATE",
+            "RECONCILIATION_STATE"
+          ]
+        },
+        "body_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "fact": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/heartbeatFact"
+            },
+            {
+              "$ref": "#/$defs/terminalStateFact"
+            },
+            {
+              "$ref": "#/$defs/submitStateFact"
+            },
+            {
+              "$ref": "#/$defs/orderStateFact"
+            },
+            {
+              "$ref": "#/$defs/dealStateFact"
+            },
+            {
+              "$ref": "#/$defs/positionStateFact"
+            },
+            {
+              "$ref": "#/$defs/protectionStateFact"
+            },
+            {
+              "$ref": "#/$defs/closeAttemptStateFact"
+            },
+            {
+              "$ref": "#/$defs/unattributedExposureStateFact"
+            },
+            {
+              "$ref": "#/$defs/reconciliationStateFact"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "HEARTBEAT"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/heartbeatFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "TERMINAL_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/terminalStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "SUBMIT_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/submitStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "ORDER_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/orderStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "DEAL_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/dealStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "POSITION_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/positionStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "PROTECTION_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/protectionStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "CLOSE_ATTEMPT_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/closeAttemptStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "UNATTRIBUTED_EXPOSURE_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/unattributedExposureStateFact"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "RECONCILIATION_STATE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "fact": {
+                "$ref": "#/$defs/reconciliationStateFact"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "symbolState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_symbol",
+        "broker_symbol",
+        "synchronization_state",
+        "selection_state",
+        "capability_state",
+        "symbol_capability_sha256",
+        "trade_mode",
+        "bid_ticks",
+        "ask_ticks",
+        "observed_at_epoch"
+      ],
+      "properties": {
+        "source_symbol": {
+          "enum": [
+            "EURUSD",
+            "GBPJPY",
+            "USDJPY",
+            "XAUUSD",
+            "NAS100"
+          ]
+        },
+        "broker_symbol": {
+          "$ref": "#/$defs/identifier"
+        },
+        "synchronization_state": {
+          "enum": [
+            "SYNCHRONIZED",
+            "UNSYNCHRONIZED",
+            "UNKNOWN"
+          ]
+        },
+        "selection_state": {
+          "enum": [
+            "SELECTED",
+            "NOT_SELECTED",
+            "UNKNOWN"
+          ]
+        },
+        "capability_state": {
+          "enum": [
+            "CURRENT",
+            "CHANGED",
+            "UNKNOWN"
+          ]
+        },
+        "symbol_capability_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "trade_mode": {
+          "enum": [
+            "DISABLED",
+            "LONG_ONLY",
+            "SHORT_ONLY",
+            "FULL",
+            "CLOSE_ONLY",
+            "UNKNOWN"
+          ]
+        },
+        "bid_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ask_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_at_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        }
+      }
+    },
+    "openOrderSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order_ticket",
+        "attribution_state",
+        "command_id",
+        "broker_request_id",
+        "state",
+        "direction",
+        "broker_symbol",
+        "requested_volume_steps",
+        "filled_volume_steps",
+        "residual_volume_steps",
+        "entry_price_ticks",
+        "stop_ticks",
+        "target_ticks",
+        "protection_state"
+      ],
+      "properties": {
+        "order_ticket": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "attribution_state": {
+          "enum": [
+            "ATTRIBUTED",
+            "UNATTRIBUTED",
+            "UNKNOWN"
+          ]
+        },
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "broker_request_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "DISCOVERED",
+            "PENDING",
+            "PARTIALLY_FILLED",
+            "UNKNOWN"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ]
+        },
+        "broker_symbol": {
+          "$ref": "#/$defs/identifier"
+        },
+        "requested_volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "filled_volume_steps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "residual_volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "entry_price_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stop_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protection_state": {
+          "enum": [
+            "REQUIRED",
+            "VERIFIED",
+            "MISSING_DEFINITE",
+            "UNKNOWN",
+            "BREACHED"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "attribution_state": {
+              "const": "ATTRIBUTED"
+            },
+            "command_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "broker_request_id": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "properties": {
+            "attribution_state": {
+              "enum": [
+                "UNATTRIBUTED",
+                "UNKNOWN"
+              ]
+            },
+            "command_id": {
+              "type": "null"
+            },
+            "broker_request_id": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "positionSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position_ticket",
+        "attribution_state",
+        "command_id",
+        "broker_request_id",
+        "state",
+        "direction",
+        "broker_symbol",
+        "volume_steps",
+        "weighted_fill_price_ticks",
+        "stop_ticks",
+        "target_ticks",
+        "protection_state",
+        "deal_ids"
+      ],
+      "properties": {
+        "position_ticket": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "attribution_state": {
+          "enum": [
+            "ATTRIBUTED",
+            "UNATTRIBUTED",
+            "UNKNOWN"
+          ]
+        },
+        "command_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "broker_request_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "OPEN",
+            "PARTIAL"
+          ]
+        },
+        "direction": {
+          "enum": [
+            "LONG",
+            "SHORT"
+          ]
+        },
+        "broker_symbol": {
+          "$ref": "#/$defs/identifier"
+        },
+        "volume_steps": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "weighted_fill_price_ticks": {
+          "$ref": "#/$defs/safeInteger"
+        },
+        "stop_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target_ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protection_state": {
+          "enum": [
+            "REQUIRED",
+            "VERIFIED",
+            "MISSING_DEFINITE",
+            "UNKNOWN",
+            "BREACHED"
+          ]
+        },
+        "deal_ids": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "attribution_state": {
+              "const": "ATTRIBUTED"
+            },
+            "command_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "broker_request_id": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        },
+        {
+          "properties": {
+            "attribution_state": {
+              "enum": [
+                "UNATTRIBUTED",
+                "UNKNOWN"
+              ]
+            },
+            "command_id": {
+              "type": "null"
+            },
+            "broker_request_id": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "reconciliationWatermark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "watermark",
+        "state",
+        "reconciliation_sha256",
+        "history_through_epoch",
+        "consecutive_stable_sweeps"
+      ],
+      "properties": {
+        "watermark": {
+          "$ref": "#/$defs/identifier"
+        },
+        "state": {
+          "enum": [
+            "STABLE",
+            "UNSTABLE",
+            "GAP",
+            "UNKNOWN"
+          ]
+        },
+        "reconciliation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "history_through_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "consecutive_stable_sweeps": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        }
+      }
+    },
+    "accountSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "terminal_build",
+        "ea_sha256",
+        "manifest_sha256",
+        "account_fingerprint_sha256",
+        "broker_time_epoch",
+        "windows_time_epoch",
+        "terminal_connection_state",
+        "account_trade_permission",
+        "terminal_trade_permission",
+        "algo_trading_permission",
+        "balance_minor_units",
+        "equity_minor_units",
+        "margin_minor_units",
+        "free_margin_minor_units",
+        "margin_level_bps",
+        "symbols",
+        "open_orders",
+        "positions",
+        "reconciliation_watermark",
+        "observed_at_epoch"
+      ],
+      "properties": {
+        "terminal_build": {
+          "$ref": "#/$defs/positiveSafeInteger"
+        },
+        "ea_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "manifest_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "account_fingerprint_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "broker_time_epoch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "windows_time_epoch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "terminal_connection_state": {
+          "enum": [
+            "CONNECTED",
+            "DISCONNECTED",
+            "UNKNOWN"
+          ]
+        },
+        "account_trade_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "terminal_trade_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "algo_trading_permission": {
+          "enum": [
+            "ALLOWED",
+            "DENIED",
+            "UNKNOWN"
+          ]
+        },
+        "balance_minor_units": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "equity_minor_units": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "margin_minor_units": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "free_margin_minor_units": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/safeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "margin_level_bps": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonnegativeSafeInteger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "symbols": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/symbolState"
+          }
+        },
+        "open_orders": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/openOrderSnapshot"
+          }
+        },
+        "positions": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/positionSnapshot"
+          }
+        },
+        "reconciliation_watermark": {
+          "$ref": "#/$defs/reconciliationWatermark"
+        },
+        "observed_at_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        }
+      }
+    },
+    "bar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "open_epoch",
+        "close_epoch",
+        "open_ticks",
+        "high_ticks",
+        "low_ticks",
+        "close_ticks",
+        "closed"
+      ],
+      "properties": {
+        "open_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "close_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        },
+        "open_ticks": {
+          "$ref": "#/$defs/safeInteger"
+        },
+        "high_ticks": {
+          "$ref": "#/$defs/safeInteger"
+        },
+        "low_ticks": {
+          "$ref": "#/$defs/safeInteger"
+        },
+        "close_ticks": {
+          "$ref": "#/$defs/safeInteger"
+        },
+        "closed": {
+          "const": true
+        }
+      }
+    },
+    "brokerBarEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "evidence_id",
+        "installation_id",
+        "account_id",
+        "account_profile_sha256",
+        "source_symbol",
+        "broker_symbol",
+        "symbol_capability_sha256",
+        "timeframe",
+        "reconciliation_cursor",
+        "reconciliation_sha256",
+        "bars",
+        "observed_at_epoch"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "BrokerBarEvidenceV1"
+        },
+        "evidence_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "installation_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "account_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "account_profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "source_symbol": {
+          "enum": [
+            "EURUSD",
+            "GBPJPY",
+            "USDJPY",
+            "XAUUSD",
+            "NAS100"
+          ]
+        },
+        "broker_symbol": {
+          "$ref": "#/$defs/identifier"
+        },
+        "symbol_capability_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "timeframe": {
+          "enum": [
+            "M5",
+            "M1"
+          ]
+        },
+        "reconciliation_cursor": {
+          "$ref": "#/$defs/identifier"
+        },
+        "reconciliation_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bars": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 512,
+          "items": {
+            "$ref": "#/$defs/bar"
+          }
+        },
+        "observed_at_epoch": {
+          "$ref": "#/$defs/nonnegativeSafeInteger"
+        }
+      }
+    }
+  },
+  "description": "Credential-free bounded outbound sync containing explicit tri-state terminal inputs, complete open exposure/protection details, a stable reconciliation watermark, append-only broker folds, and authenticated bars. Runtime authorization must block on every unknown, stale, changed, unstable, or non-permitted snapshot value."
+}

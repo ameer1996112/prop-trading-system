@@ -1,0 +1,18 @@
+{
+  "name": "prop-trading-agent-health-console-dry-run",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-24",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "DASHBOARD_ACCOUNT_ID": "account-local-001",
+    "DASHBOARD_INSTALLATION_ID": "windows-mt5-dryrun-001"
+  },
+  "d1_databases": [
+    {
+      "binding": "AGENT_HEALTH_DB",
+      "database_name": "prop-trading-execution-edge-dry-run",
+      "database_id": "9385395b-b713-4ae9-a690-82737a5daaff"
+    }
+  ]
+}

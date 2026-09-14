@@ -1,0 +1,472 @@
+{
+  "vector_version": "rd-entry-execution-proposal-v1",
+  "canonicalization": "UTF-8 JSON with recursively sorted object keys, preserved array order, safe integers only, and Unicode scalar strings only",
+  "reviewed_bindings": {
+    "eurusd_oanda_inert_fixture_v1": {
+      "ticker_id": "OANDA:EURUSD",
+      "source_symbol": "EURUSD",
+      "source_feed": "OANDA",
+      "detector_code_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "settings_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "provenance_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "source_tick_capability_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_tick_size": "0.00001",
+      "buffer_policy_version": "rd-entry-wick-buffer-v1"
+    },
+    "gbpjpy_oanda_inert_fixture_v1": {
+      "ticker_id": "OANDA:GBPJPY",
+      "source_symbol": "GBPJPY",
+      "source_feed": "OANDA",
+      "detector_code_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "settings_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "provenance_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "source_tick_capability_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source_tick_size": "0.001",
+      "buffer_policy_version": "rd-entry-wick-buffer-v1"
+    }
+  },
+  "accept_cases": [
+    {
+      "case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal": {
+        "schema_version": "rd-entry-execution-proposal-v1",
+        "strategy_version": "rd-entry-execution-proposal-v1",
+        "execution_mode": "PAPER_ONLY",
+        "producer_instance_id": "pine-proposal-v1-fixture",
+        "producer_sequence": 7,
+        "delivery_kind": "LIVE",
+        "ingest_integrity": "LIVE_CONTIGUOUS",
+        "ticker_id": "OANDA:EURUSD",
+        "source_symbol": "EURUSD",
+        "source_feed": "OANDA",
+        "timeframe": "M5",
+        "source_tick_size": "0.00001",
+        "source_tick_capability_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "detector_code_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "settings_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "setup_id": "setup-long-1",
+        "setup_revision": 1,
+        "selection_id": "selection-long-1",
+        "entry_model": "DIR_CLOSE",
+        "liquidity_cohort": "TWO_PLUS_CANDLES",
+        "selection_fidelity": "EXACT",
+        "selection_action": "PAPER_ELIGIBLE",
+        "evidence_replayability": "REPLAYABLE",
+        "direction": "LONG",
+        "zone_top_ticks": 1050,
+        "zone_bottom_ticks": 1010,
+        "engagement_candle": {
+          "open_epoch": 1800000000,
+          "close_epoch": 1800000300,
+          "open_ticks": 1040,
+          "high_ticks": 1110,
+          "low_ticks": 1000,
+          "close_ticks": 1100,
+          "closed": true
+        },
+        "source_bar": {
+          "open_epoch": 1800000000,
+          "close_epoch": 1800000300,
+          "open_ticks": 1040,
+          "high_ticks": 1110,
+          "low_ticks": 1000,
+          "close_ticks": 1100,
+          "closed": true
+        },
+        "wick_reference": "LOW",
+        "wick_reference_ticks": 1000,
+        "buffer_policy_version": "rd-entry-wick-buffer-v1",
+        "buffer_ticks": 2,
+        "entry_ticks": 1100,
+        "stop_ticks": 998,
+        "risk_distance_ticks": 102,
+        "target_ticks": 1508,
+        "observed_at_epoch": 1800000301
+      },
+      "expected_logical_candidate_id": "2b30c9414c01155a35e5a64d0104cfa9436b0c2c4c73c84ad4324c4126a2bf98",
+      "expected_candidate_body_sha256": "37cbb94c5d072ba3740b256fbd8ca608bb8184da779d0bef8ad5c01b8ec25bd0"
+    },
+    {
+      "case_id": "short_gbpjpy_same_engagement_close",
+      "reviewed_binding_id": "gbpjpy_oanda_inert_fixture_v1",
+      "proposal": {
+        "schema_version": "rd-entry-execution-proposal-v1",
+        "strategy_version": "rd-entry-execution-proposal-v1",
+        "execution_mode": "PAPER_ONLY",
+        "producer_instance_id": "pine-proposal-v1-fixture",
+        "producer_sequence": 8,
+        "delivery_kind": "LIVE",
+        "ingest_integrity": "LIVE_CONTIGUOUS",
+        "ticker_id": "OANDA:GBPJPY",
+        "source_symbol": "GBPJPY",
+        "source_feed": "OANDA",
+        "timeframe": "M5",
+        "source_tick_size": "0.001",
+        "source_tick_capability_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "detector_code_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "settings_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "provenance_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "setup_id": "setup-short-1",
+        "setup_revision": 1,
+        "selection_id": "selection-short-1",
+        "entry_model": "DIR_CLOSE",
+        "liquidity_cohort": "TWO_PLUS_CANDLES",
+        "selection_fidelity": "EXACT",
+        "selection_action": "PAPER_ELIGIBLE",
+        "evidence_replayability": "REPLAYABLE",
+        "direction": "SHORT",
+        "zone_top_ticks": 1990,
+        "zone_bottom_ticks": 1950,
+        "engagement_candle": {
+          "open_epoch": 1800000000,
+          "close_epoch": 1800000300,
+          "open_ticks": 1970,
+          "high_ticks": 2000,
+          "low_ticks": 1880,
+          "close_ticks": 1900,
+          "closed": true
+        },
+        "source_bar": {
+          "open_epoch": 1800000000,
+          "close_epoch": 1800000300,
+          "open_ticks": 1970,
+          "high_ticks": 2000,
+          "low_ticks": 1880,
+          "close_ticks": 1900,
+          "closed": true
+        },
+        "wick_reference": "HIGH",
+        "wick_reference_ticks": 2000,
+        "buffer_policy_version": "rd-entry-wick-buffer-v1",
+        "buffer_ticks": 3,
+        "entry_ticks": 1900,
+        "stop_ticks": 2003,
+        "risk_distance_ticks": 103,
+        "target_ticks": 1488,
+        "observed_at_epoch": 1800000301
+      },
+      "expected_logical_candidate_id": "37e0f05c6634f4dfd6db969c2c3c55ff7f638451bf10ce7a162aa92949f4abac",
+      "expected_candidate_body_sha256": "41dc6252517cfd39af8ac5e8974cf2f0bfd82d240be9517252364fb4a7f9fced"
+    }
+  ],
+  "reject_cases": [
+    {
+      "case_id": "unknown_field",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "add", "path": ["unexpected"], "value": true }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "legacy_version",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "set", "path": ["schema_version"], "value": "3.1" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "wrong_model",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "set", "path": ["entry_model"], "value": "BOC" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "one_candle",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        {
+          "op": "set",
+          "path": ["liquidity_cohort"],
+          "value": "ONE_CANDLE"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "historical_delivery",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        {
+          "op": "set",
+          "path": ["delivery_kind"],
+          "value": "HISTORICAL"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "backfill_delivery",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "set", "path": ["delivery_kind"], "value": "BACKFILL" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "producer_gap",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        {
+          "op": "set",
+          "path": ["ingest_integrity"],
+          "value": "GAP_DETECTED"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "mutable_candle",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        {
+          "op": "set",
+          "path": ["source_bar", "closed"],
+          "value": false
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "wrong_4r",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "probe_type_cast_bypass": true,
+      "proposal_operations": [
+        { "op": "set", "path": ["target_ticks"], "value": 1507 }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "unsafe_integer",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        {
+          "op": "set",
+          "path": ["entry_ticks"],
+          "value": 9007199254740992
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "missing_reviewed_binding",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": null,
+      "proposal_operations": [],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_ticker_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        {
+          "op": "set",
+          "path": ["ticker_id"],
+          "value": "OANDA:EURUSD.m"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_source_symbol_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        { "op": "set", "path": ["source_symbol"], "value": "USDJPY" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_source_feed_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        { "op": "set", "path": ["source_feed"], "value": "FXCM" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_detector_hash_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        {
+          "op": "set",
+          "path": ["detector_code_sha256"],
+          "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_settings_hash_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        {
+          "op": "set",
+          "path": ["settings_sha256"],
+          "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_provenance_hash_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        {
+          "op": "set",
+          "path": ["provenance_sha256"],
+          "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_tick_capability_hash_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        {
+          "op": "set",
+          "path": ["source_tick_capability_sha256"],
+          "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_tick_size_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        { "op": "set", "path": ["source_tick_size"], "value": "0.0001" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "binding_buffer_policy_mismatch",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [],
+      "reviewed_binding_operations": [
+        {
+          "op": "set",
+          "path": ["buffer_policy_version"],
+          "value": "rd-entry-wick-buffer-v2"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "tick_size_over_32_ascii_characters",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        {
+          "op": "set",
+          "path": ["source_tick_size"],
+          "value": "123456789012345678901234567890123"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "tick_size_over_12_fractional_digits",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        {
+          "op": "set",
+          "path": ["source_tick_size"],
+          "value": "0.0000000000001"
+        }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "tick_size_exponent",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "set", "path": ["source_tick_size"], "value": "1e-5" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "tick_size_sign",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "set", "path": ["source_tick_size"], "value": "+0.00001" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "tick_size_trailing_zero",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "set", "path": ["source_tick_size"], "value": "0.000010" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    },
+    {
+      "case_id": "tick_size_noncanonical_leading_zero",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "proposal_operations": [
+        { "op": "set", "path": ["source_tick_size"], "value": "00.1" }
+      ],
+      "expected_error_code": "EXECUTION_PROPOSAL_V1_INVALID"
+    }
+  ],
+  "conflict_cases": [
+    {
+      "case_id": "same_logical_id_changed_valid_geometry",
+      "base_case_id": "long_eurusd_same_engagement_close",
+      "reviewed_binding_id": "eurusd_oanda_inert_fixture_v1",
+      "conflicting_proposal_operations": [
+        {
+          "op": "set",
+          "path": ["engagement_candle", "low_ticks"],
+          "value": 999
+        },
+        { "op": "set", "path": ["wick_reference_ticks"], "value": 999 },
+        { "op": "set", "path": ["stop_ticks"], "value": 997 },
+        { "op": "set", "path": ["risk_distance_ticks"], "value": 103 },
+        { "op": "set", "path": ["target_ticks"], "value": 1512 }
+      ],
+      "expected_logical_candidate_id": "2b30c9414c01155a35e5a64d0104cfa9436b0c2c4c73c84ad4324c4126a2bf98",
+      "expected_base_candidate_body_sha256": "37cbb94c5d072ba3740b256fbd8ca608bb8184da779d0bef8ad5c01b8ec25bd0",
+      "expected_conflicting_candidate_body_sha256": "6c1e9983ae70e1b7ce9e9f065dbc317de86f61d288a3bc42df7a3b4269bba409",
+      "expected_outcome": "QUARANTINE_CONFLICT"
+    }
+  ]
+}

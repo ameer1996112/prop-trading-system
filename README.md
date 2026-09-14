@@ -68,10 +68,12 @@ requires a reason and an idempotency key.
 
 The canonical current three-entry Pine producer is
 [`scripts/pinescript/SND_RD_5M_V3_RELEASE.pine`](scripts/pinescript/SND_RD_5M_V3_RELEASE.pine).
-It emits the schema-3.1 / contract-3.1 PAPER_ONLY envelope. The older
+Its legacy stream emits the schema-3.1 / contract-3.1 PAPER_ONLY envelope. The current
 [`scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine`](scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine)
-is retained strictly as the immutable schema-3.0 historical rollback artifact; do not use it for a
-new alert. Its frozen rule source is
+is its schema-3.1 authoring source. The historical schema-3.0 LAB remains in Git at
+`528ad8f33324b9a254f74e1988367caf6d3a7cad`; do not use that historical version for a
+new alert. The separate evidence emitter defaults off and requires native Pine acceptance.
+Its frozen rule source is
 [`docs/rd-strategy-rule-contract-v3.md`](docs/rd-strategy-rule-contract-v3.md). Contract v3 keeps
 `BOC`, `DIR_CLOSE`, and `HTF_FLIP` distinct, evaluates all observed candidates, and lets the edge
 select at most one paper decision by exact event chronology. Strict HTF-timed BOC can be paper
@@ -104,6 +106,20 @@ Automated intents retain their receipt provenance and are labelled `AUTO · TRAD
 console. No route can send, modify, or close an external order. The static console keeps the
 paper-admin credential in memory only while the operator panel is unlocked; refresh or Lock
 removes it from the UI.
+
+Contract 3.1 adds a default-off one-candle liquidity experiment. The strict profile keeps
+**Enable one-candle liquidity** disabled and emits only `TWO_PLUS_CANDLES`; the experiment profile
+enables it and may emit `ONE_CANDLE` or `TWO_PLUS_CANDLES`. `ONE_CANDLE` is never
+`PAPER_ELIGIBLE`: actionable selections are `SHADOW_ONLY`, while invalidated or candidate-less
+selections remain `NONE`. It cannot create a paper intent, reach a live account, or reach a broker.
+Strict and experiment profiles require distinct reviewed settings hashes, but runtime accepts only
+one active reviewed hash per ticker. Switching a ticker's profile requires disabling its old
+alert, updating its reviewed hash binding, recreating the alert from matching saved source and
+inputs, and verifying the new receipt. TradingView snapshots the script and inputs when an alert
+is created. Cohort outcomes are available from the authenticated
+`GET /api/v1/rd-entry-cohort-metrics` endpoint; win rate is
+`wins / (wins + losses)`, with open and ambiguous outcomes excluded and the resolved sample size
+reported. The exact rollout and evidence requirements are in the contract-v3 release runbook.
 
 The one proof command is:
 

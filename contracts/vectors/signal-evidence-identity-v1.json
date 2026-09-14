@@ -1,0 +1,8 @@
+{
+  "attempt_preimage": "{\"attempt_kind\":\"INITIAL\",\"confirmation_epoch\":1200,\"direction\":\"LONG\",\"domain\":\"tradeops-demo-attempt-v1\",\"feed\":\"OANDA\",\"origin_epoch\":900,\"strategy_id\":\"rd_liquidity_sd_5m_v1\",\"ticker_id\":\"OANDA:XAUUSD\",\"timeframe\":\"5\",\"variant\":\"STANDARD\"}",
+  "attempt_key": "5da787a52e6cfba3f1891086f3173d00d81f437b424b538d5b4eff98a1e2dc78",
+  "formation_preimage": "{\"confirmation_epoch\":1200,\"direction\":\"LONG\",\"domain\":\"tradeops-demo-formation-v1\",\"origin_close_ticks\":95,\"origin_epoch\":900,\"origin_high_ticks\":105,\"origin_low_ticks\":90,\"origin_open_ticks\":100,\"tick_size\":\"0.01\",\"variant\":\"STANDARD\",\"zone_bottom_ticks\":90,\"zone_top_ticks\":105}",
+  "formation_body_sha256": "e4c561ecf4bec72ef06d4c96f83562905d53ff10c5001a6866690121bb628598",
+  "evidence_preimage": "{\"attempt_key\":\"5da787a52e6cfba3f1891086f3173d00d81f437b424b538d5b4eff98a1e2dc78\",\"domain\":\"tradeops-signal-evidence-id-v1\",\"event_id\":\"event-42\",\"producer_instance_id\":\"pine-instance-a\",\"producer_namespace\":\"tradeops.reviewed.signal-evidence\",\"producer_sequence\":7}",
+  "evidence_id": "bd365a65540ae598cb102bf103a70369f70f525062522c60f84aa6dcf390af2f"
+}

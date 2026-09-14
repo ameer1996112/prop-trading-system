@@ -1,6 +1,18 @@
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_full_bootstrap_installs_execution_dependencies_before_backend_checks() -> None:
+    result = subprocess.run(
+        ["make", "--dry-run", "bootstrap"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert "cd apps/execution-edge && npm ci --ignore-scripts --no-audit --no-fund" in result.stdout
 
 
 def test_paper_loop_target_bootstraps_only_locked_dependencies() -> None:

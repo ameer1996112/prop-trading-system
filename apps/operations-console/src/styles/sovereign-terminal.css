@@ -1,0 +1,46 @@
+/* Original TradeOps source: cc740a197209cef27374ca6166a505b14af54ab6. Presentation only. */
+:root {
+  --bg-base: #080A0F;
+  --bg-surface: #0D1117;
+  --bg-card: #111827;
+  --bg-card-hover: #161F2E;
+  --border: #1E2A3A;
+  --border-subtle: #141C28;
+  --accent-gold: #C4992A;
+  --accent-gold-dim: rgba(196, 153, 42, 0.15);
+  --accent-gold-glow: rgba(196, 153, 42, 0.25);
+  --text-primary: #E8EAF0;
+  --text-secondary: #8892A4;
+  --text-muted: #4B5A72;
+  --positive: #2ECC8A;
+  --positive-dim: rgba(46, 204, 138, 0.12);
+  --negative: #E05555;
+  --negative-dim: rgba(224, 85, 85, 0.12);
+  --live-blue: #3B82F6;
+  --live-blue-dim: rgba(59, 130, 246, 0.15);
+
+  /* Account type accent colors */
+  --acct-funded: #C4992A;
+  --acct-evaluation: #3B82F6;
+  --acct-personal: #6B7A99;
+
+  /* Typography */
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'Outfit', sans-serif;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.st-font-mono {
+  font-family: var(--font-mono) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-font-display {
+  font-family: var(--font-display) !important;
+}
