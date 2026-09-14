@@ -1,7 +1,7 @@
 # Three-model authenticated signal admission
 
 Date: 2026-09-14
-Status: Proposed detailed design for owner review; not implementation or deployment approval.
+Status: Owner approved the written design on 2026-09-14; implementation planning authorized. Deployment and trading remain unauthorized.
 Source baseline: merged main `43db33bb787c830b4effe0f64798e7968f71cc1c`.
 
 ## Outcome and boundary
