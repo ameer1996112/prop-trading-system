@@ -45,16 +45,12 @@ def extracted_transport_accepts(
 ) -> bool:
     """Execute the literal bounds and character classes authored in Pine."""
     maximum = int(
-        re.search(
-            r"^const int SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER = (\d+)$", source, re.M
-        ).group(1)
+        re.search(r"^const int SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER = (\d+)$", source, re.M).group(1)
     )
     identifier = body(source, "signalAdmissionV1IdentifierSafe")
     credential_check = body(source, "signalAdmissionV1CredentialSafe")
     identifier_pattern = re.search(r'str\.match\(value, "(.*?)"\)', identifier).group(1)
-    credential_pattern = re.search(
-        r'str\.match\(value, "(.*?)"\)', credential_check
-    ).group(1)
+    credential_pattern = re.search(r'str\.match\(value, "(.*?)"\)', credential_check).group(1)
     return (
         0 < generation <= maximum
         and 0 < len(registration_id) <= 160
@@ -135,12 +131,15 @@ def test_transport_input_boundary_matrix(
     generation: int,
     accepted: bool,
 ) -> None:
-    assert extracted_transport_accepts(
-        source,
-        credential=credential,
-        registration_id=registration_id,
-        generation=generation,
-    ) is accepted
+    assert (
+        extracted_transport_accepts(
+            source,
+            credential=credential,
+            registration_id=registration_id,
+            generation=generation,
+        )
+        is accepted
+    )
 
 
 def test_invalid_transport_is_redacted_and_cannot_fall_back(source: str) -> None:

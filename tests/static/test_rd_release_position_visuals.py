@@ -39,8 +39,18 @@ def test_visual_change_preserves_release_alert_surface() -> None:
     )[1].split("\nexecutionProposalV1ProducerInstanceId(", 1)[0]
     assert "emitSignalEvidenceV1 = input.bool(false," in pine
     assert "if emitSignalEvidenceV1 and barstate.isrealtime" in evidence
-    assert evidence.count("alert(") == 1
-    assert "alert(envelope, alert.freq_all)" in evidence
+    assert evidence.count("alert(") == 2
+    transport_branch, legacy_branch = evidence.split(
+        "                    if signalAdmissionTransportEnabled\n", 1
+    )[1].split("\n                    else\n", 1)
+    assert transport_branch.count("alert(") == 1
+    assert "alert(transportEnvelope, alert.freq_all)" in transport_branch
+    assert legacy_branch.count("alert(") == 1
+    assert "alert(envelope, alert.freq_all)" in legacy_branch
+    sequence_commit = "array.set(signalEvidenceV1SequenceState, 0, proposedSequence)"
+    assert evidence.count(sequence_commit) == 1
+    assert "if didAlert\n                        " + sequence_commit in legacy_branch
+    assert legacy_branch.index("alert(envelope,") < legacy_branch.index(sequence_commit)
     legacy = pine.replace(evidence, "")
     assert legacy.count("alert(") == 3
     assert legacy.count("alert(envelope, alert.freq_all)") == 2

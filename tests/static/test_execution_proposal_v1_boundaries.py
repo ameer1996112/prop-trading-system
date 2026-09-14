@@ -150,8 +150,18 @@ def test_pine_proposal_is_closed_realtime_exact_dir_close_only() -> None:
     assert "alert(envelope, alert.freq_once_per_bar_close)" not in emitter
     assert "emitSignalEvidenceV1 = input.bool(false," in pine
     assert "if emitSignalEvidenceV1 and barstate.isrealtime" in evidence_emitter
-    assert evidence_emitter.count("alert(") == 1
-    assert "alert(envelope, alert.freq_all)" in evidence_emitter
+    assert evidence_emitter.count("alert(") == 2
+    transport_branch, legacy_branch = evidence_emitter.split(
+        "                    if signalAdmissionTransportEnabled\n", 1
+    )[1].split("\n                    else\n", 1)
+    assert transport_branch.count("alert(") == 1
+    assert "alert(transportEnvelope, alert.freq_all)" in transport_branch
+    assert legacy_branch.count("alert(") == 1
+    assert "alert(envelope, alert.freq_all)" in legacy_branch
+    sequence_commit = "array.set(signalEvidenceV1SequenceState, 0, proposedSequence)"
+    assert evidence_emitter.count(sequence_commit) == 1
+    assert "if didAlert\n                        " + sequence_commit in legacy_branch
+    assert legacy_branch.index("alert(envelope,") < legacy_branch.index(sequence_commit)
     assert pine.replace(evidence_emitter, "").count("alert(") == 3
     assert "executionProposalV1CredentialSafe()" in eligibility
     assert "nextSequence = array.get(executionProposalV1SequenceState, 0) + 1" in emitter
@@ -557,16 +567,20 @@ def test_observation_edge_remains_account_free_and_private_transport_only() -> N
 
 def test_public_observation_route_excludes_legacy_execution_proposals() -> None:
     worker = WORKER.read_text(encoding="utf-8")
-    deployed_migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
+    checked_in_migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
 
     assert "ingestParsedExecutionProposalV1" not in worker
     assert not any(
-        path.name == "0030_observation_execution_proposal_v1.sql" for path in deployed_migrations
+        path.name == "0030_observation_execution_proposal_v1.sql" for path in checked_in_migrations
     )
-    assert [path.name for path in deployed_migrations][-1] == (
-        "0030_observation_remote_schema_compatibility.sql"
-    )
-    compatibility = deployed_migrations[-1].read_text(encoding="utf-8")
+    compatibility = Path(
+        "apps/observation-edge/migrations/0030_observation_remote_schema_compatibility.sql"
+    ).read_text(encoding="utf-8")
+    assert [path.name for path in checked_in_migrations if int(path.name[:4]) > 30] == [
+        "0031_signal_admission_v1.sql",
+        "0032_signal_admission_receipt_evidence_v1.sql",
+        "0033_signal_admission_dispatch_v1.sql",
+    ]
     assert "CREATE TABLE" not in compatibility
     assert "CREATE INDEX" not in compatibility
     assert "CREATE TRIGGER" not in compatibility
