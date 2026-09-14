@@ -33,6 +33,11 @@ export type AdmissionDecision = Safety & (
   | { kind: "COMMIT"; entries: readonly AdmissionEntryDecision[] }
 );
 const safety = { authority: "EVIDENCE_ONLY", execution_allowed: false } as const;
+/** Bounded discovery only; admission still independently validates the body. */
+export async function admissionFactKeys(t: Transport, bindingBytes: Uint8Array): Promise<readonly { attemptKey: string; evidenceId: string }[]> {
+  const result = await validateSignalEvidenceV1(t.evidenceBytes, bindingBytes);
+  return result.status === "VALIDATED" ? result.entries.map(entry => ({ attemptKey: entry.attempt_key, evidenceId: entry.evidence_id })) : [];
+}
 function quarantine(code: AdmissionCode, disputedAttemptKeys: readonly string[] = []): AdmissionDecision {
   return { ...safety, kind: "QUARANTINE", code, disputedAttemptKeys };
 }

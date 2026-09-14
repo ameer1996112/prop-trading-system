@@ -50,7 +50,36 @@ producer instance and strategy, `active_from <= now < active_until`, and a
 fixed-length constant-time comparison of the SHA-256 credential digest. Missing,
 disabled, expired, malformed, and wrong-credential registrations fail closed.
 
-## Vectors
+## Admission result and delivery
+
+`TradeOpsSignalAdmissionResponseV1` has exactly `schema_version`, `authority`,
+`execution_allowed`, `receipt_id`, `outcome`, `code`, `duplicate`, `stream_state`.
+Safety is always `authority: "EVIDENCE_ONLY"`, `execution_allowed: false`.
+Receipt outcome is `ACCEPTED`, `NO_CANDIDATE`, `AUDIT_ONLY`, or `REJECTED`;
+code is nullable and stream state is `ACTIVE`, `QUARANTINED`, or `RETIRED`
+(nullable before authentication). Receipt ID is nullable before durable admission.
+The receipt ID is lowercase SHA-256 over canonical
+`{schema_version:"TradeOpsSignalReceiptIdentityV1",registration_id,generation,sequence}`.
+The store returns this body directly; storage faults throw `AdmissionUnavailableError`.
+
+`TradeOpsSignalDeliveryV1` has exactly `schema_version`, `authority`,
+`execution_allowed`, `delivery_id`, `delivery_body_sha256`, `receipt_id`,
+`registration_id`, `generation`, `attempt_key`, `evidence_id`,
+`evidence_body_sha256`, `admitted_at_epoch`, `expires_at_epoch`, `evidence`.
+`evidence` is one unchanged validated `SignalEvidenceEntryV1`, including fidelity.
+Delivery ID is lowercase SHA-256 over canonical
+`{schema_version:"TradeOpsSignalDeliveryIdentityV1",attempt_key,evidence_id}`.
+Delivery digest hashes the canonical complete delivery without its
+`delivery_body_sha256` field. Object keys sort lexicographically; arrays retain
+their order. Epochs are safe integer seconds; expiry is fixed at admission.
+
+`TradeOpsSignalDeliveryAckV1` has exactly `schema_version`, `authority`,
+`execution_allowed`, `delivery_id`, `delivery_body_sha256`, `status`.
+Status is `STORED` (HTTP 201) or `DUPLICATE` (HTTP 200), with the same Safety
+literals. Same ID/different digest is HTTP 409. An HTTP success without this
+exact matching acknowledgment does not acknowledge a delivery.
+
+## Transport vectors
 
 `contracts/vectors/signal-admission-v1.json` maps all nine unchanged evidence
 vectors by `source_case_id`. Consumers construct the outer request using the
