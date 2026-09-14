@@ -1,0 +1,18 @@
+{
+  "schema_version": "TradeOpsSignalAdmissionVectorsV1",
+  "source_vectors": "signal-evidence-v1.json",
+  "registration_id": "registration-one",
+  "generation": 2,
+  "credential": "LOCAL_TEST_ONLY_signal_admission_credential",
+  "cases": [
+    { "source_case_id": "strict_long_boc_only", "accepted": true, "body_sha256": "cc1084102767e8ae3746f6459bc02dcb70958ef3f1cd54b7f32a3ac8a8f2e38e" },
+    { "source_case_id": "strict_short_boc_only", "accepted": true, "body_sha256": "d15c08d09aab3033cd1b3d079373eebb0373f213c67623e35f331e1ca221425c" },
+    { "source_case_id": "close_fallback_after_blocked_aggressive_models", "accepted": false, "body_sha256": null, "reject_reason": "producer_sequence_must_be_positive" },
+    { "source_case_id": "flip_before_boc", "accepted": true, "body_sha256": "01963c0130a1240807a58ba66e63978ee00ba62e36a66f3e7e2b65f8925a78b9" },
+    { "source_case_id": "boc_flip_same_event", "accepted": true, "body_sha256": "7884973cdb2aaa58f8b54a4155873ba214765c58530e7a1f261a336dc730ba19" },
+    { "source_case_id": "same_event_price_conflict", "accepted": true, "body_sha256": "8b2c8128e3815e9a9b1fb6c35b69c36d4fd8a038b2cfdf548969e68243b4063a" },
+    { "source_case_id": "close_fallback_after_blocked_aggressive_models_short", "accepted": false, "body_sha256": null, "reject_reason": "producer_sequence_must_be_positive" },
+    { "source_case_id": "flip_before_boc_short", "accepted": true, "body_sha256": "a7abf291e3302a90fc7820f6a2e18defd061ecf5dffcefcb800b986b7929b89a" },
+    { "source_case_id": "boc_before_close", "accepted": true, "body_sha256": "54932e4db1d2c18b784bb2809b64e8abb63d4ff38711f2e20c7ad30686f0afbd" }
+  ]
+}
