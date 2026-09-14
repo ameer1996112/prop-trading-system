@@ -14,8 +14,9 @@ GENERATOR = ROOT / "scripts/generate_rd_v3_release.py"
 LAB = ROOT / "scripts/pinescript/SND_RD_5M_V3_THREE_ENTRY_LAB.pine"
 RELEASE = ROOT / "scripts/pinescript/SND_RD_5M_V3_RELEASE.pine"
 # Integration baseline: main's reviewed visual/replay fixes plus the independent
-# evidence emitter. The evidence reversal guard separately restores main exactly.
-PROTECTED_REGION_SHA256 = "16684f1d98ca059c4c02d113c63b4dd9d55d0ef687c3cc959ff450d0c815a844"
+# evidence emitter and its opt-in admission wrapper. The evidence reversal guard
+# separately restores main exactly.
+PROTECTED_REGION_SHA256 = "f1820734fa26392ac7be7ac6499e4e68ce1096c4cf4408050b0802aee8705a42"
 
 
 @pytest.mark.parametrize(

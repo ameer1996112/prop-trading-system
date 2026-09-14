@@ -1650,8 +1650,9 @@ def test_pine_v3_preserves_legacy_alerts_and_isolates_default_off_evidence() -> 
     )
     assert "emitSignalEvidenceV1 = input.bool(false," in pine
     assert "if emitSignalEvidenceV1 and barstate.isrealtime" in evidence
-    assert evidence.count("alert(") == 1
+    assert evidence.count("alert(") == 2
     assert "alert(envelope, alert.freq_all)" in evidence
+    assert "alert(transportEnvelope, alert.freq_all)" in evidence
     legacy = pine.replace(evidence, "")
     assert legacy.count("alert(") == 3
     assert legacy.count("alert(envelope, alert.freq_all)") == 2

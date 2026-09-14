@@ -27,6 +27,8 @@ const int ENTRY_MAX_PAYLOAD_CHARS = 35000
 const int ENTRY_MAX_ATTEMPTS = 120
 const int SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER = 9007199254740991
 const int SIGNAL_EVIDENCE_V1_MAX_PAYLOAD_CHARS = 35000
+const int SIGNAL_ADMISSION_V1_MAX_EVIDENCE_BYTES = 262144
+const int SIGNAL_ADMISSION_V1_MAX_PAYLOAD_BYTES = 278528
 const int EXECUTION_PROPOSAL_V1_MAX_PAYLOAD_CHARS = 35000
 const int EXECUTION_PROPOSAL_V1_SETUP_ID_MAX_CHARS = 120
 const int EXECUTION_PROPOSAL_V1_PRODUCER_ID_MAX_CHARS = 160
@@ -121,6 +123,10 @@ emitEntryV3Events = input.bool(false, "Emit contract-v3 entry events", group = "
 // mix schemas. This switch does not create an alert or admit a producer generation.
 emitSignalEvidenceV1 = input.bool(false, "Emit signal evidence v1", group = "Signal evidence", tooltip = "Evidence only. Requires an isolated future Any alert function call configuration; other enabled emitters mix schemas. Native Pine acceptance remains pending.")
 signalEvidenceV1ProducerTag = input.string("", "Evidence producer tag", group = "Signal evidence", tooltip = "Required unique tag for this isolated stream. Printable ASCII without whitespace. Invalid or oversized identifiers are rejected, never truncated.")
+signalAdmissionTransportEnabled = input.bool(false, "Wrap evidence for signal admission", group = "Signal evidence", tooltip = "Requires signal evidence emission. Wraps the unchanged evidence object in the authenticated TradeOps admission request.")
+signalAdmissionRegistrationId = input.string("", "Signal admission registration ID", group = "Signal evidence", display = display.none)
+signalAdmissionGeneration = input.int(0, "Signal admission generation", group = "Signal evidence", display = display.none)
+signalAdmissionCredential = input.string("", "Signal admission credential", group = "Signal evidence", display = display.none)
 entryV3Credential = input.string("", "Contract-v3 ingress credential", group = "Automation", display = display.none)
 detectorCodeHash = input.string("", "Reviewed detector SHA-256", group = "Automation")
 settingsHash = input.string("", "Reviewed settings SHA-256", group = "Automation")
@@ -2872,9 +2878,30 @@ signalEvidenceV1FormationPayload(RawZone zone) =>
 signalEvidenceV1Envelope(string observation, RawZone zone) =>
     "{\"schema_version\":\"TradeOpsSignalEvidenceInputV1\",\"observation\":" + observation + ",\"formations\":[" + signalEvidenceV1FormationPayload(zone) + "]}"
 
+signalAdmissionV1IdentifierSafe(string value) =>
+    int length = str.length(value)
+    length > 0 and length <= 160 and str.match(value, "^[ -~]+$") == value and not str.contains(value, "\\")
+
+signalAdmissionV1CredentialSafe(string value) =>
+    int length = str.length(value)
+    length > 0 and length <= 1024 and str.match(value, "^[ -~]+$") == value
+
+signalAdmissionV1TransportValid() =>
+    signalAdmissionGeneration > 0 and signalAdmissionGeneration <= SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER and signalAdmissionV1IdentifierSafe(signalAdmissionRegistrationId) and signalAdmissionV1CredentialSafe(signalAdmissionCredential)
+
+signalAdmissionV1AsciiBytesSafe(string value, int maximumBytes) =>
+    // Pine exposes character length, not a UTF-8 byte counter. Requiring the
+    // chosen serialized payload to be ASCII makes character and byte counts equal.
+    str.length(value) <= maximumBytes and str.match(value, "^[ -~]+$") == value
+
+signalAdmissionV1Envelope(string evidence, string credential, string registrationId, int generation) =>
+    "{\"schema_version\":\"TradeOpsSignalAdmissionRequestV1\",\"credential\":" + jsonString(credential) + ",\"registration_id\":" + jsonString(registrationId) + ",\"generation\":" + str.tostring(generation) + ",\"evidence\":" + evidence + "}"
+
 emitSignalEvidenceV1ForAttempt(EntryAttempt attempt, RawZone zone) =>
     bool emitted = false
-    if emitSignalEvidenceV1 and barstate.isrealtime
+    if signalAdmissionTransportEnabled and not emitSignalEvidenceV1
+        log.error("SIGNAL_ADMISSION_V1_REQUIRES_EVIDENCE")
+    else if emitSignalEvidenceV1 and barstate.isrealtime
         int currentSequence = array.get(signalEvidenceV1SequenceState, 0)
         if na(currentSequence) or currentSequence < 0 or currentSequence >= SIGNAL_EVIDENCE_V1_MAX_SAFE_INTEGER
             log.error("SIGNAL_EVIDENCE_V1_SEQUENCE_INVALID")
@@ -2900,10 +2927,26 @@ emitSignalEvidenceV1ForAttempt(EntryAttempt attempt, RawZone zone) =>
                 if str.length(envelope) >= SIGNAL_EVIDENCE_V1_MAX_PAYLOAD_CHARS
                     log.error("SIGNAL_EVIDENCE_V1_ENVELOPE_TOO_LARGE")
                 else
-                    alert(envelope, alert.freq_all)
-                    array.set(signalEvidenceV1SequenceState, 0, proposedSequence)
-                    // Local alert invocation only, never network acknowledgement.
-                    emitted := true
+                    bool didAlert = false
+                    if signalAdmissionTransportEnabled
+                        if not signalAdmissionV1TransportValid()
+                            log.error("SIGNAL_ADMISSION_V1_TRANSPORT_INVALID")
+                        else if not signalAdmissionV1AsciiBytesSafe(envelope, SIGNAL_ADMISSION_V1_MAX_EVIDENCE_BYTES)
+                            log.error("SIGNAL_ADMISSION_V1_EVIDENCE_BYTES_INVALID")
+                        else
+                            string transportEnvelope = signalAdmissionV1Envelope(envelope, signalAdmissionCredential, signalAdmissionRegistrationId, signalAdmissionGeneration)
+                            if not signalAdmissionV1AsciiBytesSafe(transportEnvelope, SIGNAL_ADMISSION_V1_MAX_PAYLOAD_BYTES)
+                                log.error("SIGNAL_ADMISSION_V1_ENVELOPE_TOO_LARGE")
+                            else
+                                alert(transportEnvelope, alert.freq_all)
+                                didAlert := true
+                    else
+                        alert(envelope, alert.freq_all)
+                        didAlert := true
+                    if didAlert
+                        array.set(signalEvidenceV1SequenceState, 0, proposedSequence)
+                        // Local alert invocation only, never network acknowledgement.
+                        emitted := true
     emitted
 
 executionProposalV1ProducerInstanceId() =>
