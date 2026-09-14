@@ -66,3 +66,16 @@ Following the user's explicit approval, exactly these 261 reviewed false positiv
 retaining all 241 existing entries. The update was guarded by the reviewed total and detector
 category counts. Do not disable scanning, widen exclusions, or blanket-baseline future findings.
 Publishing and the GitHub squash merge remain subject to a fresh scan and final CI.
+
+## PR verification follow-up
+
+PR 7's first CI run exposed a clean-environment dependency omission: Python's broker boundary
+test invokes execution-edge Vitest, but the full bootstrap had not installed that package yet.
+The bootstrap now installs its locked dependencies before backend checks. A regression test
+running Make's dry-run output failed before the fix and passed after it.
+
+GitGuardian separately flagged the already-reviewed synthetic JWT fixture. That test now
+constructs its non-authenticating token at runtime from explicit fixture fields, rather than
+storing a JWT literal. Its 32 tests passed unchanged. The one now-stale JWT baseline entry was
+removed, reducing the approved baseline to 501 entries; a fresh scan reported zero new findings.
+No scanner or CI check was disabled. GitHub checks must still pass before merging.

@@ -24,6 +24,7 @@ bootstrap:
 	uv sync --locked --python 3.12
 	cd $(CONSOLE) && npm ci --ignore-scripts --no-audit --no-fund
 	cd $(EDGE) && npm ci --ignore-scripts --no-audit --no-fund
+	cd apps/execution-edge && npm ci --ignore-scripts --no-audit --no-fund
 
 bootstrap-paper-loop:
 	uv sync --locked --python 3.12

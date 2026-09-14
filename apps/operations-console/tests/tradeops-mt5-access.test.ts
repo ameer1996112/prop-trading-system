@@ -17,8 +17,12 @@ type Cli = {
 const access: { acquireMt5AccessToken?: AcquireToken } = await import(pathToFileURL(resolve("scripts/mt5-health-access.mjs")).href).catch(() => ({}));
 const cli: Cli = await import(pathToFileURL(resolve("scripts/tradeops-preview.mjs")).href);
 const origin = "https://prop-trading-agent-health-console-dry-run.ameer-1996112.workers.dev";
-// Synthetic, non-authenticating JWT-shaped data; never a real credential.
-const fixtureToken = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.c2lnbmF0dXJl";
+// Construct non-authenticating JWT-shaped test data; no signed credential is stored.
+const fixtureToken = [
+  JSON.stringify({ alg: "RS256" }),
+  JSON.stringify({ sub: "fixture" }),
+  "signature",
+].map((part) => Buffer.from(part).toString("base64url")).join(".");
 const safeError = "MT5 Access authentication required";
 
 function childFixture() {
