@@ -86,3 +86,47 @@ vectors by `source_case_id`. Consumers construct the outer request using the
 literal registration identity in that file and the referenced unchanged input.
 Cases whose legacy evidence observation has producer sequence zero are explicit
 transport rejections because admission sequences start at one.
+
+The same file also freezes nine full `deliveries` with literal body, stored and
+duplicate acknowledgments, `source_case_id`, and nullable `normalization`.
+DIR_CLOSE fixtures use an explicit positive producer sequence and corresponding
+event ID; the original input vectors remain unchanged. A permanent observation
+parity test reconstructs those inputs and compares the entire bridge output.
+Digest and acknowledgment checks use an independent test serializer and SHA-256.
+The NO_CANDIDATE case is a receiver rejection vector and is never dispatched.
+
+## Private evidence receiver
+
+The exact route is POST `/internal/signal-evidence-v1`. It is disabled unless
+`SIGNAL_EVIDENCE_INBOX_ENABLED` is the string `true`; both checked-in execution
+profiles explicitly set `false`. A dedicated Bearer token must hash to
+`SIGNAL_DELIVERY_SECRET_SHA256`. It is independent of producer/agent credentials,
+never trimmed, and never stored or returned. Missing or malformed configuration
+and incorrect credentials return the same generic 401 response.
+
+The receiver independently decodes every nested object using closed key sets,
+checks safe integer seconds, bounded fatal UTF-8 JSON (278528 bytes, depth64,
+20000 values), canonical integer tokens, duplicate keys and the 262144-byte
+canonical evidence cap. The delivered entry must be SELECTED with non-null
+candidate/evidence and the original model fidelity. It verifies duplicated IDs,
+binding/source identity, selected-copy equality, the original attempt/formation
+and evidence identities, receipt and delivery identities, the nested evidence
+digest, delivery digest, and selected candidate/proof/selection hash derivations.
+It does not run the market-rule evaluator or consult account policy.
+
+Receiver persistence is immutable, unique by `delivery_id` and by
+`(namespace, attempt_key)`, where namespace comes from the validated
+`evidence.reviewed_binding.producer_namespace`. Raw attempt keys omit namespace;
+the frozen hash algorithm is unchanged. SQL uniqueness arbitrates concurrent
+requests. A zero-row insertion is re-read and digest-compared, never accepted
+unconditionally. Storage errors return 503 and cannot be mistaken for duplicates.
+Existing exact deliveries are acknowledged even after expiry. A new delivery
+requires `admitted_at_epoch <= now < expires_at_epoch` and a nonempty interval.
+
+All responses are `Cache-Control: no-store` and carry the Safety literals.
+Success is the exact 201 STORED / 200 DUPLICATE acknowledgment above. Errors
+contain only Safety and a fixed `error`: 404 NOT_FOUND, 405 METHOD_NOT_ALLOWED,
+401 UNAUTHORIZED, 415 INVALID_DELIVERY (media type), 413 INVALID_DELIVERY (bytes),
+422 INVALID_DELIVERY (schema, parsing or digest), 422 EXPIRED (time window),
+409 CONFLICT (immutable identity), or 503 UNAVAILABLE (storage/server clock).
+The dedicated handler has no account, agent, order or network capabilities.
