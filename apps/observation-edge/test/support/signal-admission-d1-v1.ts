@@ -10,7 +10,7 @@ const script = `export default { async fetch(request,env) {
     return Response.json(await env.DB.batch(input.statements.map(s=>env.DB.prepare(s.sql).bind(...s.values))));
   } catch(error) {return Response.json({detail:String(error)},{status:409});}
 }};`;
-const tables = new Set(["registrations", "streams", "receipts", "evidence", "attempts", "outbox", "audit", "guards"]);
+const tables = new Set(["registrations", "streams", "receipts", "evidence", "receipt_evidence", "attempts", "outbox", "audit", "guards"]);
 // Preserve trigger bodies and quoted semicolons while splitting checked-in SQL.
 function migrationStatements(source: string): Statement[] {
   const statements: Statement[] = []; let pending = ""; let depth = 0;

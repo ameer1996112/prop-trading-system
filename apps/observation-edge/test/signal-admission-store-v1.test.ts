@@ -27,12 +27,12 @@ it("returns an evidence-only durable admission", async () => {
     expect(await h.count("outbox")).toBe(1);
   } finally { await h.dispose(); }
 });
-it.each([0,1,2,3,4,5])("rolls back all writes after persistence boundary %s", async afterWrite => {
+it.each([0,1,2,3,4,5,6])("rolls back all writes after persistence boundary %s", async afterWrite => {
   const f = await setup(); const { h } = f;
   try {
     h.faults.afterWrite = afterWrite;
     await expect(admitSignal(h.db, f.transport, f.registration, f.now)).rejects.toBeInstanceOf(AdmissionUnavailableError);
-    for (const table of ["receipts", "evidence", "attempts", "outbox", "guards"]) expect(await h.count(table)).toBe(0);
+    for (const table of ["receipts", "evidence", "receipt_evidence", "attempts", "outbox", "guards"]) expect(await h.count(table)).toBe(0);
     expect(await loadAdmissionSnapshot(h.db, f.transport)).toMatchObject({nextSequence:1,state:"ACTIVE"});
     expect(h.metrics.admissionBatches).toBe(1);
   } finally { await h.dispose(); }
@@ -97,7 +97,7 @@ it("retains no-candidate formations and every later evidence without replacing r
     const original=await h.db.prepare("SELECT * FROM signal_admission_v1_attempts").first();
     expect(await admitSignal(h.db,await sequence(selected,3),f.registration,f.now)).toMatchObject({outcome:"AUDIT_ONLY"});
     expect(await h.db.prepare("SELECT * FROM signal_admission_v1_attempts").first()).toEqual(original);
-    expect(await h.count("evidence")).toBe(3); expect(await h.count("outbox")).toBe(1);
+    expect(await h.count("evidence")).toBe(3); expect(await h.count("receipt_evidence")).toBe(3); expect(await h.count("outbox")).toBe(1);
     const keys=await admissionFactKeys(f.transport,f.registration.bindingBytes);
     // Snapshot retains no-candidate identity facts across generation and receipt keys.
     await installGeneration(h.db,1,{...f.registration,generation:2,revision:2},"test cutover");
@@ -118,6 +118,55 @@ it("cutover retains reservation, retires old stream and deduplicates new generat
     expect(await h.count("outbox")).toBe(1); expect(await h.count("attempts")).toBe(1);
     await expect(installGeneration(h.db,1,next,"stale revision")).rejects.toBeInstanceOf(AdmissionUnavailableError);
     expect(await h.count("streams")).toBe(2);
+  } finally { await h.dispose(); }
+});
+it.each(["PENDING", "CLAIMED"])("later-generation receipt conflict disputes reused evidence and cancels original %s delivery", async status => {
+  const f=await setup(); const {h}=f;
+  try {
+    await admitSignal(h.db,f.transport,f.registration,f.now);
+    if (status === "CLAIMED") await h.db.prepare("UPDATE signal_admission_v1_outbox SET status='CLAIMED',claim_token='old-generation-claim',lease_until_epoch=2410").run();
+    const next={...f.registration,generation:2,revision:2};
+    await installGeneration(h.db,1,next,"test cutover");
+    const t=await parseAdmissionTransport(encode({...f.request,generation:2}));
+    expect(await admitSignal(h.db,t,next,f.now)).toMatchObject({outcome:"AUDIT_ONLY"});
+    expect(await h.count("evidence")).toBe(1);
+    expect(await h.count("receipt_evidence")).toBe(2);
+    expect(await admitSignal(h.db,{...t,bodySha256:"f".repeat(64)},next,f.now)).toMatchObject({code:"BODY_CONFLICT"});
+    expect(await h.db.prepare("SELECT disputed FROM signal_admission_v1_attempts").first("disputed")).toBe(1);
+    expect(await h.db.prepare("SELECT generation,status,claim_token,lease_until_epoch FROM signal_admission_v1_outbox").first()).toEqual({generation:1,status:"QUARANTINED",claim_token:null,lease_until_epoch:null});
+    expect(await h.count("receipts")).toBe(2); expect(await h.count("outbox")).toBe(1);
+  } finally { await h.dispose(); }
+});
+it("rolls back a reused-evidence association with its later receipt", async () => {
+  const f=await setup(); const {h}=f;
+  try {
+    await admitSignal(h.db,f.transport,f.registration,f.now);
+    const next={...f.registration,generation:2,revision:2};
+    await installGeneration(h.db,1,next,"test cutover");
+    const t=await parseAdmissionTransport(encode({...f.request,generation:2}));
+    h.faults.afterWrite=1; // receipt followed by association, before cursor
+    await expect(admitSignal(h.db,t,next,f.now)).rejects.toBeInstanceOf(AdmissionUnavailableError);
+    for (const table of ["receipts","evidence","receipt_evidence","attempts","outbox"]) expect(await h.count(table)).toBe(1);
+    expect(await loadAdmissionSnapshot(h.db,t)).toMatchObject({nextSequence:1,existingReceipt:null});
+    expect(await h.count("guards")).toBe(0);
+    h.faults.afterWrite=-1;
+    expect(await admitSignal(h.db,t,next,f.now)).toMatchObject({outcome:"AUDIT_ONLY"});
+    expect(await h.count("receipt_evidence")).toBe(2);
+  } finally { await h.dispose(); }
+});
+it("receipt evidence associations are immutable and must match namespace, attempt and accepted receipt", async () => {
+  const f=await setup(); const {h}=f;
+  try {
+    const accepted=await admitSignal(h.db,f.transport,f.registration,f.now);
+    const row=await h.db.prepare("SELECT evidence_id,namespace,attempt_key FROM signal_admission_v1_receipt_evidence").first<{evidence_id:string;namespace:string;attempt_key:string}>();
+    for (const sql of ["UPDATE signal_admission_v1_receipt_evidence SET attempt_key='other'", "DELETE FROM signal_admission_v1_receipt_evidence"]) await expect(h.db.prepare(sql).run()).rejects.toThrow("receipt evidence association");
+    for (const [namespace,attemptKey] of [["wrong-namespace",row!.attempt_key],[row!.namespace,"wrong-attempt"]]) {
+      await expect(h.db.prepare("INSERT INTO signal_admission_v1_receipt_evidence VALUES(?,?,?,?)").bind(accepted.receipt_id,row!.evidence_id,namespace,attemptKey).run()).rejects.toThrow("inconsistent receipt evidence association");
+    }
+    const rejected=await admitSignal(h.db,await sequence(f,3),f.registration,f.now);
+    expect(rejected).toMatchObject({outcome:"REJECTED",code:"SEQUENCE_GAP"});
+    await expect(h.db.prepare("INSERT INTO signal_admission_v1_receipt_evidence VALUES(?,?,?,?)").bind(rejected.receipt_id,row!.evidence_id,row!.namespace,row!.attempt_key).run()).rejects.toThrow("inconsistent receipt evidence association");
+    expect(await h.count("receipt_evidence")).toBe(1);
   } finally { await h.dispose(); }
 });
 it("fences admission prepared before generation cutover", async () => {

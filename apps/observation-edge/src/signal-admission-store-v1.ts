@@ -99,10 +99,10 @@ export async function admitSignal(db: D1Database, t: Transport, r: Registration,
         if (!s.existingReceipt) insertReceipt("REJECTED", decision.code);
         statements.push(sql(`INSERT INTO ${P}audit(audit_id,registration_id,generation,sequence,body_sha256,reason,authority,execution_allowed) VALUES(?,?,?,?,?,?,'EVIDENCE_ONLY',0)`, crypto.randomUUID(), t.registrationId, t.generation, t.sequence, t.bodySha256, decision.code));
         for (const key of decision.disputedAttemptKeys) statements.push(sql(`UPDATE ${P}attempts SET disputed=1 WHERE namespace=? AND attempt_key=?`, s.namespace, key));
-        if (decision.code === "BODY_CONFLICT") statements.push(sql(`UPDATE ${P}attempts SET disputed=1 WHERE namespace=? AND attempt_key IN (SELECT attempt_key FROM ${P}evidence WHERE namespace=? AND receipt_id=?)`, s.namespace, s.namespace, receiptId));
+        if (decision.code === "BODY_CONFLICT") statements.push(sql(`UPDATE ${P}attempts SET disputed=1 WHERE namespace=? AND attempt_key IN (SELECT attempt_key FROM ${P}receipt_evidence WHERE namespace=? AND receipt_id=?)`, s.namespace, s.namespace, receiptId));
         statements.push(sql(`UPDATE ${P}outbox SET status='QUARANTINED',claim_token=NULL,lease_until_epoch=NULL WHERE namespace=? AND status IN ('PENDING','RETRY','CLAIMED') AND registration_id=? AND generation=?`, s.namespace, t.registrationId, t.generation));
         for (const key of decision.disputedAttemptKeys) statements.push(sql(`UPDATE ${P}outbox SET status='QUARANTINED',claim_token=NULL,lease_until_epoch=NULL WHERE namespace=? AND attempt_key=? AND status IN ('PENDING','RETRY','CLAIMED')`, s.namespace, key));
-        if (decision.code === "BODY_CONFLICT") statements.push(sql(`UPDATE ${P}outbox SET status='QUARANTINED',claim_token=NULL,lease_until_epoch=NULL WHERE namespace=? AND attempt_key IN (SELECT attempt_key FROM ${P}evidence WHERE namespace=? AND receipt_id=?) AND status IN ('PENDING','RETRY','CLAIMED')`, s.namespace, s.namespace, receiptId));
+        if (decision.code === "BODY_CONFLICT") statements.push(sql(`UPDATE ${P}outbox SET status='QUARANTINED',claim_token=NULL,lease_until_epoch=NULL WHERE namespace=? AND attempt_key IN (SELECT attempt_key FROM ${P}receipt_evidence WHERE namespace=? AND receipt_id=?) AND status IN ('PENDING','RETRY','CLAIMED')`, s.namespace, s.namespace, receiptId));
         statements.push(sql(`UPDATE ${P}streams SET state='QUARANTINED',reason=?,revision=revision+1 WHERE registration_id=? AND generation=?`, decision.code, t.registrationId, t.generation));
         result = response("REJECTED", decision.code, s.existingReceipt?.id ?? receiptId, false, "QUARANTINED");
       } else {
@@ -111,6 +111,8 @@ export async function admitSignal(db: D1Database, t: Transport, r: Registration,
         for (const { entry, action, expiresAt, selectionKey } of decision.entries) {
           if (!s.evidenceFacts[entry.evidence_id]) statements.push(sql(`INSERT INTO ${P}evidence(evidence_id,namespace,attempt_key,evidence_hash,receipt_id,body,authority,execution_allowed) VALUES(?,?,?,?,?,?,'EVIDENCE_ONLY',0)`, entry.evidence_id, s.namespace, entry.attempt_key, entry.evidence_body_sha256, receiptId, canonical(entry)));
           if (!s.attempts[entry.attempt_key]) statements.push(sql(`INSERT INTO ${P}attempts(namespace,attempt_key,formation_hash) VALUES(?,?,?)`, s.namespace, entry.attempt_key, entry.formation_body_sha256));
+          statements.push(sql(`INSERT INTO ${P}receipt_evidence(receipt_id,evidence_id,namespace,attempt_key) VALUES(?,?,?,?)`, receiptId, entry.evidence_id, s.namespace, entry.attempt_key));
+          guard("changes()=1");
           if (action === "NEW") {
             statements.push(sql(`UPDATE ${P}attempts SET evidence_id=?,evidence_hash=?,trigger_epoch=?,selection_key=? WHERE namespace=? AND attempt_key=? AND evidence_id IS NULL AND disputed=0`, entry.evidence_id, entry.evidence_body_sha256, entry.selected!.evidence.observed_trigger_epoch!, selectionKey, s.namespace, entry.attempt_key));
             guard("changes()=1");
