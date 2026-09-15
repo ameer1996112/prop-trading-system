@@ -250,6 +250,29 @@ describe("MT5 dry-run boundary", () => {
     expect(runBoundaryVerifier()).toEqual({ ok: true, violations: [] });
   });
 
+  it.each([
+    ['exact inbound reader', (source: string) => source, true, 'signal-evidence-inbox-v1.ts'],
+    ['other filename', (source: string) => source, false, 'other-receiver.ts'],
+    ['LIVE reader', (source: string) => source.replace("execution_mode: choice('PAPER_ONLY')", "execution_mode: choice('LIVE')"), false, 'signal-evidence-inbox-v1.ts'],
+    ['multi-mode reader', (source: string) => source.replace("execution_mode: choice('PAPER_ONLY')", "execution_mode: choice('PAPER_ONLY', 'LIVE')"), false, 'signal-evidence-inbox-v1.ts'],
+    ['executable output', (source: string) => source + '\nconst output = { execution_mode: "PAPER_ONLY" };', false, 'signal-evidence-inbox-v1.ts'],
+    ['real authority', (source: string) => source + '\nconst output = { real_execution_allowed: true };', false, 'signal-evidence-inbox-v1.ts'],
+    ['dynamic authority', (source: string) => source + '\noutput[key] = true;', false, 'signal-evidence-inbox-v1.ts'],
+    ['reader key spread', (source: string) => source.replace("execution_mode: choice('PAPER_ONLY')", "...extra, execution_mode: choice('PAPER_ONLY')"), false, 'signal-evidence-inbox-v1.ts'],
+    ['untrusted validator import', (source: string) => source.replace("from './telemetry-schema-v2'", "from './permissive-schema'"), false, 'signal-evidence-inbox-v1.ts'],
+  ] as const)('limits the evidence reader exception: %s', async (_name, transform, accepted, filename) => {
+    const { runBoundaryVerifier } = await loadVerifier();
+    const root = mkdtempSync(join(tmpdir(), 'mt5-inbox-boundary-'));
+    try {
+      writeRealDashboardIntegrityFixture(root);
+      const directory = join(root, 'apps/execution-edge/src'); mkdirSync(directory, { recursive: true });
+      const source = readFileSync(new URL('../src/signal-evidence-inbox-v1.ts', import.meta.url), 'utf8');
+      writeFileSync(join(directory, filename), transform(source));
+      const result = runBoundaryVerifier(root); expect(result.ok).toBe(accepted);
+      if (!accepted) expect(result.violations.some((v: string) => v === 'WORKER_EXECUTION_MODE_NOT_DRY_RUN' || v === 'WORKER_REAL_EXECUTION_ALLOWED_FORBIDDEN')).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("rejects dashboard references to sync, execution, and outbound network capability", async () => {
     const { scanHealthDashboardSource } = await loadVerifier();
 

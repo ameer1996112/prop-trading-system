@@ -562,12 +562,60 @@ function frozenCandidateModeIndexes(source) {
   return new Set([interfaceProperty[0].name.getStart(tree), properties[0].name.getStart(tree)]);
 }
 
+// PAPER_ONLY in this one closed inbound observation reader is a validator,
+// never an output execution mode. Allow only that property's AST position;
+// every other assignment in this file still goes through scanWorkerSource.
+function frozenEvidenceObservationModeIndexes(source) {
+  const tree = ts.createSourceFile('signal-evidence-inbox-v1.ts', source, ts.ScriptTarget.Latest, true);
+  const imported = new Set();
+  let shadowed = false;
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
+      && node.moduleSpecifier.text === './telemetry-schema-v2'
+      && node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
+      for (const binding of node.importClause.namedBindings.elements) {
+        if (!binding.propertyName && ['object', 'choice'].includes(binding.name.text)) imported.add(binding.name.text);
+      }
+    }
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isFunctionDeclaration(node)
+      || ts.isClassDeclaration(node) || ts.isBindingElement(node))
+      && node.name && ['object', 'choice'].includes(identifierText(node.name))) shadowed = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  if (shadowed || imported.size !== 2) return new Set();
+  const declarations = tree.statements.filter(ts.isVariableStatement)
+    .filter(node => (node.declarationList.flags & ts.NodeFlags.Const) !== 0)
+    .flatMap(node => node.declarationList.declarations)
+    .filter(node => identifierText(node.name) === 'observation');
+  if (declarations.length !== 1) return new Set();
+  const call = declarations[0].initializer;
+  if (!call || !ts.isCallExpression(call) || identifierText(call.expression) !== 'object'
+    || call.arguments.length !== 1 || !ts.isObjectLiteralExpression(call.arguments[0])) return new Set();
+  const properties = call.arguments[0].properties;
+  const keys = ['schema_version', 'strategy_id', 'strategy_version', 'rule_contract_version', 'execution_mode',
+    'producer_instance_id', 'producer_sequence', 'event_id', 'is_realtime', 'symbol', 'ticker_id', 'feed',
+    'timeframe', 'tick_size', 'detector_code_hash', 'settings_hash', 'observed_at_epoch', 'market_event', 'exit_events', 'setups'];
+  if (properties.length !== keys.length || !properties.every(ts.isPropertyAssignment)
+    || new Set(properties.map(propertyNameText)).size !== keys.length
+    || properties.some(property => !keys.includes(propertyNameText(property)))) return new Set();
+  const mode = properties.find(property => propertyNameText(property) === 'execution_mode');
+  const validator = mode.initializer;
+  if (!ts.isCallExpression(validator) || identifierText(validator.expression) !== 'choice'
+    || validator.arguments.length !== 1 || !ts.isStringLiteral(validator.arguments[0])
+    || validator.arguments[0].text !== 'PAPER_ONLY') return new Set();
+  return new Set([mode.name.getStart(tree)]);
+}
+
 function scanWorkerFile(root, file) {
   const source = readFileSync(file, "utf8");
   const allowedExecutionModeIndexes = new Set();
 
   if (relative(root, file) === frozenCandidateContractPath) {
     for (const index of frozenCandidateModeIndexes(source)) allowedExecutionModeIndexes.add(index);
+  }
+  if (relative(root, file) === 'apps/execution-edge/src/signal-evidence-inbox-v1.ts') {
+    for (const index of frozenEvidenceObservationModeIndexes(source)) allowedExecutionModeIndexes.add(index);
   }
   return scanWorkerSource(source, allowedExecutionModeIndexes);
 }

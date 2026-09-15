@@ -65,13 +65,24 @@ def test_edge_v3_migration_freezes_observations_and_one_paper_decision() -> None
 
 def test_rd_rollout_tracks_every_edge_migration_through_schema_reconciliation() -> None:
     migrations = sorted(Path("apps/observation-edge/migrations").glob("*.sql"))
-    assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 31)]
+    assert [path.name[:4] for path in migrations] == [f"{ordinal:04d}" for ordinal in range(1, 34)]
+    local_admission_migrations = [path for path in migrations if int(path.name[:4]) > 30]
+    assert [path.name for path in local_admission_migrations] == [
+        "0031_signal_admission_v1.sql",
+        "0032_signal_admission_receipt_evidence_v1.sql",
+        "0033_signal_admission_dispatch_v1.sql",
+    ]
 
     runbook = Path("docs/runbooks/rd-three-entry-paper-rollout.md").read_text(encoding="utf-8")
     assert "D1 is migrated through 0030;" in runbook
     for migration in migrations:
-        if int(migration.name[:4]) >= 24:
+        if 24 <= int(migration.name[:4]) <= 30:
             assert migration.name in runbook
+    admission_runbook = Path("docs/runbooks/three-model-signal-admission.md").read_text(
+        encoding="utf-8"
+    )
+    for migration in local_admission_migrations:
+        assert migration.name in admission_runbook
     assert (
         "Do not delete migration 0024, migration 0025, migration 0026, "
         "migration 0027, migration 0028, migration 0029, migration 0030, "

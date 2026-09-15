@@ -7,6 +7,10 @@
   "preview_urls": false,
   "vars": {
     "CANDIDATE_INBOX_ENABLED": "false",
+    "SIGNAL_EVIDENCE_INBOX_ENABLED": "false",
+    "SIGNAL_ADMISSION_ENABLED": "false",
+    "SIGNAL_ADMISSION_DISPATCH_ENABLED": "false",
+    "SIGNAL_ADMISSION_STATUS_ENABLED": "false",
     "AGENT_SYNC_ENABLED": "true",
     "EXECUTION_AUTHORITY_ENABLED": "false",
     "EXECUTION_MODE_CEILING": "DRY_RUN",

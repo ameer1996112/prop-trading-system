@@ -150,11 +150,15 @@ def test_independent_emission_checks_before_alert_and_commits_after(source: str)
     assert "log.error(envelope)" not in emit
     assert "log.info(envelope)" not in emit
     assert re.findall(r"log.error\((.*?)\)", emit) == [
+        '"SIGNAL_ADMISSION_V1_REQUIRES_EVIDENCE"',
         '"SIGNAL_EVIDENCE_V1_SEQUENCE_INVALID"',
         '"SIGNAL_EVIDENCE_V1_IDENTIFIER_INVALID"',
         '"SIGNAL_EVIDENCE_V1_SOURCE_INVALID"',
         '"SIGNAL_EVIDENCE_V1_FORMATION_INVALID"',
         '"SIGNAL_EVIDENCE_V1_ENVELOPE_TOO_LARGE"',
+        '"SIGNAL_ADMISSION_V1_TRANSPORT_INVALID"',
+        '"SIGNAL_ADMISSION_V1_EVIDENCE_BYTES_INVALID"',
+        '"SIGNAL_ADMISSION_V1_ENVELOPE_TOO_LARGE"',
     ]
 
 
@@ -204,6 +208,7 @@ def test_reversing_only_declared_task_changes_restores_full_baseline(source: str
         else "c3141e1a4616ca3fbebcceea3590cebf8522907c0bc45e11a7cbef7eaef9316f"
     )
     restored = re.sub(r"^const int SIGNAL_EVIDENCE_V1_.*\n", "", source, flags=re.M)
+    restored = re.sub(r"^const int SIGNAL_ADMISSION_V1_.*\n", "", restored, flags=re.M)
     restored = re.sub(
         r"^// Enable only in an isolated future alert configuration\."
         r"[\s\S]*?(?=^entryV3Credential =)",

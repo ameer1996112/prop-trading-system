@@ -8,6 +8,7 @@ import { AccountCoordinatorV1 } from "./account-coordinator-v1";
 import { projectAcceptedHeartbeatV1 } from "./agent-health-projection-v1";
 import { canonicalStringify, sha256Hex } from "./canonical";
 import { handleTelemetryV2 } from './telemetry-sync-v2';
+import { handleSignalEvidenceInbox } from './signal-evidence-inbox-v1';
 
 export interface Env {
   EXECUTION_DB: D1Database;
@@ -19,6 +20,8 @@ export interface Env {
   EXECUTION_MODE_CEILING: "DRY_RUN";
   ROUTING_MANIFEST_SHA256: "INERT_NOT_CONFIGURED";
   AGENT_SYNC_SHARED_SECRET_SHA256?: string;
+  SIGNAL_EVIDENCE_INBOX_ENABLED?: 'false' | 'true';
+  SIGNAL_DELIVERY_SECRET_SHA256?: string;
 }
 
 const INERT_CONFIGURATION = {
@@ -210,6 +213,7 @@ async function coordinatorResponse(
 const worker: ExportedHandler<Env> = {
   async fetch(request, env): Promise<Response> {
     const { pathname } = new URL(request.url);
+    if (pathname === '/internal/signal-evidence-v1') return handleSignalEvidenceInbox(request, env, Math.floor(Date.now() / 1000));
     if (!isSafeConfiguration(env)) {
       if (pathname === "/api/v1/agent/sync" || pathname === "/api/v1/agent/sync/status" || pathname === '/api/v2/agent/sync') {
         return dryRunFailure("UNSAFE_CONFIGURATION", 500);

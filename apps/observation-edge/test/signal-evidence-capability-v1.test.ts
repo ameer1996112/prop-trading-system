@@ -9,6 +9,47 @@ type SourceSet = ReadonlyMap<string, string>;
 const repositoryRoot = resolve(dirname(new URL(import.meta.url).pathname), "../../..");
 const bridge = "apps/observation-edge/src/signal-evidence-v1.ts";
 const identity = "apps/observation-edge/src/signal-evidence-identity-v1.ts";
+const decision = "apps/observation-edge/src/signal-admission-decision-v1.ts";
+const route = "apps/observation-edge/src/signal-admission-route-v1.ts";
+const store = "apps/observation-edge/src/signal-admission-store-v1.ts";
+const outbox = "apps/observation-edge/src/signal-admission-outbox-v1.ts";
+const registration = "apps/observation-edge/src/signal-admission-registration-v1.ts";
+const wire = "apps/observation-edge/src/signal-admission-wire-v1.ts";
+const inbox = "apps/execution-edge/src/signal-evidence-inbox-v1.ts";
+const observationIndex = "apps/observation-edge/src/index.ts";
+const executionIndex = "apps/execution-edge/src/index.ts";
+const strictJson = "apps/observation-edge/src/strict-json.ts";
+// Edges are reviewed per importer. Membership in this map grants no blanket
+// permission to import any other admission component.
+const admissionDependencies = new Map<string, ReadonlySet<string>>([
+  [route, new Set([outbox, registration, store, wire, strictJson])],
+  [store, new Set([decision, registration, wire])],
+  [decision, new Set([bridge, registration, wire])],
+  [outbox, new Set([store, strictJson])],
+  [registration, new Set([wire, strictJson])],
+  [wire, new Set([strictJson])],
+  [inbox, new Set(["apps/execution-edge/src/canonical.ts", "apps/execution-edge/src/telemetry-schema-v2.ts"])],
+]);
+const reviewedDependencies = new Map(admissionDependencies);
+for (const [name, dependencies] of Object.entries({
+  "rd-entry-policy": ["rd-entry-domain"],
+  "rd-entry-domain-v3": ["rd-entry-policy"],
+  "rd-entry-wire-v3": ["rd-entry-domain-v3", "rd-entry-arbitrator-v3", "strict-json", "types"],
+  "rd-entry-arbitrator-v3": ["rd-entry-domain-v3", "rd-entry-matcher-v3"],
+  "rd-entry-matcher-v3": ["rd-entry-domain-v3"],
+  "rd-entry-domain": ["types", "validation"],
+  "types": ["rd-entry-wire", "rd-entry-wire-v3"],
+  "rd-entry-wire": ["rd-entry-domain", "rd-entry-matcher", "rd-entry-policy", "rd-entry-source-catalog", "strict-json", "types"],
+  "rd-entry-matcher": ["rd-entry-domain", "rd-entry-policy"],
+  "rd-entry-source-catalog": [],
+  "validation": ["strict-json", "types", "paper-simulator-contract", "rd-entry-wire", "rd-entry-wire-v3"],
+  "paper-simulator-contract": ["strict-json", "types", "paper-ledger-contract"],
+  "paper-ledger-contract": ["strict-json", "types"],
+  "strict-json": [],
+})) reviewedDependencies.set(`apps/observation-edge/src/${name}.ts`, new Set(dependencies.map(dependency => `apps/observation-edge/src/${dependency}.ts`)));
+reviewedDependencies.set("apps/execution-edge/src/canonical.ts", new Set());
+reviewedDependencies.set("apps/execution-edge/src/telemetry-schema-v2.ts", new Set(["apps/execution-edge/src/canonical.ts", "apps/execution-edge/src/telemetry-values-v2.ts"]));
+reviewedDependencies.set("apps/execution-edge/src/telemetry-values-v2.ts", new Set());
 const evidenceModules = new Set([bridge, identity]);
 const sourceExtensions = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".mjs", ".cjs"]);
 const excludedDirectories = new Set([".git", ".superpowers", "node_modules", "test", "tests", "docs", "dist"]);
@@ -74,7 +115,21 @@ function capabilityViolations(sources: SourceSet): string[] {
   for (const [file, source] of sources) {
     for (const specifier of importedSpecifiers(file, source)) {
       const target = resolveLocalImport(file, specifier, sources);
-      if (target !== null && evidenceModules.has(target) && file !== bridge) {
+      const dependencies = reviewedDependencies.get(file);
+      if (dependencies && target !== null && !dependencies.has(target)) {
+        violations.push(`${file} imports unapproved production dependency ${target}`);
+      }
+      if (dependencies && target === null) {
+        violations.push(`${file} imports ${specifier.startsWith(".") ? "unresolved local dependency" : "external capability"} ${specifier}`);
+      }
+      if (target !== null && admissionDependencies.has(target)
+        && !dependencies?.has(target)
+        && !(file === observationIndex && target === route)
+        && !(file === executionIndex && target === inbox)) {
+        violations.push(`${file} imports unapproved admission module ${target}`);
+      }
+      // Reviewed pure admission consumer only; no route or execution consumer.
+      if (target !== null && evidenceModules.has(target) && file !== bridge && !(file === decision && target === bridge)) {
         violations.push(`${file} imports evidence module ${target}`);
       }
       if (file === bridge && target !== null && !allowedBridgeDependencies.has(target)) {
@@ -110,14 +165,36 @@ const encode = (value: unknown): Uint8Array => new TextEncoder().encode(JSON.str
 const prohibitedAuthorityFields = /^(?:account(?:_|$)|volume(?:_|$)|command(?:_|$))/u;
 
 describe("signal evidence capability boundary", () => {
+  it("rejects capability dependencies and unreviewed consumers throughout admission", () => {
+    const sources = productionSources(repositoryRoot);
+    sources.set(decision, sources.get(decision)! + '\nimport "node:fs";');
+    sources.set("apps/observation-edge/src/order.ts", 'import "./signal-admission-decision-v1";');
+    sources.set("apps/observation-edge/src/coordinator.ts", 'import "./signal-admission-store-v1";');
+    expect(capabilityViolations(sources)).toEqual(expect.arrayContaining([
+      `${decision} imports external capability node:fs`,
+      `apps/observation-edge/src/order.ts imports unapproved admission module ${decision}`,
+      `apps/observation-edge/src/coordinator.ts imports unapproved admission module ${store}`,
+    ]));
+  });
+  it("rejects unreviewed edges and external capabilities in every reviewed dependency", () => {
+    const sources = new Map([...reviewedDependencies.keys()].map(file => [file, 'import "node:fs";']));
+    const violations = capabilityViolations(sources);
+    for (const file of reviewedDependencies.keys()) expect(violations).toContain(`${file} imports external capability node:fs`);
+    sources.set(decision, sources.get(decision)! + '\nimport "./signal-admission-outbox-v1";');
+    expect(capabilityViolations(sources)).toContain(`${decision} imports unapproved production dependency ${outbox}`);
+  });
   it("proves the AST scanner detects route consumers and forbidden bridge capabilities", () => {
     const synthetic = new Map<string, string>([
       [bridge, 'import "node:fs/promises"; import "node:cluster"; import "./missing-bridge-adapter"; import "./signal-evidence-identity-v1";'],
       [identity, 'import "node:readline"; import "node:perf_hooks"; import "./missing-identity-store"; import "./rd-entry-policy";'],
       ["apps/observation-edge/src/routes/execute.ts", 'export { validateSignalEvidenceV1 } from "../signal-evidence-v1";'],
+      ["apps/observation-edge/src/order.ts", 'import "./signal-evidence-v1";'],
+      ["apps/observation-edge/src/coordinator.ts", 'import "./signal-evidence-identity-v1";'],
       ["apps/observation-edge/src/rd-entry-policy.ts", "export {};"],
     ]);
     expect(capabilityViolations(synthetic)).toEqual([
+      `apps/observation-edge/src/coordinator.ts imports evidence module ${identity}`,
+      `apps/observation-edge/src/order.ts imports evidence module ${bridge}`,
       `apps/observation-edge/src/routes/execute.ts imports evidence module ${bridge}`,
       `${identity} imports external capability node:perf_hooks`,
       `${identity} imports external capability node:readline`,
@@ -128,11 +205,17 @@ describe("signal evidence capability boundary", () => {
     ]);
   });
 
-  it("enumerates production imports and keeps the evidence modules unconsumed and capability-free", () => {
+  it("enumerates production imports with only the reviewed pure admission consumer", () => {
     const sources = productionSources(repositoryRoot);
     expect(sources.has(bridge)).toBe(true);
     expect(sources.has(identity)).toBe(true);
     expect(capabilityViolations(sources)).toEqual([]);
+  });
+
+  it("allows only the reviewed route to store to decision integration chain", () => {
+    const sources = productionSources(repositoryRoot);
+    expect(importedSpecifiers(route, sources.get(route)!)).toContain("./signal-admission-store-v1");
+    expect(importedSpecifiers(store, sources.get(store)!)).toContain("./signal-admission-decision-v1");
   });
 });
 

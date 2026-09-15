@@ -1,4 +1,5 @@
 import { parseStrictJson } from "./strict-json";
+import { dispatchScheduledSignalAdmission, handleSignalAdmission, handleSignalAdmissionStatus } from "./signal-admission-route-v1";
 import {
   INSERT_RECEIPT_SQL,
   INSERT_SETUP_EVIDENCE_SQL,
@@ -3964,6 +3965,12 @@ async function listEntryCohortMetrics(
 
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (url.pathname === "/api/v1/signal-evidence") {
+    return handleSignalAdmission(request, env, () => Math.floor(Date.now() / 1000));
+  }
+  if (url.pathname === "/api/v1/signal-admission-status") {
+    return handleSignalAdmissionStatus(request, env);
+  }
   if (url.pathname === "/health/live") {
     if (request.method !== "GET") {
       return errorResponse(405, "METHOD_NOT_ALLOWED", "Method not allowed");
@@ -4098,5 +4105,8 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     return handleRequest(request, env);
+  },
+  scheduled(_controller: ScheduledController, env: Env, context: ExecutionContext): void {
+    context.waitUntil(dispatchScheduledSignalAdmission(env, () => Math.floor(Date.now() / 1000)));
   },
 } satisfies ExportedHandler<Env>;
