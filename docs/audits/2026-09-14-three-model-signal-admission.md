@@ -1,5 +1,25 @@
 # Three-model signal admission local implementation audit
 
+## Approved baseline update — 2026-09-15
+
+The owner explicitly approved the reviewed 62 additions and removal of one stale
+fingerprint. Applied only those changes: 60 deterministic vector hashes, one
+local-only delivery-test credential fingerprint, and the current protected-region
+integrity fingerprint replacing its predecessor. Scanner rules and exclusions
+are unchanged. This supersedes the pending-baseline status below.
+
+Fresh verification: 562 narrowly baselined false positives, zero new findings;
+five lockfiles with zero credential URLs; all three secret-scanner regression
+tests passed. The `make secret-scan` launcher itself was blocked by the local
+Xcode license gate (exit 69), so both recipe checks were run directly with the
+same scanner options and baseline assertion. No license was accepted.
+
+The final scoped rereview completed with all findings addressed. Independent
+verification on unchanged source passed 1,014 observation tests when run alone,
+781 execution tests and 875 Python tests. A parallel-run capability-test timeout
+remains a load-sensitivity warning. Native Pine and external acceptance remain
+pending. Deployment and trading stay disabled; no push or merge was performed.
+
 ## Final review fix wave — 2026-09-14
 
 Measured source revision: `b55f6f3`, following production fix `b574822` from
